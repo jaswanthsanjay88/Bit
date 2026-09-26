@@ -42,7 +42,8 @@ data class ExplorationEpisodeResult(
  */
 @Singleton
 class DiscoveryExplorationCoordinator @Inject constructor(
-    private val recorder: DiscoveryRecorder
+    private val recorder: DiscoveryRecorder,
+    private val dreamingOptimizer: DreamingPolicyOptimizer? = null
 ) {
     /**
      * Executes an exploration episode to solve or optimize a task.
@@ -50,15 +51,16 @@ class DiscoveryExplorationCoordinator @Inject constructor(
     suspend fun explore(
         taskDescription: String,
         taskDomain: String = "code_generation",
-        policy: ExplorationPolicy = FixedParallelRefinePolicy(width = 3),
+        policy: ExplorationPolicy? = null,
         maxAttempts: Int = 6,
         generateCandidate: suspend (guidance: String, attemptIdx: Int) -> String,
         evaluateCandidate: suspend (candidate: String) -> DiscoveryEvaluationResult
     ): ExplorationEpisodeResult = withContext(Dispatchers.Default) {
+        val effectivePolicy = policy ?: dreamingOptimizer?.getOptimizedPolicy() ?: FixedParallelRefinePolicy(width = 3)
         val tree = recorder.startSession(
             taskDescription = taskDescription,
             taskDomain = taskDomain,
-            metadata = mapOf("policy" to policy.policyName, "maxAttempts" to maxAttempts.toString())
+            metadata = mapOf("policy" to effectivePolicy.policyName, "maxAttempts" to maxAttempts.toString())
         )
 
         var finished = false
@@ -66,7 +68,7 @@ class DiscoveryExplorationCoordinator @Inject constructor(
         var terminationReason: String? = null
 
         while (!finished) {
-            val decision = policy.decideNextAction(tree, maxAttempts)
+            val decision = effectivePolicy.decideNextAction(tree, maxAttempts)
             Log.d(TAG, "Exploration decision: $decision (tree nodes: ${tree.nodes.size})")
 
             when (decision) {

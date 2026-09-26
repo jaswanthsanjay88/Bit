@@ -31,6 +31,7 @@ class AgentToolRegistry @Inject constructor(
     private val workspaceRepository: com.bit.repo.WorkspaceRepository,
     private val skillManager: com.bit.skills.SkillManager,
     private val discoveryTreeStore: com.bit.agent.rsi.storage.DiscoveryTreeStore? = null,
+    private val dreamingOptimizer: com.bit.agent.rsi.engine.DreamingPolicyOptimizer? = null,
     private val logger: HarnessLogger = NoOpHarnessLogger
 ) {
     private val json = Json { ignoreUnknownKeys = true }
@@ -48,6 +49,7 @@ class AgentToolRegistry @Inject constructor(
             add(VaultQueryTool(ragOrchestrator, logger))
             add(UseSkillTool(context = context, skillManager = skillManager, workspaceRepository = workspaceRepository, logger = logger))
             add(com.bit.agent.rsi.tools.DiscoveryQueryTool(discoveryTreeStore))
+            add(com.bit.agent.rsi.tools.OptimizeExplorationPolicyTool(dreamingOptimizer))
             add(AskUserTool(logger))
             add(TimeInfoTool())
             add(ClipboardTool(context))

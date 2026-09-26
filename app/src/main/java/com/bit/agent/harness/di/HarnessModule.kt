@@ -61,7 +61,8 @@ object HarnessModule {
         logger: HarnessLogger,
         workspaceRepository: com.bit.repo.WorkspaceRepository,
         skillManager: com.bit.skills.SkillManager,
-        treeStore: com.bit.agent.rsi.storage.DiscoveryTreeStore
+        treeStore: com.bit.agent.rsi.storage.DiscoveryTreeStore,
+        dreamingOptimizer: com.bit.agent.rsi.engine.DreamingPolicyOptimizer
     ): AgentToolRegistry {
         val registry = AgentToolRegistry(
             context = context,
@@ -73,7 +74,8 @@ object HarnessModule {
             logger = logger,
             workspaceRepository = workspaceRepository,
             skillManager = skillManager,
-            discoveryTreeStore = treeStore
+            discoveryTreeStore = treeStore,
+            dreamingOptimizer = dreamingOptimizer
         )
         // Real multi-agent execution: subagents run isolated LLM+tool loops.
         registry.subagentExecutor = com.bit.agent.harness.engine.SubagentRunner(logger)
@@ -105,6 +107,24 @@ object HarnessModule {
         store: com.bit.agent.rsi.storage.DiscoveryTreeStore
     ): com.bit.agent.rsi.engine.DiscoveryRecorder {
         return com.bit.agent.rsi.engine.DiscoveryRecorder(context, store)
+    }
+
+    @Provides
+    @Singleton
+    fun provideDreamingPolicyOptimizer(
+        @ApplicationContext context: Context,
+        store: com.bit.agent.rsi.storage.DiscoveryTreeStore
+    ): com.bit.agent.rsi.engine.DreamingPolicyOptimizer {
+        return com.bit.agent.rsi.engine.DreamingPolicyOptimizer(context, store)
+    }
+
+    @Provides
+    @Singleton
+    fun provideDiscoveryExplorationCoordinator(
+        recorder: com.bit.agent.rsi.engine.DiscoveryRecorder,
+        optimizer: com.bit.agent.rsi.engine.DreamingPolicyOptimizer
+    ): com.bit.agent.rsi.engine.DiscoveryExplorationCoordinator {
+        return com.bit.agent.rsi.engine.DiscoveryExplorationCoordinator(recorder, optimizer)
     }
 
     @Provides
