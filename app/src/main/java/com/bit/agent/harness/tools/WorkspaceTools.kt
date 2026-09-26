@@ -192,14 +192,17 @@ class WorkspaceEditFileTool(private val context: Context) : AgentTool {
 /**
  * Workspace Shell Execution Tool.
  */
-class WorkspaceShellTool(private val context: Context) : AgentTool {
+class WorkspaceShellTool(
+    private val context: Context,
+    private val workspaceRepository: com.bit.repo.WorkspaceRepository? = null
+) : AgentTool {
     override val requiresApproval: Boolean = true
 
     override val definition: ToolDefinition = ToolDefinition(
         type = "function",
         function = ToolFunction(
             name = "workspace_shell",
-            description = "Execute a shell command inside the workspace environment. Requires user authorization.",
+            description = "Execute a shell command inside the Linux PRoot workspace sandbox (or local host environment). Requires user authorization.",
             parameters = ToolParameters(
                 properties = mapOf(
                     "command" to ToolProperty(type = "string", description = "The shell command line to execute")
@@ -216,6 +219,35 @@ class WorkspaceShellTool(private val context: Context) : AgentTool {
             val command = args.optString("command", "").trim()
             if (command.isEmpty()) {
                 return ToolObservation.error("Command cannot be empty", "Provide a valid shell command.")
+            }
+
+            // Prefer Linux PRoot execution via workspaceRepository if available
+            if (workspaceRepository != null) {
+                val workspaces = workspaceRepository.getAll()
+                if (workspaces.isNotEmpty()) {
+                    val activeWorkspace = workspaces.maxByOrNull { it.updatedAt } ?: workspaces.first()
+                    val result = workspaceRepository.executeCommand(
+                        id = activeWorkspace.id,
+                        command = command,
+                        cwd = "",
+                        timeoutMillis = 30000L
+                    )
+                    val combinedOutput = (result.stdout + if (result.stderr.isNotBlank()) "\n${result.stderr}" else "").trim()
+                    return if (result.exitCode == 0) {
+                        ToolObservation.success(
+                            summary = "Command '$command' completed with code 0 in Linux PRoot",
+                            payload = combinedOutput.take(8000),
+                            executionTimeMs = System.currentTimeMillis() - startTime
+                        )
+                    } else {
+                        ToolObservation.warning(
+                            summary = "Command '$command' exited with code ${result.exitCode} in Linux PRoot",
+                            payload = combinedOutput.take(8000),
+                            recoveryHint = "Review error output and adjust command.",
+                            executionTimeMs = System.currentTimeMillis() - startTime
+                        )
+                    }
+                }
             }
 
             val baseDir = context.getExternalFilesDir(null) ?: context.filesDir

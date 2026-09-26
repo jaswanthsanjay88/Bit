@@ -28,6 +28,9 @@ class AgentToolRegistry @Inject constructor(
     private val memoryNoteDao: MemoryNoteDao,
     private val mcpManager: McpManager,
     private val aiMemoryWriter: AiMemoryWriter,
+    private val workspaceRepository: com.bit.repo.WorkspaceRepository,
+    private val skillManager: com.bit.skills.SkillManager,
+    private val discoveryTreeStore: com.bit.agent.rsi.storage.DiscoveryTreeStore? = null,
     private val logger: HarnessLogger = NoOpHarnessLogger
 ) {
     private val json = Json { ignoreUnknownKeys = true }
@@ -43,7 +46,8 @@ class AgentToolRegistry @Inject constructor(
         val tools = buildList {
             // 1. Native Harness & Device Tools
             add(VaultQueryTool(ragOrchestrator, logger))
-            add(UseSkillTool(context = context, logger = logger))
+            add(UseSkillTool(context = context, skillManager = skillManager, workspaceRepository = workspaceRepository, logger = logger))
+            add(com.bit.agent.rsi.tools.DiscoveryQueryTool(discoveryTreeStore))
             add(AskUserTool(logger))
             add(TimeInfoTool())
             add(ClipboardTool(context))
@@ -52,7 +56,7 @@ class AgentToolRegistry @Inject constructor(
             add(WorkspaceReadFileTool(context))
             add(WorkspaceWriteFileTool(context))
             add(WorkspaceEditFileTool(context))
-            add(WorkspaceShellTool(context))
+            add(WorkspaceShellTool(context = context, workspaceRepository = workspaceRepository))
             add(StrReplaceEditorTool(context))
             add(TodoWriteTool())
 

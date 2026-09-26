@@ -58,7 +58,10 @@ object HarnessModule {
         memoryNoteDao: MemoryNoteDao,
         mcpManager: McpManager,
         aiMemoryWriter: AiMemoryWriter,
-        logger: HarnessLogger
+        logger: HarnessLogger,
+        workspaceRepository: com.bit.repo.WorkspaceRepository,
+        skillManager: com.bit.skills.SkillManager,
+        treeStore: com.bit.agent.rsi.storage.DiscoveryTreeStore
     ): AgentToolRegistry {
         val registry = AgentToolRegistry(
             context = context,
@@ -67,7 +70,10 @@ object HarnessModule {
             memoryNoteDao = memoryNoteDao,
             mcpManager = mcpManager,
             aiMemoryWriter = aiMemoryWriter,
-            logger = logger
+            logger = logger,
+            workspaceRepository = workspaceRepository,
+            skillManager = skillManager,
+            discoveryTreeStore = treeStore
         )
         // Real multi-agent execution: subagents run isolated LLM+tool loops.
         registry.subagentExecutor = com.bit.agent.harness.engine.SubagentRunner(logger)
@@ -88,6 +94,21 @@ object HarnessModule {
 
     @Provides
     @Singleton
+    fun provideDiscoveryTreeStore(@ApplicationContext context: Context): com.bit.agent.rsi.storage.DiscoveryTreeStore {
+        return com.bit.agent.rsi.storage.FileDiscoveryTreeStore(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideDiscoveryRecorder(
+        @ApplicationContext context: Context,
+        store: com.bit.agent.rsi.storage.DiscoveryTreeStore
+    ): com.bit.agent.rsi.engine.DiscoveryRecorder {
+        return com.bit.agent.rsi.engine.DiscoveryRecorder(context, store)
+    }
+
+    @Provides
+    @Singleton
     fun provideAgentHarnessEngine(
         @ApplicationContext context: Context,
         toolBridge: AgentToolBridge,
@@ -96,7 +117,8 @@ object HarnessModule {
         correctionPlanner: SelfCorrectionPlanner,
         logger: HarnessLogger,
         planGenerator: PlanGenerator,
-        synthesizer: com.bit.agent.harness.engine.HarnessSynthesizer
+        synthesizer: com.bit.agent.harness.engine.HarnessSynthesizer,
+        discoveryRecorder: com.bit.agent.rsi.engine.DiscoveryRecorder
     ): AgentHarnessEngine {
         return AgentHarnessEngine(
             context = context,
@@ -106,7 +128,8 @@ object HarnessModule {
             correctionPlanner = correctionPlanner,
             logger = logger,
             planGenerator = planGenerator,
-            synthesizer = synthesizer
+            synthesizer = synthesizer,
+            discoveryRecorder = discoveryRecorder
         )
     }
 }

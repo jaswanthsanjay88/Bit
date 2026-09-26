@@ -74,7 +74,7 @@ class NVApplication : Application() {
         PluginManager.registerPlugin(SystemInfoPlugin(applicationContext))
         PluginManager.registerPlugin(com.bit.plugins.MemoryPlugin(applicationContext))
         PluginManager.registerPlugin(com.bit.plugins.McpPlugin(applicationContext, mcpManager))
-        PluginManager.registerPlugin(com.bit.plugins.SkillPlugin(applicationContext, skillManager))
+        PluginManager.registerPlugin(com.bit.plugins.SkillPlugin(applicationContext, skillManager, workspaceRepository))
         PluginManager.registerPlugin(com.bit.plugins.WorkspacePlugin(applicationContext, workspaceRepository))
         Log.d(TAG, "Plugins registered: ${PluginManager.registeredPlugins.value.size} plugins")
 

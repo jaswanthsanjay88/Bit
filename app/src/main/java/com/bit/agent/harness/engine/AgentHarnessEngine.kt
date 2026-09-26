@@ -43,7 +43,8 @@ class AgentHarnessEngine @Inject constructor(
     private val correctionPlanner: SelfCorrectionPlanner,
     private val logger: HarnessLogger = NoOpHarnessLogger,
     private val planGenerator: PlanGenerator? = null,
-    private val synthesizer: HarnessSynthesizer? = null
+    private val synthesizer: HarnessSynthesizer? = null,
+    private val discoveryRecorder: com.bit.agent.rsi.engine.DiscoveryRecorder? = null
 ) {
     companion object {
         private const val TAG = "AgentHarnessEngine"
@@ -118,6 +119,16 @@ class AgentHarnessEngine @Inject constructor(
         val turnId = java.util.UUID.randomUUID().toString()
         sessionLog.append(com.bit.agent.harness.model.HarnessSessionEvent.TurnStart(turnId = turnId, goal = goal))
 
+        discoveryRecorder?.startSession(
+            taskDescription = goal,
+            taskDomain = "agent_harness",
+            metadata = mapOf(
+                "turnId" to turnId,
+                "maxSteps" to maxSteps.toString(),
+                "maxRetries" to maxRetriesPerStep.toString()
+            )
+        )
+
         var turnCount = 0
         val accumulatedArtifacts = mutableListOf<String>()
         // Santa-Method guard: each reviewer step may trigger revision injection at most once.
@@ -128,6 +139,7 @@ class AgentHarnessEngine @Inject constructor(
         val plan = explicitPlan ?: generatePlan(goal, maxSteps)
         if (plan.steps.isEmpty()) {
             val failState = AgentHarnessState.Failed("Could not decompose goal into executable steps.")
+            discoveryRecorder?.completeSession(success = false, outcomeSummary = failState.reason)
             sessionLog.append(com.bit.agent.harness.model.HarnessSessionEvent.TurnEnd(turnId = turnId, finalResult = failState.reason, success = false))
             emitState(failState)
             return@flow
@@ -147,11 +159,13 @@ class AgentHarnessEngine @Inject constructor(
                         step = step,
                         partialArtifacts = accumulatedArtifacts.distinct()
                     )
+                    discoveryRecorder?.completeSession(success = false, outcomeSummary = failState.reason)
                     emitState(failState)
                     return@flow
                 }
                 turnCount++
                 step.status = StepStatus.RUNNING
+                val stepAttemptStartTime = System.currentTimeMillis()
 
                 // Check for subagent tool
                 if (step.toolName == "invoke_subagent") {
@@ -380,6 +394,30 @@ class AgentHarnessEngine @Inject constructor(
                     )
                 )
 
+                val attemptDuration = System.currentTimeMillis() - stepAttemptStartTime
+                val nodeStatus = when {
+                    gateResult.passed -> com.bit.agent.rsi.model.NodeStatus.SUCCESS
+                    step.retryCount < maxRetriesPerStep -> com.bit.agent.rsi.model.NodeStatus.REPAIRABLE_FAILURE
+                    else -> com.bit.agent.rsi.model.NodeStatus.HARD_FAILURE
+                }
+                val nodeScore = if (gateResult.passed) 1.0 else (0.5 * (1.0 - (step.retryCount.toDouble() / maxRetriesPerStep.coerceAtLeast(1))))
+                val diagInfo = if (!gateResult.passed) {
+                    "${gateResult.reason}\n${observation.summary}".trim()
+                } else ""
+
+                discoveryRecorder?.recordAttempt(
+                    action = "${step.toolName}: ${step.description}",
+                    candidateArtifact = (observation.payload ?: observation.summary).take(2000),
+                    score = nodeScore,
+                    status = nodeStatus,
+                    errorClass = if (!gateResult.passed) gateResult.reason.take(100) else null,
+                    diagnostics = diagInfo.take(1500),
+                    latencyMs = attemptDuration,
+                    tokensUsed = 0,
+                    parentId = null,
+                    branchIndex = step.retryCount
+                )
+
                 if (gateResult.passed) {
                     step.status = StepStatus.PASSED
                     stepResolved = true
@@ -411,6 +449,7 @@ class AgentHarnessEngine @Inject constructor(
                             step = step,
                             partialArtifacts = accumulatedArtifacts.distinct()
                         )
+                        discoveryRecorder?.completeSession(success = false, outcomeSummary = failState.reason)
                         emitState(failState)
                         return@flow
                     }
@@ -490,6 +529,7 @@ class AgentHarnessEngine @Inject constructor(
                 success = true
             )
         )
+        discoveryRecorder?.completeSession(success = true, outcomeSummary = finalResult.take(500))
         emitState(completedState)
     }.flowOn(Dispatchers.Default)
 

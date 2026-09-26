@@ -24,7 +24,8 @@ import java.util.Locale
  */
 class SkillPlugin(
     private val context: Context,
-    private val skillManager: SkillManager
+    private val skillManager: SkillManager,
+    private val workspaceRepository: com.bit.repo.WorkspaceRepository? = null
 ) : SuperPlugin {
 
     companion object {
@@ -39,10 +40,13 @@ class SkillPlugin(
     override fun getPluginInfo(): PluginInfo {
         val useSkillBuilder = ToolDefinitionBuilder(
             TOOL_USE_SKILL,
-            "Load and apply an agent skill to get specialized instructions, domain patterns, or supporting assets. Call this tool when the user's request matches an available skill."
+            "Load specialized domain instructions, guidelines, and patterns for a skill, or execute a skill script/command inside the on-device Linux PRoot workspace."
         )
-            .stringParam("name", "The name of the skill to use (e.g. 'Web Search & Scraping', 'File Operations', 'python-patterns', 'tdd-workflow')", true)
-            .stringParam("path", "Optional relative path to a file inside the skill directory (e.g. supporting scripts or reference docs). Omit to read the default instructions.", false)
+            .stringParam("name", "The name of the skill to use (e.g. 'coding-standards', 'terminal-linux-ops', 'security-review')", true)
+            .stringParam("command", "Optional shell command to execute inside the Linux PRoot sandbox under this skill context", false)
+            .stringParam("script", "Optional script file path to execute inside the Linux workspace", false)
+            .stringParam("args", "Optional arguments string to pass to the script or command", false)
+            .stringParam("path", "Optional relative path to a file inside the skill directory", false)
 
         val manageSkillsBuilder = ToolDefinitionBuilder(
             TOOL_MANAGE_SKILLS,
@@ -151,6 +155,55 @@ class SkillPlugin(
                     put("availableSkills", JSONArray(availableList))
                 }
                 return@withContext Result.success(errorResult)
+            }
+
+            val command = args.optString("command", "").trim()
+            val script = args.optString("script", "").trim().ifBlank {
+                args.optString("path", "").trim()
+            }
+            val scriptArgs = args.optString("args", "").trim()
+            val cwd = args.optString("cwd", "").removePrefix("/workspace/").removePrefix("/workspace").trim()
+            val timeoutSec = args.optLong("timeout_sec", 30L).coerceIn(1L, 600L)
+
+            val targetSkill = activatedSkills.firstOrNull()
+            val shouldExecute = command.isNotBlank() || (script.isNotBlank() && (script.endsWith(".py") || script.endsWith(".sh") || script.endsWith(".js") || script.endsWith(".c"))) || (targetSkill?.isExecutable == true && !targetSkill.scriptPath.isNullOrBlank())
+
+            if (shouldExecute && workspaceRepository != null) {
+                if (!isWsAvailable) {
+                    val wsErrorObj = JSONObject().apply {
+                        put("status", "workspace_unavailable")
+                        put("message", "Execution requires the on-device Linux PRoot workspace, which is not currently installed.")
+                    }
+                    return@withContext Result.success(wsErrorObj)
+                }
+
+                val workspaces = workspaceRepository.getAll()
+                val activeWorkspace = workspaces.maxByOrNull { it.updatedAt } ?: workspaceRepository.create("Main Workspace")
+                val effectiveCommand = when {
+                    command.isNotBlank() -> if (scriptArgs.isNotBlank()) "$command $scriptArgs" else command
+                    script.endsWith(".py", ignoreCase = true) -> "python3 $script" + (if (scriptArgs.isNotBlank()) " $scriptArgs" else "")
+                    script.endsWith(".sh", ignoreCase = true) -> "bash $script" + (if (scriptArgs.isNotBlank()) " $scriptArgs" else "")
+                    script.endsWith(".js", ignoreCase = true) -> "node $script" + (if (scriptArgs.isNotBlank()) " $scriptArgs" else "")
+                    targetSkill?.scriptPath != null -> targetSkill.scriptPath + (if (scriptArgs.isNotBlank()) " $scriptArgs" else "")
+                    else -> script + (if (scriptArgs.isNotBlank()) " $scriptArgs" else "")
+                }
+
+                val result = workspaceRepository.executeCommand(
+                    id = activeWorkspace.id,
+                    command = effectiveCommand,
+                    cwd = cwd,
+                    timeoutMillis = timeoutSec * 1000L
+                )
+
+                val execObj = JSONObject().apply {
+                    put("status", if (result.exitCode == 0) "success" else "error")
+                    put("exitCode", result.exitCode)
+                    put("command", effectiveCommand)
+                    put("stdout", compactInstructions(result.stdout, 1200))
+                    put("stderr", compactInstructions(result.stderr, 800))
+                    put("timedOut", result.timedOut)
+                }
+                return@withContext Result.success(execObj)
             }
 
             val responseObj = JSONObject().apply {
