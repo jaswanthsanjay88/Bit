@@ -139,8 +139,17 @@ fun BatteryPowerIndicator(
                             .background(batteryColor)
                     )
 
+                    if (status.isCharging) {
+                        Icon(
+                            imageVector = TnIcons.Bolt,
+                            contentDescription = "Charging",
+                            tint = batteryColor,
+                            modifier = Modifier.size(11.dp)
+                        )
+                    }
+
                     Text(
-                        text = "${if (status.levelPercent >= 0) status.levelPercent else "--"}%${if (status.isCharging) " ⚡" else ""}",
+                        text = "${if (status.levelPercent >= 0) status.levelPercent else "--"}%",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Medium,
@@ -209,9 +218,11 @@ fun BatteryPowerIndicator(
                             .background(batteryColor.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = if (status.isCharging) "⚡" else "🔋",
-                            fontSize = 16.sp
+                        Icon(
+                            imageVector = if (status.isCharging) TnIcons.BatteryCharging else TnIcons.Battery,
+                            contentDescription = if (status.isCharging) "Charging" else "Battery",
+                            tint = batteryColor,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
 

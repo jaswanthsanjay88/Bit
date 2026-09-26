@@ -3,6 +3,7 @@ package com.bit.skills
 import android.content.Context
 import android.util.Log
 import com.bit.models.Skill
+import com.bit.models.SkillType
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -55,6 +56,7 @@ class SkillManager @Inject constructor(
                 description = "Searches the live web via DuckDuckGo and scrapes clean markdown text.",
                 instructions = "You have access to web search capabilities. Always verify factual claims before answering.",
                 icon = "search",
+                skillType = SkillType.INSTRUCTIONAL,
                 enabled = true,
                 isBuiltIn = true
             ),
@@ -64,6 +66,7 @@ class SkillManager @Inject constructor(
                 description = "Autonomously writes important user facts and extracts knowledge graph triples.",
                 instructions = "Store persistent user preferences, names, and key facts into the episodic memory vault.",
                 icon = "storage",
+                skillType = SkillType.INSTRUCTIONAL,
                 enabled = true,
                 isBuiltIn = true
             ),
@@ -73,6 +76,80 @@ class SkillManager @Inject constructor(
                 description = "Read and write project files, exports, and markdown documents.",
                 instructions = "Execute file inspection and directory listing safely.",
                 icon = "terminal",
+                skillType = SkillType.INSTRUCTIONAL,
+                enabled = true,
+                isBuiltIn = true
+            ),
+            Skill(
+                id = "skill-coding-standards",
+                name = "Coding Standards",
+                description = "Enforces clean code, immutability, readability, KISS/DRY principles, and error handling across languages.",
+                instructions = """
+                    - Readability First: Choose clear, intention-revealing names. Self-documenting code over excessive comments.
+                    - Immutability: Always create new copies with updates rather than mutating state in-place.
+                    - KISS & DRY: Prefer the simplest working solution; extract shared logic without premature abstraction.
+                    - Error Boundaries: Handle errors at boundaries. Never silently swallow exceptions.
+                """.trimIndent(),
+                icon = "code",
+                skillType = SkillType.INSTRUCTIONAL,
+                enabled = true,
+                isBuiltIn = true
+            ),
+            Skill(
+                id = "skill-terminal-ops",
+                name = "Terminal & Linux Ops",
+                description = "Executes safe bash commands, checks git status, and inspects files inside the Linux PRoot workspace.",
+                instructions = """
+                    - Evidence-First: Inspect current directory, file contents, and git status before executing commands.
+                    - Non-Destructive: Do not run recursive deletes (e.g. rm -rf) or modify outside the designated workspace.
+                    - Verification: Re-run status or test commands to verify results before declaring a task finished.
+                """.trimIndent(),
+                icon = "terminal",
+                skillType = SkillType.EXECUTABLE,
+                requiresWorkspace = true,
+                enabled = true,
+                isBuiltIn = true
+            ),
+            Skill(
+                id = "skill-security-review",
+                name = "Security Review",
+                description = "Audits code and configurations for exposed API keys, credential leaks, and unsafe inputs.",
+                instructions = """
+                    - Secrets Management: Never hardcode API keys, tokens, or passwords in code or prompts.
+                    - Input Validation: Validate and sanitize all external parameters, URLs, and file uploads at boundaries.
+                    - Safe Defaults: Follow principle of least privilege and verify permission checks before executing actions.
+                """.trimIndent(),
+                icon = "security",
+                skillType = SkillType.INSTRUCTIONAL,
+                enabled = true,
+                isBuiltIn = true
+            ),
+            Skill(
+                id = "skill-research-ops",
+                name = "Research Ops",
+                description = "Synthesizes evidence-first reports with verified facts, citations, and clear separation from inferences.",
+                instructions = """
+                    - Verify Facts: Use search to verify temporal and empirical facts before answering.
+                    - Layer Separation: Clearly separate verified facts, user-provided evidence, and model inferences.
+                    - Structured Reports: Format multi-source findings with concise bullet points and source attribution.
+                """.trimIndent(),
+                icon = "psychology",
+                skillType = SkillType.INSTRUCTIONAL,
+                enabled = true,
+                isBuiltIn = true
+            ),
+            Skill(
+                id = "skill-ui-polish",
+                name = "UI/UX Design Polish",
+                description = "Applies concrete design-engineering details: concentric radius, 48dp touch targets, and optical alignment.",
+                instructions = """
+                    - Concentric Radius: For nested surfaces, outer corner radius = inner corner radius + padding.
+                    - Touch Targets: Ensure all clickable controls have a minimum touch hit area of 48dp x 48dp.
+                    - Optical Alignment: Align asymmetric icons and visual centroids optically rather than purely geometrically.
+                    - Spacing Rhythm: Use consistent 4dp/8dp spatial increments and avoid cramped typography.
+                """.trimIndent(),
+                icon = "brush",
+                skillType = SkillType.INSTRUCTIONAL,
                 enabled = true,
                 isBuiltIn = true
             )
@@ -93,6 +170,23 @@ class SkillManager @Inject constructor(
                 if (id == "skill-calculator" || name.contains("calculator", ignoreCase = true)) {
                     continue
                 }
+                val typeStr = obj.optString("skillType", "INSTRUCTIONAL")
+                val skillType = try {
+                    com.bit.models.SkillType.valueOf(typeStr)
+                } catch (_: Exception) {
+                    com.bit.models.SkillType.INSTRUCTIONAL
+                }
+                val requiresWorkspace = obj.optBoolean("requiresWorkspace", false)
+                val scriptPath = if (obj.has("scriptPath") && !obj.isNull("scriptPath")) obj.optString("scriptPath") else null
+                val permsJson = obj.optJSONArray("requiredPermissions")
+                val requiredPermissions = mutableListOf<String>()
+                if (permsJson != null) {
+                    for (p in 0 until permsJson.length()) {
+                        val perm = permsJson.optString(p)
+                        if (perm.isNotBlank()) requiredPermissions.add(perm)
+                    }
+                }
+
                 list.add(
                     Skill(
                         id = id,
@@ -100,11 +194,28 @@ class SkillManager @Inject constructor(
                         description = obj.optString("description"),
                         instructions = obj.optString("instructions"),
                         icon = obj.optString("icon", "sparkles"),
+                        skillType = skillType,
+                        requiresWorkspace = requiresWorkspace,
+                        requiredPermissions = requiredPermissions,
+                        scriptPath = scriptPath,
                         enabled = obj.optBoolean("enabled", true),
                         isBuiltIn = obj.optBoolean("isBuiltIn", false),
                         createdAt = obj.optLong("createdAt", System.currentTimeMillis())
                     )
                 )
+            }
+            // Auto-merge any default built-in skills that don't exist yet in the saved list
+            val existingIds = list.map { it.id }.toSet()
+            val existingSlugs = list.map { getSkillSlug(it) }.toSet()
+            var addedAny = false
+            for (defaultSkill in DEFAULT_BUILTIN_SKILLS) {
+                if (defaultSkill.id !in existingIds && getSkillSlug(defaultSkill) !in existingSlugs) {
+                    list.add(defaultSkill)
+                    addedAny = true
+                }
+            }
+            if (addedAny) {
+                persistSkills(list)
             }
             if (list.isEmpty()) DEFAULT_BUILTIN_SKILLS else list
         } catch (e: Exception) {
@@ -123,6 +234,12 @@ class SkillManager @Inject constructor(
                     put("description", s.description)
                     put("instructions", s.instructions)
                     put("icon", s.icon ?: "sparkles")
+                    put("skillType", s.skillType.name)
+                    put("requiresWorkspace", s.requiresWorkspace)
+                    put("requiredPermissions", JSONArray(s.requiredPermissions))
+                    if (s.scriptPath != null) {
+                        put("scriptPath", s.scriptPath)
+                    }
                     put("enabled", s.enabled)
                     put("isBuiltIn", s.isBuiltIn)
                     put("createdAt", s.createdAt)
@@ -199,26 +316,39 @@ class SkillManager @Inject constructor(
         return dir
     }
 
+    fun isWorkspaceAvailable(): Boolean {
+        return try {
+            val wsDir = context.filesDir.resolve("workspaces")
+            wsDir.exists() && (wsDir.listFiles()?.isNotEmpty() == true)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     /**
      * Builds lightweight progressive disclosure catalog for tool-capable models.
-     * Contains only skill names, triggers, and descriptions in standard Anthropic <available_skills> XML format.
+     * Exposes ~15-20 tokens per skill in compact <available_skills> XML format.
+     * Excludes executable skills requiring PRoot if the workspace is not active/available.
      */
-    fun getSkillCatalogPrompt(): String {
-        val active = _skills.value.filter { it.enabled && it.instructions.isNotBlank() }
+    fun getSkillCatalogPrompt(isWorkspaceAvailable: Boolean = isWorkspaceAvailable()): String {
+        val active = _skills.value.filter { skill ->
+            skill.enabled &&
+            (skill.instructions.isNotBlank() || skill.isExecutable) &&
+            (!skill.requiresWorkspace || isWorkspaceAvailable)
+        }
         if (active.isEmpty()) return ""
 
         return buildString {
-            appendLine("**Skills**")
-            appendLine("You have access to the following skills. Use the `use_skill` tool to load a skill's instructions when the user's request matches.")
             appendLine("<available_skills>")
             active.forEach { skill ->
-                val desc = skill.description.ifBlank { "Specialized skill routine" }
-                appendLine("  <skill>")
-                appendLine("    <name>${skill.name}</name>")
-                appendLine("    <description>$desc</description>")
-                appendLine("  </skill>")
+                val slug = getSkillSlug(skill)
+                val typeTag = if (skill.isExecutable) "executable" else "instructional"
+                val desc = skill.description.ifBlank { "Specialized agent routine" }
+                    .trim().replace("\n", " ").replace("<", "").replace(">", "")
+                appendLine("  <skill name=\"$slug\" type=\"$typeTag\">$desc</skill>")
             }
             appendLine("</available_skills>")
+            appendLine("To load a skill's full instructions or capability, invoke `use_skill(name = \"...\")`.")
         }
     }
 

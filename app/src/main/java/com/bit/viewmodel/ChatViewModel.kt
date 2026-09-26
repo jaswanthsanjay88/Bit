@@ -3132,10 +3132,12 @@ class ChatViewModel @Inject constructor(
                 .trim()
         }
 
-        val isLocalGguf = ActiveModelSession.currentModelType.value == ProviderType.GGUF
+        val isWsAvailable = skillManager.isWorkspaceAvailable()
 
-        val skillsPrompt = if (!isLocalGguf && hasTools && PluginManager.hasEnabledTools()) {
-            skillManager.getSkillCatalogPrompt()
+        // Progressive disclosure skill catalog: exposed to BOTH local GGUF models and Cloud API models.
+        // Consumes only ~15 tokens per skill in <available_skills> XML, keeping local 2k-4k KV caches safe.
+        val skillsPrompt = if (hasTools && PluginManager.hasEnabledTools()) {
+            skillManager.getSkillCatalogPrompt(isWorkspaceAvailable = isWsAvailable)
         } else ""
 
         if (skillsPrompt.isNotBlank()) {
@@ -3146,6 +3148,7 @@ class ChatViewModel @Inject constructor(
             }
         }
 
+        val isLocalGguf = ActiveModelSession.currentModelType.value == ProviderType.GGUF
         val mcpPrompt = if (!isLocalGguf && hasTools && PluginManager.hasEnabledTools()) {
             mcpManager.getMcpCatalogPrompt()
         } else ""

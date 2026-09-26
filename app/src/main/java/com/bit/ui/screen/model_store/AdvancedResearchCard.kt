@@ -46,8 +46,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.bit.data.AppSettingsDataStore
-import com.bit.global.PerformanceMode
 import com.bit.global.Standards
 import com.bit.ui.components.ActionButton
 import com.bit.ui.components.StandardCard
@@ -61,7 +59,7 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun HardwareHeadroomCard(
-    deviceInfo: Map<String, String>,
+    deviceInfo: Map<String, String> = emptyMap(),
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -118,7 +116,7 @@ fun HardwareHeadroomCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = "${(ramUsagePercent * 100).toInt()}% (${usedRamMB / 1024}G / ${totalRamMB / 1024}G)",
+                    text = "${(ramUsagePercent * 100).toInt()}% (${String.format("%.1f", usedRamMB / 1024f)} GB / ${String.format("%.1f", totalRamMB / 1024f)} GB)",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -138,10 +136,10 @@ fun HardwareHeadroomCard(
             // Safe Headroom Stat Pill
             Surface(
                 shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
                 border = androidx.compose.foundation.BorderStroke(
                     1.dp,
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                 ),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -161,7 +159,7 @@ fun HardwareHeadroomCard(
                             text = "Safe Model Weight Budget: ~${String.format("%.1f", safeModelBudgetGB)} GB",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = capabilityVerdict,
@@ -256,117 +254,6 @@ fun ArchitectureFilterRow(
                 ),
                 shape = RoundedCornerShape(8.dp)
             )
-        }
-    }
-}
-
-/**
- * Engine Runtime Tuning Card for controlling local LLM inference parameters.
- */
-@Composable
-fun EngineRuntimeTuningCard(
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val appSettings = remember { AppSettingsDataStore(context) }
-    val currentMode by appSettings.performanceMode.collectAsStateWithLifecycle(initialValue = PerformanceMode.BALANCED)
-    val sttThreads by appSettings.sttThreads.collectAsStateWithLifecycle(initialValue = 2)
-
-    var expanded by remember { mutableStateOf(false) }
-
-    StandardCard(
-        title = "Engine Runtime Tuning",
-        icon = TnIcons.Adjustments,
-        trailing = {
-            ActionButton(
-                onClickListener = { expanded = !expanded },
-                icon = if (expanded) TnIcons.ChevronUp else TnIcons.ChevronDown,
-                contentDescription = if (expanded) "Collapse" else "Expand"
-            )
-        }
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // Performance Mode Selector
-            Text(
-                text = "Performance Profile",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                PerformanceMode.values().forEach { mode ->
-                    val isSelected = currentMode == mode
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = {
-                            scope.launch { appSettings.savePerformanceMode(mode) }
-                        },
-                        label = {
-                            Text(
-                                text = mode.name.lowercase().replaceFirstChar { it.uppercase() }.replace("_", " "),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        },
-                        modifier = Modifier.weight(1f),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    )
-                }
-            }
-
-            AnimatedVisibility(visible = expanded) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-                    // Thread Allocation
-                    Text(
-                        text = "CPU Inference Threads: $sttThreads",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        listOf(1, 2, 4).forEach { count ->
-                            val isSelected = sttThreads == count
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = {
-                                    scope.launch { appSettings.updateSttThreads(count) }
-                                },
-                                label = {
-                                    Text(
-                                        text = "$count Thread${if (count > 1) "s" else ""}",
-                                        style = MaterialTheme.typography.labelSmall
-                                    )
-                                },
-                                modifier = Modifier.weight(1f),
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = "Model threads and KV cache quantization are auto-calibrated by DeviceTuner to avoid CPU thermal throttling.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
         }
     }
 }

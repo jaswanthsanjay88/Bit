@@ -156,7 +156,7 @@ class SystemInfoPlugin(private val context: Context) : SuperPlugin {
 
                 val items = listOf(
                     "Time" to "$dateTime ($timezone)",
-                    "Battery" to "${battery}%${if (isCharging) " ⚡" else ""}",
+                    "Battery" to "${battery}%${if (isCharging) " (Charging)" else ""}",
                     "Network" to network,
                     "Device" to device
                 )

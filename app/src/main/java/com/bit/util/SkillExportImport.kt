@@ -41,7 +41,7 @@ object SkillExportImport {
      */
     fun exportToJson(skill: Skill): String {
         val json = JSONObject().apply {
-            put("version", 1)
+            put("version", 2)
             put("format", "bit_skill")
             put("skill", JSONObject().apply {
                 put("id", skill.id)
@@ -49,6 +49,12 @@ object SkillExportImport {
                 put("description", skill.description)
                 put("icon", skill.icon ?: "")
                 put("instructions", skill.instructions)
+                put("skillType", skill.skillType.name)
+                put("requiresWorkspace", skill.requiresWorkspace)
+                put("requiredPermissions", org.json.JSONArray(skill.requiredPermissions))
+                if (skill.scriptPath != null) {
+                    put("scriptPath", skill.scriptPath)
+                }
                 put("enabled", skill.enabled)
                 put("isBuiltIn", skill.isBuiltIn)
                 put("createdAt", skill.createdAt)
@@ -123,6 +129,22 @@ object SkillExportImport {
             val desc = skillObj.optString("description", "")
             val icon = skillObj.optString("icon").ifEmpty { null }
             val instructions = skillObj.optString("instructions", "")
+            val typeStr = skillObj.optString("skillType", "INSTRUCTIONAL")
+            val skillType = try {
+                com.bit.models.SkillType.valueOf(typeStr)
+            } catch (_: Exception) {
+                com.bit.models.SkillType.INSTRUCTIONAL
+            }
+            val requiresWorkspace = skillObj.optBoolean("requiresWorkspace", false)
+            val scriptPath = if (skillObj.has("scriptPath") && !skillObj.isNull("scriptPath")) skillObj.optString("scriptPath") else null
+            val permsJson = skillObj.optJSONArray("requiredPermissions")
+            val requiredPermissions = mutableListOf<String>()
+            if (permsJson != null) {
+                for (p in 0 until permsJson.length()) {
+                    val perm = permsJson.optString(p)
+                    if (perm.isNotBlank()) requiredPermissions.add(perm)
+                }
+            }
 
             ImportResult.Success(
                 Skill(
@@ -130,6 +152,10 @@ object SkillExportImport {
                     description = desc,
                     icon = icon,
                     instructions = instructions,
+                    skillType = skillType,
+                    requiresWorkspace = requiresWorkspace,
+                    requiredPermissions = requiredPermissions,
+                    scriptPath = scriptPath,
                     enabled = true,
                     isBuiltIn = false
                 ),
@@ -167,6 +193,14 @@ object SkillExportImport {
         val name = yamlMap["name"] ?: "Imported Skill"
         val desc = yamlMap["description"] ?: ""
         val icon = yamlMap["icon"]
+        val requiresWs = yamlMap["requires_workspace"]?.equals("true", ignoreCase = true) == true
+        val typeStr = yamlMap["type"]?.uppercase() ?: if (requiresWs) "EXECUTABLE" else "INSTRUCTIONAL"
+        val skillType = try {
+            com.bit.models.SkillType.valueOf(typeStr)
+        } catch (_: Exception) {
+            com.bit.models.SkillType.INSTRUCTIONAL
+        }
+        val scriptPath = yamlMap["script"] ?: yamlMap["script_path"]
 
         return ImportResult.Success(
             Skill(
@@ -174,6 +208,9 @@ object SkillExportImport {
                 description = desc,
                 icon = icon,
                 instructions = body,
+                skillType = skillType,
+                requiresWorkspace = requiresWs,
+                scriptPath = scriptPath,
                 enabled = true,
                 isBuiltIn = false
             ),

@@ -101,12 +101,7 @@ internal fun AdvancedTab(
     ) {
         // Hardware Inference Headroom & Real-time RAM
         item {
-            HardwareHeadroomCard(deviceInfo)
-        }
-
-        // Engine Runtime Tuning Controls
-        item {
-            EngineRuntimeTuningCard()
+            HardwareHeadroomCard()
         }
 
         // Explorer Repositories Card with Architecture Filters & Badges
@@ -126,20 +121,15 @@ internal fun AdvancedTab(
             )
         }
 
-        // Device Info Section
-        item {
-            DeviceInfoCard(deviceInfo)
-        }
-
         // Repositories Section
         item {
             SectionHeader(
-                title = "Hugging Face Models",
+                title = "Hugging Face Repositories",
                 action = {
                     ActionButton(
                         onClickListener = { showAddDialog = true },
                         icon = TnIcons.Plus,
-                        contentDescription = "Add Model"
+                        contentDescription = "Add Repository"
                     )
                 }
             )
@@ -347,8 +337,12 @@ internal fun ExplorerResultRow(
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
         shape = RoundedCornerShape(Standards.CardSmallCornerRadius),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        ),
         onClick = {
             expanded = !expanded
             if (expanded && repoFiles == null) {
@@ -516,8 +510,12 @@ internal fun RepositoryCard(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
         shape = RoundedCornerShape(Standards.CardSmallCornerRadius),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        ),
         onClick = onValidate
     ) {
         Column(

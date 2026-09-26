@@ -56,6 +56,18 @@ class UseSkillTool(
             val manager = skillManager ?: context?.let { com.bit.skills.SkillManager.getInstance(it) }
             val matchedSkill = manager?.findSkill(skillName)
 
+            // If skill requires Linux PRoot workspace, verify workspace availability
+            if (matchedSkill != null && matchedSkill.requiresWorkspace) {
+                val wsAvailable = manager.isWorkspaceAvailable()
+                if (!wsAvailable) {
+                    return ToolObservation.error(
+                        summary = "Skill '${matchedSkill.name}' requires an active Linux PRoot workspace, which is not currently installed.",
+                        recoveryHint = "Open the Linux Workspace screen in BIT to initialize the developer container.",
+                        executionTimeMs = System.currentTimeMillis() - startTime
+                    )
+                }
+            }
+
             val content = when {
                 matchedSkill != null && matchedSkill.instructions.isNotBlank() -> {
                     compactSkillInstructions(matchedSkill.instructions)
@@ -64,26 +76,40 @@ class UseSkillTool(
                     "Skill '${matchedSkill.name}': ${matchedSkill.description}"
                 }
                 else -> {
-                    // Fallback to on-device file storage or debug repo paths
+                    // Fallback to on-device storage or assets
                     val deviceSkillsDir = context?.filesDir?.resolve("skills")
                     val fileCandidates = listOfNotNull(
                         deviceSkillsDir?.resolve("$skillName/SKILL.md"),
-                        deviceSkillsDir?.resolve("$skillName.md"),
-                        File("E:/BIT/.agent/skills/$skillName/SKILL.md"),
-                        File(".agent/skills/$skillName/SKILL.md")
+                        deviceSkillsDir?.resolve("$skillName.md")
                     )
                     val skillFile = fileCandidates.firstOrNull { it.exists() && it.isFile }
                     if (skillFile != null) {
                         compactSkillInstructions(skillFile.readText())
                     } else {
-                        "Skill '$skillName' active with standard specialized patterns and directives."
+                        // Check app assets
+                        val assetContent = try {
+                            context?.assets?.open("skills/$skillName/SKILL.md")?.bufferedReader()?.use { it.readText() }
+                        } catch (_: Exception) {
+                            null
+                        }
+                        if (assetContent != null) {
+                            compactSkillInstructions(assetContent)
+                        } else {
+                            "Skill '$skillName' active with standard specialized patterns and directives."
+                        }
                     }
                 }
             }
 
+            val finalPayload = if (content.length > 1500) {
+                content.take(1400) + "\n\n... [Content truncated for local SLM context safety]"
+            } else {
+                content
+            }
+
             ToolObservation.success(
                 summary = "Skill '$skillName' instructions loaded successfully (compacted for on-device context).",
-                payload = content,
+                payload = finalPayload,
                 executionTimeMs = System.currentTimeMillis() - startTime
             )
         } catch (e: Exception) {
@@ -100,7 +126,7 @@ class UseSkillTool(
      * Compacts verbose SKILL.md guidelines into a concise instruction set
      * tailored for local small language models (SLMs) with 2k-4k context limits.
      */
-    private fun compactSkillInstructions(rawMarkdown: String, maxChars: Int = 1800): String {
+    private fun compactSkillInstructions(rawMarkdown: String, maxChars: Int = 1200): String {
         if (rawMarkdown.length <= maxChars) return rawMarkdown
 
         val lines = rawMarkdown.lines()

@@ -116,15 +116,25 @@ class SkillPlugin(
             val allSkills = skillManager.skills.value.filter { it.enabled }
             val activatedSkills = mutableListOf<com.bit.models.Skill>()
             val notFound = mutableListOf<String>()
+            val isWsAvailable = skillManager.isWorkspaceAvailable()
 
             for (req in requestedNames) {
-                val normalizedReq = req.lowercase(Locale.ROOT)
+                val normalizedReq = req.lowercase(Locale.ROOT).removePrefix("/")
                 val match = allSkills.find {
                     it.name.lowercase(Locale.ROOT) == normalizedReq ||
                     it.id.lowercase(Locale.ROOT) == normalizedReq ||
+                    skillManager.getSkillSlug(it) == normalizedReq ||
                     it.name.lowercase(Locale.ROOT).contains(normalizedReq)
                 }
                 if (match != null) {
+                    if (match.requiresWorkspace && !isWsAvailable) {
+                        val wsErrorObj = JSONObject().apply {
+                            put("status", "workspace_unavailable")
+                            put("skill", match.name)
+                            put("message", "Skill '${match.name}' requires the on-device Linux PRoot workspace, which is not currently installed or active. Please initialize the workspace from the Linux Workspace screen.")
+                        }
+                        return@withContext Result.success(wsErrorObj)
+                    }
                     if (!activatedSkills.contains(match)) {
                         activatedSkills.add(match)
                     }
@@ -134,7 +144,7 @@ class SkillPlugin(
             }
 
             if (activatedSkills.isEmpty() && requestedNames.isNotEmpty()) {
-                val availableList = allSkills.map { it.name }
+                val availableList = allSkills.map { skillManager.getSkillSlug(it) }
                 val errorResult = JSONObject().apply {
                     put("status", "not_found")
                     put("message", "No matching enabled skills found for: ${requestedNames.joinToString(", ")}")
@@ -149,8 +159,12 @@ class SkillPlugin(
                 activatedSkills.forEach { s ->
                     activatedArr.put(JSONObject().apply {
                         put("name", s.name)
-                        put("description", s.description)
-                        put("instructions", s.instructions)
+                        put("slug", skillManager.getSkillSlug(s))
+                        put("type", s.skillType.name.lowercase(Locale.ROOT))
+                        put("instructions", compactInstructions(s.instructions))
+                        if (s.isExecutable && s.requiredPermissions.isNotEmpty()) {
+                            put("permissions", JSONArray(s.requiredPermissions))
+                        }
                     })
                 }
                 put("activatedSkills", activatedArr)
@@ -162,6 +176,20 @@ class SkillPlugin(
             Log.e(TAG, "Error activating skills", e)
             Result.failure(e)
         }
+    }
+
+    private fun compactInstructions(raw: String, maxChars: Int = 1200): String {
+        if (raw.length <= maxChars) return raw
+        val lines = raw.lines()
+        val sb = StringBuilder()
+        for (line in lines) {
+            if (sb.length + line.length + 1 >= maxChars) {
+                sb.appendLine("\n... [Guidelines truncated for local context safety]")
+                break
+            }
+            sb.appendLine(line)
+        }
+        return sb.toString().trim()
     }
 
     @Composable
