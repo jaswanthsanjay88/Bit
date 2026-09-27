@@ -150,10 +150,26 @@ class ChatViewModel @Inject constructor(
             .map { it as? com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    fun approvePendingAgentStep() {
+    val isAgentMode: StateFlow<Boolean> = appSettings.agentModeEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    fun toggleAgentMode() {
+        val next = !isAgentMode.value
+        viewModelScope.launch {
+            appSettings.updateAgentModeEnabled(next)
+        }
+    }
+
+    fun setAgentMode(enabled: Boolean) {
+        viewModelScope.launch {
+            appSettings.updateAgentModeEnabled(enabled)
+        }
+    }
+
+    fun approvePendingAgentStep(rememberForSession: Boolean = false) {
         val current = harnessEngine.state.value
         if (current is com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval) {
-            harnessEngine.approveStep(current.activeStep.id)
+            harnessEngine.approveStep(current.activeStep.id, rememberForSession)
         }
     }
 
@@ -958,8 +974,13 @@ class ChatViewModel @Inject constructor(
 
     fun sendChat(prompt: String) {
         val trimmedPrompt = prompt.trim()
-        if (trimmedPrompt.startsWith("/goal", ignoreCase = true)) {
-            val goal = trimmedPrompt.substringAfter("/goal").trim().removePrefix(":").trim()
+        val isExplicitGoal = trimmedPrompt.startsWith("/goal", ignoreCase = true)
+        if (isAgentMode.value || isExplicitGoal) {
+            val goal = if (isExplicitGoal) {
+                trimmedPrompt.substringAfter("/goal").trim().removePrefix(":").trim()
+            } else {
+                trimmedPrompt
+            }
             if (goal.isNotBlank()) {
                 startAgentGoal(goal)
                 return

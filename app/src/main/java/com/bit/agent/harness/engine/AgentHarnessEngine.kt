@@ -68,14 +68,25 @@ class AgentHarnessEngine @Inject constructor(
     private val pendingApprovals =
         java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<Boolean>>()
 
+    @Volatile
+    var autoApproveSession: Boolean = false
+
+    fun clearSessionApproval() {
+        autoApproveSession = false
+    }
+
     fun reset() {
         completeAllPendingOnReset()
         sessionLog.clear()
         _state.value = AgentHarnessState.Idle
     }
 
-    /** Resolves a pending approval as granted (UI calls this when user taps Approve). */
-    fun approveStep(stepId: String) {
+    /** Resolves a pending approval as granted (UI calls this when user taps Approve / Run). */
+    fun approveStep(stepId: String, rememberForSession: Boolean = false) {
+        if (rememberForSession) {
+            autoApproveSession = true
+            logger.d(TAG, "autoApproveSession enabled for this session")
+        }
         pendingApprovals.remove(stepId)?.complete(true)
             ?: logger.w(TAG, "approveStep: no pending approval for step '$stepId'")
     }
@@ -263,10 +274,29 @@ class AgentHarnessEngine @Inject constructor(
                 // Check tool approval requirement — genuinely suspend until the user decides.
                 val registeredTool = toolRegistry?.get(step.toolName)
                 val isUserQuestion = step.toolName.equals("ask_user", ignoreCase = true)
-                val requiresApproval = registeredTool?.needsApproval(step.toolArguments) == true &&
+                val isDirectAnswer = step.toolName.equals("direct_answer", ignoreCase = true) ||
+                        step.toolName.equals("direct_response", ignoreCase = true)
+                val requiresApproval = !autoApproveSession &&
+                        registeredTool?.needsApproval(step.toolArguments) == true &&
                         step.observation?.approvalState !is ToolApprovalState.Approved
 
                 var observation: ToolObservation = when {
+                    isDirectAnswer -> {
+                        val answerContent = try {
+                            val obj = JSONObject(step.toolArguments)
+                            obj.optString("answer").takeIf { it.isNotBlank() }
+                                ?: obj.optString("content").takeIf { it.isNotBlank() }
+                                ?: obj.optString("query").takeIf { it.isNotBlank() }
+                                ?: goal
+                        } catch (_: Exception) {
+                            goal
+                        }
+                        ToolObservation.success(
+                            summary = "Direct conversational answer",
+                            payload = answerContent
+                        )
+                    }
+
                     // ask_user suspends until the user types an answer in the chat UI
                     isUserQuestion -> {
                         val question = try {
@@ -644,6 +674,7 @@ class AgentHarnessEngine @Inject constructor(
 
     fun formatPlanToMarkdown(plan: TaskPlan, activeStepIndex: Int? = null): String {
         if (plan.steps.isEmpty()) return ""
+        if (plan.steps.size == 1 && plan.steps[0].toolName.equals("direct_answer", ignoreCase = true)) return ""
         return buildString {
             appendLine("### Execution Plan (DAG)")
             plan.steps.forEachIndexed { idx, step ->
@@ -661,9 +692,46 @@ class AgentHarnessEngine @Inject constructor(
         }.trimEnd()
     }
 
+    private fun isDirectConversationalQuery(lower: String): Boolean {
+        val clean = lower.trim()
+        val greetings = setOf(
+            "hi", "hello", "hey", "who are you", "what are you", "how are you",
+            "good morning", "good evening", "good afternoon", "thanks", "thank you"
+        )
+        if (clean in greetings) return true
+
+        val hasCodingOrWorkspaceCues = clean.contains("file") || clean.contains("write") || clean.contains("create") ||
+                clean.contains("run") || clean.contains("exec") || clean.contains("test") || clean.contains("build") ||
+                clean.contains("search") || clean.contains("find") || clean.contains("lookup") || clean.contains("workspace") ||
+                clean.contains("terminal") || clean.contains("bash") || clean.contains("shell") || clean.contains("script")
+
+        if (!hasCodingOrWorkspaceCues) {
+            val questionPrefixes = listOf(
+                "what is", "what are", "how does", "how do", "explain", "describe",
+                "why is", "why do", "tell me about", "can you explain", "define"
+            )
+            if (questionPrefixes.any { clean.startsWith(it) }) return true
+        }
+        return false
+    }
+
     fun decomposeGoal(goal: String, maxSteps: Int): TaskPlan {
         val lower = goal.lowercase().trim()
         val steps = mutableListOf<TaskStep>()
+
+        // 0. Direct conversational / conceptual queries that require no tools or workspace actions
+        if (isDirectConversationalQuery(lower)) {
+            steps.add(
+                TaskStep(
+                    id = "step_1_direct",
+                    description = "Direct response: ${goal.take(50)}",
+                    toolName = "direct_answer",
+                    toolArguments = JSONObject(mapOf("query" to goal)).toString(),
+                    expectedOutcome = "Direct conversational answer"
+                )
+            )
+            return TaskPlan(goal = goal, steps = steps)
+        }
 
         // 1. Pure memory requests (remember / vault)
         val isPureMemory = (lower.startsWith("remember") || lower.startsWith("save to memory") || lower.startsWith("vault remember")) &&
@@ -700,9 +768,37 @@ class AgentHarnessEngine @Inject constructor(
             return TaskPlan(goal = goal, steps = steps)
         }
 
-        // 3. General Autonomous Agent Execution:
-        // Instead of hardcoding regexes for languages or echoing commands,
-        // deploy an autonomous agent loop with access to the full tool suite.
+        val filenameRegex = Regex("""([a-zA-Z0-9_\-./]+\.(?:md|py|txt|json|kt|sh|js|html|htm|css|ts|cpp|rs|go))""", RegexOption.IGNORE_CASE)
+        val extractedFilename = filenameRegex.find(goal)?.groupValues?.get(1)?.trim()
+
+        // 3. Search and save to workspace file
+        val wantsSearchAndSave = (lower.contains("search") || lower.contains("find") || lower.contains("lookup")) &&
+                (lower.contains("save") || lower.contains("write") || lower.contains("file"))
+        if (wantsSearchAndSave) {
+            val searchQuery = extractSearchQuery(goal)
+            steps.add(
+                TaskStep(
+                    id = "step_1_search",
+                    description = "Search web for information",
+                    toolName = "web_search",
+                    toolArguments = JSONObject(mapOf("query" to searchQuery, "max_results" to 5)).toString(),
+                    expectedOutcome = "Search results returned"
+                )
+            )
+            val filename = extractedFilename ?: "summary.md"
+            steps.add(
+                TaskStep(
+                    id = "step_2_save",
+                    description = "Save findings to workspace file",
+                    toolName = "workspace_write_file",
+                    toolArguments = JSONObject(mapOf("path" to filename, "content" to "Summary for: $goal", "overwrite" to true)).toString(),
+                    expectedOutcome = "File written successfully"
+                )
+            )
+            return TaskPlan(goal = goal, steps = steps.take(maxSteps).toMutableList())
+        }
+
+        // 4. Autonomous Specialist or Shell Execution fallback:
         val needsWebResearch = Regex("""\b(search|discoveries|latest|recent|news|trends|lookup|research|find out)\b""", RegexOption.IGNORE_CASE).containsMatchIn(goal)
         if (needsWebResearch) {
             val searchQuery = extractSearchQuery(goal)
@@ -717,48 +813,61 @@ class AgentHarnessEngine @Inject constructor(
             )
         }
 
-        val filenameRegex = Regex("""([a-zA-Z0-9_\-./]+\.(?:md|py|txt|json|kt|sh|js|html|htm|css|ts|cpp|rs|go))""", RegexOption.IGNORE_CASE)
-        val extractedFilename = filenameRegex.find(goal)?.groupValues?.get(1)?.trim()
+        val hasCodingOrProjectContext = extractedFilename != null ||
+                Regex("""\b(build|develop|implement|refactor|subagent|code|python|script|test|app|pipeline)\b""", RegexOption.IGNORE_CASE).containsMatchIn(goal)
 
-        steps.add(
-            TaskStep(
-                id = if (needsWebResearch) "step_2_execute" else "step_1_execute",
-                description = "Autonomous Specialist: ${goal.take(70)}",
-                toolName = "invoke_subagent",
-                toolArguments = JSONObject(
-                    mapOf(
-                        "role" to "Autonomous Specialist",
-                        "goal" to goal,
-                        "max_steps" to 50
-                    )
-                ).toString(),
-                expectedOutcome = "Task executed and deliverables produced"
+        if (hasCodingOrProjectContext) {
+            steps.add(
+                TaskStep(
+                    id = if (needsWebResearch) "step_2_execute" else "step_1_execute",
+                    description = "Autonomous Specialist: ${goal.take(70)}",
+                    toolName = "invoke_subagent",
+                    toolArguments = JSONObject(
+                        mapOf(
+                            "role" to "Autonomous Specialist",
+                            "goal" to goal,
+                            "max_steps" to 50
+                        )
+                    ).toString(),
+                    expectedOutcome = "Task executed and deliverables produced"
+                )
             )
-        )
 
-        // If a specific output file was requested, add a verification step to confirm file presence
-        if (!extractedFilename.isNullOrBlank()) {
-            if (extractedFilename.endsWith(".py", ignoreCase = true)) {
-                steps.add(
-                    TaskStep(
-                        id = "step_verify",
-                        description = "Verify Python script: $extractedFilename",
-                        toolName = "workspace_shell",
-                        toolArguments = JSONObject(mapOf("command" to "python3 $extractedFilename")).toString(),
-                        expectedOutcome = "Script executed cleanly"
+            // If a specific output file was requested, add a verification step to confirm file presence
+            if (!extractedFilename.isNullOrBlank()) {
+                if (extractedFilename.endsWith(".py", ignoreCase = true)) {
+                    steps.add(
+                        TaskStep(
+                            id = "step_verify",
+                            description = "Verify Python script: $extractedFilename",
+                            toolName = "workspace_shell",
+                            toolArguments = JSONObject(mapOf("command" to "python3 $extractedFilename")).toString(),
+                            expectedOutcome = "Script executed cleanly"
+                        )
                     )
-                )
-            } else {
-                steps.add(
-                    TaskStep(
-                        id = "step_verify",
-                        description = "Verify file created: $extractedFilename",
-                        toolName = "workspace_read_file",
-                        toolArguments = JSONObject(mapOf("path" to extractedFilename)).toString(),
-                        expectedOutcome = "File presence and content verified"
+                } else {
+                    steps.add(
+                        TaskStep(
+                            id = "step_verify",
+                            description = "Verify file created: $extractedFilename",
+                            toolName = "workspace_read_file",
+                            toolArguments = JSONObject(mapOf("path" to extractedFilename)).toString(),
+                            expectedOutcome = "File presence and content verified"
+                        )
                     )
-                )
+                }
             }
+        } else {
+            // General task fallback for non-coding/non-search/non-memory goal
+            steps.add(
+                TaskStep(
+                    id = if (needsWebResearch) "step_2_execute" else "step_1_execute",
+                    description = "Execute task",
+                    toolName = "workspace_shell",
+                    toolArguments = JSONObject(mapOf("command" to "echo '$goal'")).toString(),
+                    expectedOutcome = "Command executed"
+                )
+            )
         }
 
         return TaskPlan(goal = goal, steps = steps.take(maxSteps).toMutableList())
@@ -823,6 +932,17 @@ class AgentHarnessEngine @Inject constructor(
     }
 
     private fun synthesizeResults(goal: String, plan: TaskPlan): String {
+        if (plan.steps.size == 1 && plan.steps[0].toolName.equals("direct_answer", ignoreCase = true)) {
+            val obs = plan.steps[0].observation
+            val payload = obs?.payload?.trim()
+            if (!payload.isNullOrBlank() && payload != "{}" && payload != goal) {
+                return payload
+            }
+            val summary = obs?.summary?.trim()
+            if (!summary.isNullOrBlank()) {
+                return summary
+            }
+        }
         return buildString {
             appendLine("### Task Execution Summary")
             appendLine()

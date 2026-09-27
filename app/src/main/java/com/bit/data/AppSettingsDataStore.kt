@@ -63,6 +63,15 @@ class AppSettingsDataStore(private val context: Context) {
         private val WEBDAV_PATH = stringPreferencesKey("webdav_path")
         private val WEBDAV_AUTO_BACKUP = booleanPreferencesKey("webdav_auto_backup")
         private val WEBDAV_AUTO_BACKUP_HOURS = androidx.datastore.preferences.core.intPreferencesKey("webdav_auto_backup_hours")
+        private val AGENT_MODE_ENABLED = booleanPreferencesKey("agent_mode_enabled")
+    }
+
+    val agentModeEnabled: Flow<Boolean> = context.appSettingsDataStore.data.map { prefs ->
+        prefs[AGENT_MODE_ENABLED] ?: true
+    }
+
+    suspend fun updateAgentModeEnabled(enabled: Boolean) {
+        context.appSettingsDataStore.edit { it[AGENT_MODE_ENABLED] = enabled }
     }
 
     val localServerEnabled: Flow<Boolean> = context.appSettingsDataStore.data.map { prefs ->

@@ -38,6 +38,7 @@ import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
@@ -169,6 +170,7 @@ internal fun BottomBar(
     val isImageModelLoaded by chatViewModel.isImageModelLoaded.collectAsStateWithLifecycle()
     val isVlmLoaded by chatViewModel.isVlmLoaded.collectAsStateWithLifecycle()
     val huggingFaceToken by chatViewModel.huggingFaceToken.collectAsStateWithLifecycle()
+    val isAgentMode by chatViewModel.isAgentMode.collectAsStateWithLifecycle()
 
     var showAttachmentSheet by remember { mutableStateOf(false) }
     var attachedImages by remember { mutableStateOf<List<Uri>>(emptyList()) }
@@ -724,6 +726,20 @@ internal fun BottomBar(
                     }
                 }
 
+                // ── Mode Switch (Agent vs Chat) ──
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp, start = 2.dp, end = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Start
+                ) {
+                    AgentChatModeToggle(
+                        isAgentMode = isAgentMode,
+                        onToggle = { chatViewModel.setAgentMode(it) }
+                    )
+                }
+
                 // ── M3 Composer (Expanded vs Collapsed Pill) ──
                 if (isSttRecording || isSttTranscribing) {
                     Row(
@@ -904,8 +920,13 @@ internal fun BottomBar(
                                 decorationBox = { innerTextField ->
                                     Box(contentAlignment = Alignment.TopStart) {
                                         if (value.isEmpty()) {
+                                            val expandedPlaceholder = if (isAgentMode) {
+                                                "Instruct autonomous agent or enter / for skills..."
+                                            } else {
+                                                "Ask me anything or enter / for skills..."
+                                            }
                                             Text(
-                                                text = "Ask me anything or enter / for skills...",
+                                                text = expandedPlaceholder,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 style = MaterialTheme.typography.bodyLarge
                                             )
@@ -1017,7 +1038,8 @@ internal fun BottomBar(
                                             val placeholder = when {
                                                 isImageModelLoaded && !isTextModelLoaded -> "Describe the image to generate..."
                                                 isImageModelLoaded && chatState.generationType == ModelType.IMAGE_GENERATION -> "Describe the image to generate..."
-                                                else -> "Ask me anything"
+                                                isAgentMode -> "Instruct agent (autonomous DAG execution)..."
+                                                else -> "Ask me anything..."
                                             }
                                             Text(
                                                 text = placeholder,
@@ -1498,4 +1520,80 @@ private fun AttachmentRow(
         }
     }
 }
+
+@Composable
+fun AgentChatModeToggle(
+    isAgentMode: Boolean,
+    onToggle: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val haptics = com.bit.ui.theme.LocalBitHaptics.current
+    Surface(
+        shape = RoundedCornerShape(Standards.RadiusFull),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        ),
+        modifier = modifier.height(28.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Agent Pill
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(Standards.RadiusFull))
+                    .background(
+                        if (isAgentMode) MaterialTheme.colorScheme.primaryContainer
+                        else Color.Transparent
+                    )
+                    .clickable {
+                        if (!isAgentMode) {
+                            haptics.selection()
+                            onToggle(true)
+                        }
+                    }
+                    .padding(horizontal = 10.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Agent",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = if (isAgentMode) FontWeight.Bold else FontWeight.Medium,
+                    color = if (isAgentMode) MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // Chat Pill
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(Standards.RadiusFull))
+                    .background(
+                        if (!isAgentMode) MaterialTheme.colorScheme.secondaryContainer
+                        else Color.Transparent
+                    )
+                    .clickable {
+                        if (isAgentMode) {
+                            haptics.selection()
+                            onToggle(false)
+                        }
+                    }
+                    .padding(horizontal = 10.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Chat",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = if (!isAgentMode) FontWeight.Bold else FontWeight.Medium,
+                    color = if (!isAgentMode) MaterialTheme.colorScheme.onSecondaryContainer
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
 

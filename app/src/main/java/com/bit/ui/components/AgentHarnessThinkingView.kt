@@ -190,18 +190,43 @@ fun AgentHarnessThinkingView(
 
 /**
  * Human-in-the-loop approval card shown when a harness step requires user consent.
- * Renders the pending tool name, description and argument preview with Approve / Deny actions.
+ * Renders the pending tool name, description, shell command preview, and session trust option.
  */
 @Composable
 fun AgentApprovalCard(
     toolName: String,
     description: String,
     toolArguments: String,
-    onApprove: () -> Unit,
+    onApprove: (rememberForSession: Boolean) -> Unit,
     onDeny: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val haptics = LocalBitHaptics.current
+    var rememberForSession by remember { mutableStateOf(false) }
+
+    val commandPreview = remember(toolName, toolArguments) {
+        try {
+            val obj = org.json.JSONObject(toolArguments)
+            when {
+                toolName.contains("shell", ignoreCase = true) -> {
+                    obj.optString("command").ifBlank { null }
+                }
+                toolName.contains("skill", ignoreCase = true) -> {
+                    val cmd = obj.optString("command")
+                    val script = obj.optString("script").ifBlank { obj.optString("path") }
+                    val args = obj.optString("args")
+                    when {
+                        cmd.isNotBlank() -> if (args.isNotBlank()) "$cmd $args" else cmd
+                        script.isNotBlank() -> if (args.isNotBlank()) "$script $args" else script
+                        else -> null
+                    }
+                }
+                else -> null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     Surface(
         modifier = modifier
@@ -225,13 +250,13 @@ fun AgentApprovalCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Filled.CheckCircle,
+                    imageVector = if (commandPreview != null) TnIcons.Terminal else Icons.Filled.CheckCircle,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(18.dp)
                 )
                 Text(
-                    text = "Approval Required",
+                    text = if (commandPreview != null) "Workspace Execution Approval" else "Approval Required",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -239,7 +264,7 @@ fun AgentApprovalCard(
             }
 
             Text(
-                text = description.ifBlank { "Agent wants to execute a restricted action." },
+                text = description.ifBlank { "Agent requests execution authorization." },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
             )
@@ -251,7 +276,35 @@ fun AgentApprovalCard(
                 color = MaterialTheme.colorScheme.primary
             )
 
-            if (toolArguments.isNotBlank() && toolArguments != "{}") {
+            if (commandPreview != null) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Command Preview",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFF1E1E1E))
+                            .padding(8.dp)
+                    ) {
+                        Text(
+                            text = "$ $commandPreview",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                                color = Color(0xFF4AF626)
+                            ),
+                            maxLines = 6,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            } else if (toolArguments.isNotBlank() && toolArguments != "{}") {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -273,6 +326,26 @@ fun AgentApprovalCard(
                 }
             }
 
+            // Always allow for this session checkbox
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { rememberForSession = !rememberForSession }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Checkbox(
+                    checked = rememberForSession,
+                    onCheckedChange = { rememberForSession = it }
+                )
+                Text(
+                    text = "Always allow for this session",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
@@ -284,20 +357,37 @@ fun AgentApprovalCard(
                         onDeny()
                     }
                 ) {
-                    Text("Deny")
+                    Text("Cancel")
                 }
                 Button(
                     onClick = {
                         haptics.success()
-                        onApprove()
+                        onApprove(rememberForSession)
                     }
                 ) {
-                    Text("Approve")
+                    Text(if (commandPreview != null) "Run Command" else "Approve")
                 }
             }
         }
     }
 }
+
+@Composable
+fun AgentApprovalCard(
+    toolName: String,
+    description: String,
+    toolArguments: String,
+    onApprove: () -> Unit,
+    onDeny: () -> Unit,
+    modifier: Modifier = Modifier
+) = AgentApprovalCard(
+    toolName = toolName,
+    description = description,
+    toolArguments = toolArguments,
+    onApprove = { _ -> onApprove() },
+    onDeny = onDeny,
+    modifier = modifier
+)
 
 /**
  * Human-in-the-loop question card for the ask_user tool.

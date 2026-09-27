@@ -62,6 +62,29 @@ class UseSkillTool(
         )
     )
 
+    override fun needsApproval(argumentsJson: String): Boolean {
+        if (argumentsJson.isBlank()) return false
+        return try {
+            val args = JSONObject(argumentsJson)
+            val hasExplicitExec = args.optString("command").isNotBlank() ||
+                    args.optString("script").isNotBlank() ||
+                    args.optString("path").isNotBlank()
+            if (hasExplicitExec) return true
+
+            val skillName = args.optString("name").trim().lowercase()
+            if (skillName.isNotEmpty()) {
+                val manager = skillManager ?: context?.let { com.bit.skills.SkillManager.getInstance(it) }
+                val matched = manager?.findSkill(skillName)
+                if (matched?.isExecutable == true && !matched.scriptPath.isNullOrBlank()) {
+                    return true
+                }
+            }
+            false
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     override suspend fun execute(argumentsJson: String): ToolObservation {
         val startTime = System.currentTimeMillis()
         return try {

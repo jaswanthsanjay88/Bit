@@ -155,12 +155,8 @@ class LlmGoalPlanner(
     }
 
     private fun buildSlmPlanningPrompt(goal: String): String {
-        val toolNames = toolRegistry?.names().orEmpty()
-        val toolList = if (toolNames.isEmpty()) {
-            "web_search, workspace_write_file, workspace_shell, workspace_read_file, create_memory_file, invoke_subagent"
-        } else {
-            toolNames.joinToString(", ")
-        }
+        val toolNames = (toolRegistry?.names().orEmpty() + "direct_answer").distinct()
+        val toolList = toolNames.joinToString(", ")
         return buildString {
             appendLine("Decompose this user task into actionable tool steps.")
             appendLine("Allowed tools: [$toolList]")
@@ -176,6 +172,11 @@ class LlmGoalPlanner(
   }
 ]""")
             appendLine("No markdown fences, no conversational prose, only the raw JSON array.")
+            appendLine()
+            appendLine("PLANNING RULES:")
+            appendLine("- If the user goal is a direct conversational question, concept explanation (e.g. 'explain recursion', 'what is an interface?'), or greeting requiring no tools, return a single step with 'toolName': 'direct_answer', arguments: {'query': '$goal'}, and expectedOutcome: 'Direct conversational answer'.")
+            appendLine("- For research, facts, or external info, use 'web_search'.")
+            appendLine("- For coding, building files, or multi-step execution, use 'workspace_write_file', 'workspace_shell', or 'invoke_subagent'.")
             appendLine()
             appendLine("User Goal: $goal")
         }
@@ -216,12 +217,8 @@ class LlmGoalPlanner(
     }
 
     private fun buildPlanningPrompt(goal: String): String {
-        val toolNames = toolRegistry?.names().orEmpty()
-        val toolList = if (toolNames.isEmpty()) {
-            "web_search, workspace_write_file, workspace_shell, workspace_read_file, create_memory_file, invoke_subagent"
-        } else {
-            toolNames.joinToString(", ")
-        }
+        val toolNames = (toolRegistry?.names().orEmpty() + "direct_answer").distinct()
+        val toolList = toolNames.joinToString(", ")
         return buildString {
             appendLine("You are an autonomous agent planner. Decompose the user goal into a DAG of actionable steps using the allowed tools.")
             appendLine("Allowed tools: [$toolList]")
@@ -233,9 +230,9 @@ class LlmGoalPlanner(
     "description": "Short description of the step",
     "toolName": "<tool name from allowed tools>",
     "arguments": {
+      "query": "query string or question",
       "path": "filename.html",
       "content": "concise initial content or template",
-      "query": "search query keywords",
       "command": "sh command to run",
       "role": "Web Engineer",
       "goal": "autonomous subagent mission instructions"
@@ -245,6 +242,7 @@ class LlmGoalPlanner(
 ]""")
             appendLine()
             appendLine("PLANNING GUIDELINES:")
+            appendLine("- If the user goal is a conceptual explanation, direct conversational question, general inquiry, or greeting that requires no file modifications, PRoot shell execution, or web search, emit a 1-step plan with 'toolName': 'direct_answer', arguments: {'query': '$goal'}, and expectedOutcome: 'Direct conversational answer'.")
             appendLine("- For research, facts, discoveries, or current information, start with 'web_search'.")
             appendLine("- For coding, building web pages, writing software, or creative workspace tasks, delegate to 'invoke_subagent' with a descriptive 'role' and comprehensive 'goal', OR write directly with 'workspace_write_file'.")
             appendLine("- Subagents launched via 'invoke_subagent' operate autonomously in the workspace with access to all tools (read/write/edit/shell) and automatically receive prior research findings.")

@@ -33,13 +33,24 @@ class HarnessSynthesizer(
     }
 
     suspend fun synthesize(goal: String, plan: TaskPlan): String? {
+        val isDirectAnswer = plan.steps.size == 1 &&
+                plan.steps.first().toolName.equals("direct_answer", ignoreCase = true)
+
+        if (isDirectAnswer) {
+            val existing = plan.steps.first().observation?.payload?.trim()
+            if (!existing.isNullOrBlank() && existing.length > 80 && !existing.startsWith("{") && existing != goal) {
+                return existing
+            }
+        }
+
         return try {
-            val userContent = buildSynthesisInput(goal, plan)
+            val systemPrompt = if (isDirectAnswer) buildDirectAnswerPrompt() else buildSynthesisPrompt()
+            val userContent = if (isDirectAnswer) buildDirectAnswerInput(goal, plan) else buildSynthesisInput(goal, plan)
             if (userContent.isBlank()) return null
 
             // 1. Local GGUF model if loaded
             if (LlmModelWorker.isGgufModelLoaded.value) {
-                val fromLocal = runLocal(userContent)
+                val fromLocal = runLocal(systemPrompt, userContent)
                 if (!fromLocal.isNullOrBlank()) {
                     logger.d(TAG, "Synthesis produced via local GGUF (${fromLocal.length} chars)")
                     return fromLocal
@@ -49,7 +60,7 @@ class HarnessSynthesizer(
             // 2. Remote API provider
             val cfg = resolveInferenceConfig()
             if (cfg != null) {
-                val fromRemote = runRemote(cfg, userContent)
+                val fromRemote = runRemote(cfg, systemPrompt, userContent)
                 if (!fromRemote.isNullOrBlank()) {
                     logger.d(TAG, "Synthesis produced via remote API (${fromRemote.length} chars)")
                     return fromRemote
@@ -59,6 +70,25 @@ class HarnessSynthesizer(
         } catch (e: Exception) {
             logger.w(TAG, "Synthesis failed: ${e.message}")
             null
+        }
+    }
+
+    private fun buildDirectAnswerPrompt(): String {
+        return buildString {
+            appendLine("You are an expert, direct, and helpful AI assistant.")
+            appendLine("Provide a thorough, comprehensive, and clear response to the user's question in clean markdown.")
+            appendLine("Do NOT mention any steps, plans, tools, subagents, or execution machinery. Speak directly to the user.")
+        }
+    }
+
+    private fun buildDirectAnswerInput(goal: String, plan: TaskPlan): String {
+        val step = plan.steps.firstOrNull()
+        val obs = step?.observation
+        val payload = obs?.payload?.takeIf { it.isNotBlank() && it != goal }
+        return if (!payload.isNullOrBlank()) {
+            "Question: $goal\n\nReference details:\n$payload"
+        } else {
+            goal
         }
     }
 
@@ -154,12 +184,12 @@ class HarnessSynthesizer(
         return InferenceSetup(provider, config)
     }
 
-    private suspend fun runLocal(userContent: String): String? {
+    private suspend fun runLocal(systemPrompt: String, userContent: String): String? {
         return try {
             val messages = org.json.JSONArray().apply {
                 put(JSONObject().apply {
                     put("role", "system")
-                    put("content", buildSynthesisPrompt())
+                    put("content", systemPrompt)
                 })
                 put(JSONObject().apply {
                     put("role", "user")
@@ -180,10 +210,15 @@ class HarnessSynthesizer(
         }
     }
 
-    private suspend fun runRemote(setup: InferenceSetup, userContent: String): String? {
+    private suspend fun runRemote(setup: InferenceSetup, systemPrompt: String, userContent: String): String? {
         return try {
+            val combinedPrompt = if (systemPrompt.isNotBlank()) {
+                "$systemPrompt\n\n$userContent"
+            } else {
+                userContent
+            }
             val messages = listOf(
-                ChatMessage(text = userContent, participant = Participant.USER)
+                ChatMessage(text = combinedPrompt, participant = Participant.USER)
             )
             val builder = StringBuilder()
             setup.provider.generateResponse(messages, setup.config).collect { event ->

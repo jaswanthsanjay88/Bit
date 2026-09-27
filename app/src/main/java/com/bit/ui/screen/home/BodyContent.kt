@@ -497,7 +497,9 @@ fun BodyContent(
                                         toolName = approval.toolName,
                                         description = approval.activeStep.description,
                                         toolArguments = approval.toolArguments,
-                                        onApprove = { chatViewModel.approvePendingAgentStep() },
+                                        onApprove = { rememberSession ->
+                                            chatViewModel.approvePendingAgentStep(rememberForSession = rememberSession)
+                                        },
                                         onDeny = { chatViewModel.denyPendingAgentStep() }
                                     )
                                 }
