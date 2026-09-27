@@ -48,14 +48,15 @@ class DiscoveryReplayWorld(val tree: DiscoveryTree) {
                     )
                 } else {
                     // Out of distribution / unobserved branch in historical trace:
-                    // Provide a conservative fallback estimation based on tree baseline
-                    val baselineScore = tree.nodes.values.map { it.score }.average().coerceAtLeast(0.0)
+                    // Terminate trajectory without fabricating reward. Score using the best already-visited node.
+                    val bestSoFar = visitedNodeIds.mapNotNull { tree.getNode(it) }.maxByOrNull { it.score }
+                        ?: tree.getBestNode()
                     ReplayTransition(
-                        node = null,
-                        reward = baselineScore * 0.5,
-                        isTerminal = false,
+                        node = bestSoFar,
+                        reward = bestSoFar?.score ?: 0.0,
+                        isTerminal = true,
                         isCacheHit = false,
-                        diagnostics = "Simulated unobserved branch action"
+                        diagnostics = "Terminated: requested branch variant ${decision.variantIndex} outside recorded support"
                     )
                 }
             }
@@ -76,15 +77,17 @@ class DiscoveryReplayWorld(val tree: DiscoveryTree) {
                         diagnostics = unvisitedChild.diagnostics
                     )
                 } else {
-                    // Slight penalty if policy tries to refine without historical continuation
-                    val baseNode = tree.getNode(decision.baseNodeId)
-                    val fallbackScore = (baseNode?.score ?: 0.0) * 0.8
+                    // Out of distribution / unobserved refinement in historical trace:
+                    // Terminate trajectory without fabricating reward. Score using best already-visited node.
+                    val bestSoFar = visitedNodeIds.mapNotNull { tree.getNode(it) }.maxByOrNull { it.score }
+                        ?: tree.getNode(decision.baseNodeId)
+                        ?: tree.getBestNode()
                     ReplayTransition(
-                        node = null,
-                        reward = fallbackScore,
-                        isTerminal = false,
+                        node = bestSoFar,
+                        reward = bestSoFar?.score ?: 0.0,
+                        isTerminal = true,
                         isCacheHit = false,
-                        diagnostics = "No recorded historical refinement child for node ${decision.baseNodeId}"
+                        diagnostics = "Terminated: no recorded historical refinement child for node ${decision.baseNodeId}"
                     )
                 }
             }

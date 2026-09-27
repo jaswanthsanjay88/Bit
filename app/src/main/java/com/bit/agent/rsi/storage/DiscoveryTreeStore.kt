@@ -21,9 +21,11 @@ interface DiscoveryTreeStore {
     suspend fun saveTree(tree: DiscoveryTree)
     suspend fun getTree(treeId: String): DiscoveryTree?
     suspend fun listTrees(limit: Int = 100): List<DiscoveryTree>
+    suspend fun listTreesByDomain(domain: String, limit: Int = 100): List<DiscoveryTree>
     suspend fun deleteTree(treeId: String): Boolean
     suspend fun getTreeCount(): Int
     suspend fun prune(keepMax: Int = 200)
+    suspend fun prunePerDomain(keepMaxPerDomain: Int = 200)
 }
 
 class FileDiscoveryTreeStore(
@@ -97,6 +99,11 @@ class FileDiscoveryTreeStore(
         }
     }
 
+    override suspend fun listTreesByDomain(domain: String, limit: Int): List<DiscoveryTree> = withContext(Dispatchers.IO) {
+        val all = listTrees(limit = 1000)
+        all.filter { it.taskDomain.equals(domain, ignoreCase = true) }.take(limit)
+    }
+
     override suspend fun deleteTree(treeId: String): Boolean = withContext(Dispatchers.IO) {
         rwLock.write {
             try {
@@ -116,23 +123,40 @@ class FileDiscoveryTreeStore(
         }
     }
 
-    override suspend fun prune(keepMax: Int): Unit = withContext(Dispatchers.IO) {
+    override suspend fun prunePerDomain(keepMaxPerDomain: Int): Unit = withContext(Dispatchers.IO) {
         rwLock.write {
             try {
                 val files = storageDir.listFiles { _, name -> name.endsWith(".json") } ?: return@write
-                if (files.size > keepMax) {
-                    val sorted = files.sortedBy { it.lastModified() }
-                    val toDeleteCount = files.size - keepMax
-                    for (i in 0 until toDeleteCount) {
-                        sorted[i].delete()
+                val treesWithFiles = files.mapNotNull { file ->
+                    try {
+                        val jsonStr = file.readText(Charsets.UTF_8)
+                        val tree = DiscoveryTree.fromJson(JSONObject(jsonStr))
+                        file to tree
+                    } catch (_: Exception) {
+                        null
                     }
-                    Log.i(TAG, "Pruned $toDeleteCount discovery trees from storage")
+                }
+
+                val byDomain = treesWithFiles.groupBy { it.second.taskDomain.lowercase() }
+                for ((domain, domainEntries) in byDomain) {
+                    if (domainEntries.size > keepMaxPerDomain) {
+                        val sorted = domainEntries.sortedBy { it.first.lastModified() }
+                        val toDeleteCount = domainEntries.size - keepMaxPerDomain
+                        for (i in 0 until toDeleteCount) {
+                            sorted[i].first.delete()
+                        }
+                        Log.i(TAG, "Pruned $toDeleteCount discovery trees for domain '$domain'")
+                    }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error pruning discovery trees", e)
+                Log.e(TAG, "Error pruning discovery trees per domain", e)
             }
         }
         Unit
+    }
+
+    override suspend fun prune(keepMax: Int): Unit = withContext(Dispatchers.IO) {
+        prunePerDomain(keepMaxPerDomain = keepMax)
     }
 
     companion object {

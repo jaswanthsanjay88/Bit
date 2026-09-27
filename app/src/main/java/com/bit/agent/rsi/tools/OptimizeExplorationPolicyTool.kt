@@ -25,6 +25,10 @@ class OptimizeExplorationPolicyTool(
             description = "Run offline Dream-RSI policy dreaming over historical discovery traces at zero LLM inference cost to optimize exploration width and repair depth.",
             parameters = ToolParameters(
                 properties = mapOf(
+                    "domain" to ToolProperty(
+                        type = "string",
+                        description = "Optional task domain to optimize (e.g. 'coding', 'research', 'math', or leave blank for all)."
+                    ),
                     "max_traces" to ToolProperty(
                         type = "integer",
                         description = "Maximum number of historical discovery episodes to replay (default 50, max 100)."
@@ -45,13 +49,15 @@ class OptimizeExplorationPolicyTool(
 
         return try {
             val args = try { JSONObject(argumentsJson) } catch (_: Exception) { JSONObject() }
+            val domain = args.optString("domain", "").trim().takeIf { it.isNotBlank() }
             val maxTraces = args.optInt("max_traces", 50).coerceIn(5, 100)
 
-            val result = optimizer.optimize(maxTreesToSample = maxTraces)
+            val result = optimizer.optimize(domain = domain, maxTreesToSample = maxTraces)
 
             val summaryText = buildString {
                 appendLine("### Offline Dreaming Optimization Complete")
-                appendLine("- Winning Policy: **${result.bestPolicyName}**")
+                appendLine("- Target Domain: **${domain ?: "Global"}**")
+                appendLine("- Policy Status: **${result.bestPolicyName}**")
                 appendLine("- Policies Evaluated: ${result.totalPoliciesSimulated}")
                 appendLine("- Historical Episodes Replayed: ${result.totalEpisodesReplayed}")
                 appendLine("- Mean Score: ${"%.2f".format(result.bestReport.meanScore)}")
@@ -59,7 +65,7 @@ class OptimizeExplorationPolicyTool(
                 appendLine("- Average Turns: ${"%.1f".format(result.bestReport.meanTurns)}")
                 appendLine("- Efficiency Ratio: ${"%.2f".format(result.bestReport.efficiencyRatio)}")
                 appendLine()
-                appendLine("The newly optimized hyperparameters (Width=${result.initialWidth}, Depth=${result.maxRepairDepth}, Threshold=${result.successThreshold}) have been deployed as the active exploration policy.")
+                appendLine("Active Hyperparameters: Width=${result.initialWidth}, Depth=${result.maxRepairDepth}, Threshold=${String.format("%.2f", result.successThreshold)}")
             }
 
             ToolObservation.success(

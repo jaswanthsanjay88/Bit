@@ -130,9 +130,16 @@ class AgentHarnessEngine @Inject constructor(
         val turnId = java.util.UUID.randomUUID().toString()
         sessionLog.append(com.bit.agent.harness.model.HarnessSessionEvent.TurnStart(turnId = turnId, goal = goal))
 
+        val detectedDomain = when {
+            Regex("""\b(python|script|code|build|compile|test|bug|fix|function|class|dag|sh|bash|git|file)\b""", RegexOption.IGNORE_CASE).containsMatchIn(goal) -> "coding"
+            Regex("""\b(search|research|find|lookup|who is|what is|why|news|trends|paper|arxiv)\b""", RegexOption.IGNORE_CASE).containsMatchIn(goal) -> "research"
+            Regex("""\b(calculate|math|prime|fibonacci|equation|formula|matrix)\b""", RegexOption.IGNORE_CASE).containsMatchIn(goal) -> "math"
+            else -> "general"
+        }
+
         discoveryRecorder?.startSession(
             taskDescription = goal,
-            taskDomain = "agent_harness",
+            taskDomain = detectedDomain,
             metadata = mapOf(
                 "turnId" to turnId,
                 "maxSteps" to maxSteps.toString(),
