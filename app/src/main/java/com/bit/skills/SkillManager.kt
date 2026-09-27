@@ -67,10 +67,26 @@ class SkillManager @Inject constructor(
             Skill(
                 id = "skill-web-search",
                 name = "Web Search & Scraping",
-                description = "Searches the live web via DuckDuckGo and scrapes clean markdown text.",
-                instructions = "You have access to web search capabilities. Always verify factual claims before answering.",
+                description = "Searches the live web via DuckDuckGo and automatically fetches top result pages into clean markdown.",
+                instructions = """
+                    When you need current information, follow this exact sequence — do not skip steps:
+
+                    1. Call web_search with a concise query (2-6 words). If the user's request is vague (e.g. "latest news", "what's happening"), rewrite it into something a search engine can actually answer — add a topic, region, or category (e.g. "India news today", "technology news this week") rather than passing the vague phrase through.
+
+                    2. From the web_search results, select the top 2-3 URLs that are NOT generic homepages (skip bare domains like cnn.com or bbc.co.uk/news — prefer specific article/story URLs with dated slugs or headlines in the path).
+
+                    3. Call web_fetch (fetch_page) on each selected URL to get the actual article content. Do this even if the search snippet looks sufficient — snippets are too short to answer from reliably.
+
+                    4. Only after fetch_page returns real content, write your answer using that content. Cite which source each fact came from.
+
+                    5. If web_search returns only homepage-level results with no specific articles, say so explicitly to the user rather than presenting homepage links as "the latest news." Do not fabricate headlines, dates, or facts under any circumstance.
+
+                    6. If web_search or web_fetch returns empty, an error, or a CAPTCHA/anomaly page, report the search failed — never fill the gap from memory.
+                """.trimIndent(),
                 icon = "search",
-                skillType = SkillType.INSTRUCTIONAL,
+                skillType = SkillType.TOOL,
+                tools = listOf("web_search", "web_fetch", "fetch_page"),
+                requiredPermissions = listOf("INTERNET"),
                 enabled = true,
                 isBuiltIn = true
             ),
@@ -200,6 +216,14 @@ class SkillManager @Inject constructor(
                         if (perm.isNotBlank()) requiredPermissions.add(perm)
                     }
                 }
+                val toolsJson = obj.optJSONArray("tools")
+                val tools = mutableListOf<String>()
+                if (toolsJson != null) {
+                    for (t in 0 until toolsJson.length()) {
+                        val tn = toolsJson.optString(t)
+                        if (tn.isNotBlank()) tools.add(tn)
+                    }
+                }
 
                 list.add(
                     Skill(
@@ -211,6 +235,7 @@ class SkillManager @Inject constructor(
                         skillType = skillType,
                         requiresWorkspace = requiresWorkspace,
                         requiredPermissions = requiredPermissions,
+                        tools = tools,
                         scriptPath = scriptPath,
                         enabled = obj.optBoolean("enabled", true),
                         isBuiltIn = obj.optBoolean("isBuiltIn", false),
@@ -218,12 +243,24 @@ class SkillManager @Inject constructor(
                     )
                 )
             }
-            // Auto-merge any default built-in skills that don't exist yet in the saved list
+            // Auto-merge any default built-in skills that don't exist yet in the saved list or update them
             val existingIds = list.map { it.id }.toSet()
             val existingSlugs = list.map { getSkillSlug(it) }.toSet()
             var addedAny = false
             for (defaultSkill in DEFAULT_BUILTIN_SKILLS) {
-                if (defaultSkill.id !in existingIds && getSkillSlug(defaultSkill) !in existingSlugs) {
+                val index = list.indexOfFirst { it.id == defaultSkill.id }
+                if (index != -1) {
+                    val existing = list[index]
+                    if (existing.isBuiltIn && (existing.instructions != defaultSkill.instructions || existing.skillType != defaultSkill.skillType || existing.tools != defaultSkill.tools)) {
+                        list[index] = existing.copy(
+                            instructions = defaultSkill.instructions,
+                            description = defaultSkill.description,
+                            skillType = defaultSkill.skillType,
+                            tools = defaultSkill.tools
+                        )
+                        addedAny = true
+                    }
+                } else if (getSkillSlug(defaultSkill) !in existingSlugs) {
                     list.add(defaultSkill)
                     addedAny = true
                 }
@@ -251,6 +288,7 @@ class SkillManager @Inject constructor(
                     put("skillType", s.skillType.name)
                     put("requiresWorkspace", s.requiresWorkspace)
                     put("requiredPermissions", JSONArray(s.requiredPermissions))
+                    put("tools", JSONArray(s.tools))
                     if (s.scriptPath != null) {
                         put("scriptPath", s.scriptPath)
                     }

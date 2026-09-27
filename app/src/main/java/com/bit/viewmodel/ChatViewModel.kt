@@ -1664,6 +1664,7 @@ class ChatViewModel @Inject constructor(
             finalPostpend = finalPostpend.replace(key, value)
         }
 
+        AppStateManager.activeUserPrompt = prompt
         var finalPrompt = prompt
         val trimmed = prompt.trim()
         val activeSkillsContext = resolveActiveSkillsPrompt(trimmed)
@@ -1843,6 +1844,76 @@ class ChatViewModel @Inject constructor(
                         userMessageAdded.set(true)
                     }
                     _messages.add(pluginMessage)
+                }
+
+                // Forced follow-up fetch gate: When web_search executes, enforce follow-up web_fetch on candidate URLs
+                val isSearchExecution = normalizedName in listOf("web_search", "search_web") || isSearchResultJson(toolResult.resultJson)
+                if (isSearchExecution && isSuccess) {
+                    val candidateUrls = extractCandidateUrlsFromSearchResult(toolResult)
+                    for (targetUrl in candidateUrls) {
+                        val fetchKey = "web_fetch:${targetUrl.hashCode()}"
+                        if (seenCalls.getOrDefault(fetchKey, 0) < maxToolCallRepeats) {
+                            seenCalls[fetchKey] = 1
+                            AppStateManager.setExecutingPlugin("Web Search", "web_fetch")
+                            val fetchStartTime = System.currentTimeMillis()
+                            val fetchArgsObj = JSONObject().put("url", targetUrl)
+                            val fetchCall = ToolCall(name = "web_fetch", arguments = fetchArgsObj)
+                            val fetchResult = PluginManager.executeToolForMultiTurn(fetchCall, context = appContext, callId = fetchKey)
+                            val fetchExecTime = System.currentTimeMillis() - fetchStartTime
+
+                            val fetchSuccess = !fetchResult.isError
+                            AppStateManager.setPluginExecutionComplete(
+                                pluginName = fetchResult.pluginName,
+                                toolName = "web_fetch",
+                                success = fetchSuccess,
+                                executionTimeMs = fetchExecTime,
+                                errorMessage = if (fetchSuccess) null else fetchResult.resultJson
+                            )
+
+                            val fetchStep = ToolChainStepData(
+                                round = steps.size + 1,
+                                toolName = "web_fetch",
+                                pluginName = fetchResult.pluginName,
+                                args = fetchArgsObj.toString(),
+                                result = fetchResult.resultJson,
+                                executionTimeMs = fetchExecTime,
+                                success = fetchSuccess
+                            )
+                            steps.add(fetchStep)
+                            _toolChainSteps.value = steps.toList()
+
+                            if (fetchResult.rawData != null) {
+                                val fetchResultData = PluginResultData(
+                                    pluginName = fetchResult.pluginName,
+                                    toolName = "web_fetch",
+                                    inputParams = fetchArgsObj.toString(),
+                                    resultData = fetchResult.resultJson,
+                                    success = fetchSuccess
+                                )
+                                val fetchPluginMessage = Messages(
+                                    role = Role.Assistant,
+                                    content = MessageContent(
+                                        contentType = ContentType.PluginResult,
+                                        content = "Plugin '${fetchResult.pluginName}' executed tool 'web_fetch'",
+                                        pluginResultData = fetchResultData
+                                    ),
+                                    modelId = currentModelId,
+                                    pluginMetrics = PluginExecutionMetrics(
+                                        pluginName = fetchResult.pluginName,
+                                        toolName = "web_fetch",
+                                        executionTimeMs = fetchExecTime,
+                                        success = fetchSuccess
+                                    )
+                                )
+                                val pendingUserMsg = currentUserMessage
+                                if (!userMessageAdded.get() && pendingUserMsg != null) {
+                                    _messages.add(pendingUserMsg)
+                                    userMessageAdded.set(true)
+                                }
+                                _messages.add(fetchPluginMessage)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -2034,6 +2105,50 @@ class ChatViewModel @Inject constructor(
         }
 
         return sanitizeRoleAlternation(result)
+    }
+
+    private fun isGenericHomepage(url: String): Boolean {
+        return try {
+            val path = java.net.URL(url).path
+            path.isBlank() || path == "/" || path.split("/").count { it.isNotBlank() } <= 1
+        } catch (_: Exception) {
+            true
+        }
+    }
+
+    private fun isSearchResultJson(jsonStr: String): Boolean {
+        return try {
+            val json = JSONObject(jsonStr)
+            json.optString("type") == "web_search" || json.has("results") || json.has("totalResults")
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun extractCandidateUrlsFromSearchResult(toolResult: com.bit.plugins.MultiTurnToolResult): List<String> {
+        val extractedUrls = mutableListOf<String>()
+        val raw = toolResult.rawData
+        if (raw is com.bit.plugins.WebSearchResponse) {
+            extractedUrls.addAll(raw.results.map { it.url })
+        } else {
+            try {
+                val json = JSONObject(toolResult.resultJson)
+                val resultsArr = json.optJSONArray("results")
+                if (resultsArr != null) {
+                    for (i in 0 until resultsArr.length()) {
+                        val u = resultsArr.optJSONObject(i)?.optString("url").orEmpty()
+                        if (u.isNotBlank()) extractedUrls.add(u)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        val nonGeneric = extractedUrls.filterNot { isGenericHomepage(it) }
+        return if (nonGeneric.isNotEmpty()) {
+            nonGeneric.take(2)
+        } else {
+            extractedUrls.take(2)
+        }
     }
 
     private suspend fun generateRemoteUnified(

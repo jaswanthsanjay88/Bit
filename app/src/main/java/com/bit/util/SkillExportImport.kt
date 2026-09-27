@@ -52,6 +52,7 @@ object SkillExportImport {
                 put("skillType", skill.skillType.name)
                 put("requiresWorkspace", skill.requiresWorkspace)
                 put("requiredPermissions", org.json.JSONArray(skill.requiredPermissions))
+                put("tools", org.json.JSONArray(skill.tools))
                 if (skill.scriptPath != null) {
                     put("scriptPath", skill.scriptPath)
                 }
@@ -146,15 +147,37 @@ object SkillExportImport {
                 }
             }
 
+            val toolsJson = skillObj.optJSONArray("tools")
+            val tools = mutableListOf<String>()
+            if (toolsJson != null) {
+                for (t in 0 until toolsJson.length()) {
+                    val item = toolsJson.opt(t)
+                    when (item) {
+                        is String -> if (item.isNotBlank()) tools.add(item.trim())
+                        is JSONObject -> {
+                            val toolName = item.optString("name", "").trim()
+                            if (toolName.isNotBlank()) tools.add(toolName)
+                        }
+                    }
+                }
+            }
+
+            val effectiveSkillType = if (tools.isNotEmpty() && skillType == com.bit.models.SkillType.INSTRUCTIONAL) {
+                com.bit.models.SkillType.TOOL
+            } else {
+                skillType
+            }
+
             ImportResult.Success(
                 Skill(
                     name = name,
                     description = desc,
                     icon = icon,
                     instructions = instructions,
-                    skillType = skillType,
+                    skillType = effectiveSkillType,
                     requiresWorkspace = requiresWorkspace,
                     requiredPermissions = requiredPermissions,
+                    tools = tools,
                     scriptPath = scriptPath,
                     enabled = true,
                     isBuiltIn = false

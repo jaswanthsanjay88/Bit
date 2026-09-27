@@ -166,6 +166,31 @@ class SkillPlugin(
             val timeoutSec = args.optLong("timeout_sec", 30L).coerceIn(1L, 600L)
 
             val targetSkill = activatedSkills.firstOrNull()
+
+            // If target skill binds to native tools (e.g. web search), handle direct query or delegation
+            if (targetSkill?.tools?.contains("web_search") == true) {
+                val explicitQuery = command.ifBlank { scriptArgs }
+                    .ifBlank { args.optString("query") }
+                    .ifBlank { args.optString("q") }
+                    .ifBlank { args.optString("prompt") }
+                    .ifBlank { args.optString("text") }
+                val searchQuery = explicitQuery.ifBlank {
+                    com.bit.state.AppStateManager.activeUserPrompt
+                        ?.replace(Regex("""/[a-zA-Z0-9_-]+"""), "")
+                        ?.trim()
+                        .orEmpty()
+                }
+                if (searchQuery.isNotBlank()) {
+                    val searchCall = ToolCall(name = "web_search", arguments = JSONObject().put("query", searchQuery))
+                    val searchResult = PluginManager.executeToolForMultiTurn(searchCall, context = context)
+                    return@withContext try {
+                        Result.success(JSONObject(searchResult.resultJson))
+                    } catch (_: Exception) {
+                        Result.success(searchResult.resultJson)
+                    }
+                }
+            }
+
             val shouldExecute = command.isNotBlank() || (script.isNotBlank() && (script.endsWith(".py") || script.endsWith(".sh") || script.endsWith(".js") || script.endsWith(".c"))) || (targetSkill?.isExecutable == true && !targetSkill.scriptPath.isNullOrBlank())
 
             if (shouldExecute && workspaceRepository != null) {
@@ -215,13 +240,21 @@ class SkillPlugin(
                         put("slug", skillManager.getSkillSlug(s))
                         put("type", s.skillType.name.lowercase(Locale.ROOT))
                         put("instructions", compactInstructions(s.instructions))
+                        if (s.tools.isNotEmpty()) {
+                            put("tools", JSONArray(s.tools))
+                        }
                         if (s.isExecutable && s.requiredPermissions.isNotEmpty()) {
                             put("permissions", JSONArray(s.requiredPermissions))
                         }
                     })
                 }
                 put("activatedSkills", activatedArr)
-                put("message", "Loaded ${activatedSkills.size} skill(s) into context. Follow the provided instructions precisely.")
+                val boundTools = activatedSkills.flatMap { it.tools }
+                if (boundTools.isNotEmpty()) {
+                    put("message", "Activated skill with callable tool bindings: ${boundTools.joinToString(", ")}. Invoke these tools directly (e.g. ${boundTools.first()}(...)) to fulfill the request.")
+                } else {
+                    put("message", "Loaded ${activatedSkills.size} skill(s) into context. Follow the provided instructions precisely.")
+                }
             }
 
             Result.success(responseObj)

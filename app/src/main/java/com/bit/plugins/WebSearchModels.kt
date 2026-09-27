@@ -17,7 +17,7 @@ data class WebSearchResult(
         put("title", title)
         put("url", url)
         put("snippet", snippet)
-        put("content", content.take(800))
+        put("content", content.take(4000))
         put("scraped", scraped)
         put("domain", domain)
         put("index", index)
@@ -55,12 +55,14 @@ data class WebSearchResponse(
         return buildString {
             append("Search Results for \"$query\": Found $totalResults results. ")
             val findings = results.take(3).mapNotNull { r ->
-                val s = r.snippet.take(100).replace("\n", " ")
+                val s = r.snippet.take(120).replace("\n", " ")
                 if (s.isNotBlank()) "${r.title}: $s" else null
             }
             if (findings.isNotEmpty()) append(findings.joinToString(" | "))
-            val scraped = results.count { it.scraped }
-            if (scraped > 0) append(" (Retrieved full content from $scraped sources)")
+            val topScraped = results.firstOrNull { it.scraped && it.content.isNotBlank() }
+            if (topScraped != null) {
+                append("\nTop result content (${topScraped.title}):\n${topScraped.content.take(800)}")
+            }
         }
     }
 }

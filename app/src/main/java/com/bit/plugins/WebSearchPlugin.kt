@@ -58,6 +58,7 @@ class WebSearchPlugin(private val context: Context) : SuperPlugin {
         const val TOOL_WEB_FETCH = "web_fetch"
         const val TOOL_SEARCH_WEB_ALIAS = "search_web"
         const val TOOL_SCRAPE_WEB_ALIAS = "scrape_web"
+        const val TOOL_FETCH_PAGE_ALIAS = "fetch_page"
 
         private const val WEB_FETCH_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -92,7 +93,13 @@ class WebSearchPlugin(private val context: Context) : SuperPlugin {
                     TOOL_SCRAPE_WEB_ALIAS,
                     "Scrape and extract clean text content from a web URL."
                 )
-                    .stringParam("url", "The URL to scrape", required = true)
+                    .stringParam("url", "The URL to scrape", required = true),
+                ToolDefinitionBuilder(
+                    TOOL_FETCH_PAGE_ALIAS,
+                    "Fetches a URL and extracts readable article text as clean markdown."
+                )
+                    .stringParam("url", "The URL of the page to fetch", required = true)
+                    .numberParam("maxChars", "Maximum characters of text to return (default 8000)", required = false)
             )
         )
     }
@@ -108,7 +115,7 @@ class WebSearchPlugin(private val context: Context) : SuperPlugin {
         return try {
             when (toolCall.name) {
                 TOOL_WEB_SEARCH, TOOL_SEARCH_WEB_ALIAS -> executeSearch(toolCall)
-                TOOL_WEB_FETCH, TOOL_SCRAPE_WEB_ALIAS -> executeFetch(toolCall)
+                TOOL_WEB_FETCH, TOOL_SCRAPE_WEB_ALIAS, TOOL_FETCH_PAGE_ALIAS -> executeFetch(toolCall)
                 else -> Result.failure(IllegalArgumentException("Unknown tool: ${toolCall.name}"))
             }
         } catch (e: Exception) {
@@ -133,7 +140,7 @@ class WebSearchPlugin(private val context: Context) : SuperPlugin {
                 val scraper = DuckDuckGoScraper()
                 val r = scraper.search(query, numResults)
                 if (r is DuckDuckGoScraper.SearchResponse.Success && r.results.isNotEmpty()) {
-                    val results = r.results.mapIndexed { index, webResult ->
+                    val rawResults = r.results.mapIndexed { index, webResult ->
                         WebSearchResult(
                             title = webResult.title,
                             url = webResult.url,
@@ -144,6 +151,7 @@ class WebSearchPlugin(private val context: Context) : SuperPlugin {
                             index = index
                         )
                     }
+                    val results = autoScrapeTopResults(rawResults, limit = 1)
                     val response = WebSearchResponse(
                         query = query,
                         results = results,
@@ -160,7 +168,7 @@ class WebSearchPlugin(private val context: Context) : SuperPlugin {
                 val bingClient = com.bit.network.BingSearchFallbackClient()
                 val bingRes = bingClient.search(query, numResults)
                 if (bingRes.isSuccess && bingRes.getOrNull()?.isNotEmpty() == true) {
-                    val results = bingRes.getOrNull().orEmpty().mapIndexed { index, bResult ->
+                    val rawResults = bingRes.getOrNull().orEmpty().mapIndexed { index, bResult ->
                         WebSearchResult(
                             title = bResult.title,
                             url = bResult.url,
@@ -171,6 +179,7 @@ class WebSearchPlugin(private val context: Context) : SuperPlugin {
                             index = index
                         )
                     }
+                    val results = autoScrapeTopResults(rawResults, limit = 1)
                     val response = WebSearchResponse(
                         query = query,
                         results = results,
@@ -322,10 +331,11 @@ class WebSearchPlugin(private val context: Context) : SuperPlugin {
                 }
             }
 
+            val finalResults = autoScrapeTopResults(resultsList, limit = 1)
             val response = WebSearchResponse(
                 query = query,
-                results = resultsList,
-                totalResults = resultsList.size,
+                results = finalResults,
+                totalResults = finalResults.size,
                 searchTimeMs = System.currentTimeMillis() - startTime,
                 status = "SUCCESS",
                 provider = provider
@@ -343,6 +353,37 @@ class WebSearchPlugin(private val context: Context) : SuperPlugin {
                 provider = provider
             ).let { it.copy(summary = it.generateSummary()) })
         }
+    }
+
+    private suspend fun autoScrapeTopResults(rawResults: List<WebSearchResult>, limit: Int = 1): List<WebSearchResult> = withContext(Dispatchers.IO) {
+        if (rawResults.isEmpty()) return@withContext rawResults
+        val list = rawResults.toMutableList()
+        val toScrape = list.take(limit)
+        for (item in toScrape) {
+            val url = item.url
+            if (url.isBlank() || url.startsWith("javascript:")) continue
+            try {
+                val html = HttpClient.fetchModels(url, mapOf(
+                    "User-Agent" to WEB_FETCH_USER_AGENT,
+                    "Accept" to "text/html,application/xhtml+xml,*/*"
+                ))
+                if (!html.isNullOrBlank()) {
+                    val readable = htmlToReadableText(html).take(4000)
+                    if (readable.isNotBlank()) {
+                        val idx = list.indexOf(item)
+                        if (idx != -1) {
+                            list[idx] = item.copy(
+                                content = readable,
+                                scraped = true
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed auto-scraping top result for $url: ${e.message}")
+            }
+        }
+        list
     }
 
     private suspend fun executeFetch(toolCall: ToolCall): Result<Any> = withContext(Dispatchers.IO) {

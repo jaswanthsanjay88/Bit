@@ -17,6 +17,9 @@ object AppStateManager {
     private var currentModelName: String? = null
     private var hasMessages: Boolean = false
 
+    // Active user prompt for tool delegation
+    var activeUserPrompt: String? = null
+
     private val _isChatRefreshed = MutableStateFlow(false)
     val isChatRefreshed: StateFlow<Boolean> = _isChatRefreshed.asStateFlow()
 
@@ -125,6 +128,7 @@ object AppStateManager {
      * Update when generation completes (returns to idle)
      */
     fun setGenerationComplete() {
+        activeUserPrompt = null
         updateIdleState()
     }
 
