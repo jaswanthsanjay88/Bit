@@ -10,12 +10,14 @@
   <link rel="stylesheet" href="style.css" />
   <style>
     body { padding-top: 100px; }
-    .legal-container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
-    .legal-title { font-family: var(--font-display); font-size: 2.5rem; margin-bottom: 10px; color: var(--text-primary); }
-    .legal-subtitle { color: var(--text-secondary); margin-bottom: 40px; font-size: 1.1rem; }
-    .legal-section { margin-bottom: 40px; }
-    .legal-section h2 { color: #ffcc00; font-family: monospace; font-size: 1.2rem; margin-bottom: 16px; font-weight: 700; }
-    .legal-section p { color: var(--text-secondary); font-family: monospace; font-size: 0.95rem; line-height: 1.6; margin-bottom: 16px; white-space: pre-wrap; }
+    .legal-container { max-width: 840px; margin: 0 auto; padding: 40px 20px 100px 20px; }
+    .legal-title { font-family: var(--font-display); font-size: clamp(2.2rem, 4.5vw, 3rem); font-weight: 300; margin-bottom: 12px; color: var(--text-primary); text-wrap: balance; }
+    .legal-subtitle { color: var(--text-secondary); margin-bottom: 40px; font-size: 1.05rem; }
+    .legal-section { margin-bottom: 32px; background: rgba(18, 18, 22, 0.55); border: 1px solid var(--glass-border); border-radius: var(--radius-md); padding: 28px 32px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); transition: border-color var(--transition-fast); }
+    .legal-section:hover { border-color: rgba(255, 255, 255, 0.2); }
+    .legal-section h2 { color: #FFFFFF; font-family: var(--font-sans); font-size: 1.25rem; margin-bottom: 16px; font-weight: 700; letter-spacing: -0.015em; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 10px; text-wrap: balance; }
+    .legal-section p { color: var(--text-secondary); font-family: var(--font-sans); font-size: 0.95rem; line-height: 1.7; margin-bottom: 16px; white-space: pre-line; text-wrap: pretty; }
+    .legal-section p:last-child { margin-bottom: 0; }
   </style>
 </head>
 <body>
@@ -27,9 +29,40 @@
       </a>
       <ul class="nav-links">
         <li><a href="index.html" class="nav-link">Home</a></li>
+        <li><a href="index.html#philosophy" class="nav-link">Philosophy</a></li>
+        <li><a href="index.html#products" class="nav-link">Products</a></li>
+        <li><a href="docs.html" class="nav-link">Docs</a></li>
+        <li><a href="changelog.html" class="nav-link">Changelog</a></li>
       </ul>
+      <div class="nav-actions">
+        <a href="https://github.com/jaswanthsanjay88/Bit_Android/releases/latest" class="btn-pill nav-download-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Download APK</span>
+        </a>
+        <button type="button" class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Toggle navigation" aria-expanded="false" aria-controls="mobileNavDrawer">
+          <span class="menu-bar"></span>
+          <span class="menu-bar"></span>
+          <span class="menu-bar"></span>
+        </button>
+      </div>
     </div>
   </header>
+
+  <!-- Mobile Navigation Drawer -->
+  <div class="mobile-nav-drawer" id="mobileNavDrawer" aria-hidden="true">
+    <div class="mobile-nav-backdrop" id="mobileNavBackdrop"></div>
+    <div class="mobile-nav-panel">
+      <ul class="mobile-nav-list">
+        <li><a href="index.html" class="mobile-nav-link">Home</a></li>
+        <li><a href="index.html#philosophy" class="mobile-nav-link">Philosophy</a></li>
+        <li><a href="index.html#products" class="mobile-nav-link">Products</a></li>
+        <li><a href="index.html#benchmarks" class="mobile-nav-link">Specs</a></li>
+        <li><a href="docs.html" class="mobile-nav-link">Documentation</a></li>
+        <li><a href="changelog.html" class="mobile-nav-link">Changelog</a></li>
+        <li><a href="https://github.com/jaswanthsanjay88/Bit_Android" target="_blank" rel="noopener" class="mobile-nav-link">GitHub</a></li>
+      </ul>
+    </div>
+  </div>
 
   <div class="container legal-container">
     <h1 class="legal-title">Terms & Conditions / Privacy Policy</h1>
@@ -365,5 +398,6 @@ Last Updated: August 2026</p>
     </div>
 
   </div>
+  <script src="script.js"></script>
 </body>
 </html>

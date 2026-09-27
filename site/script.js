@@ -13,6 +13,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initAnnouncementBanner();
   initPrivacyToast();
   initNavbarScroll();
+  initMobileNavigation();
+  initCodeCopyButtons();
   initMouseParallax();
   initGitHubApi();
   initIntersectionObserver();
@@ -244,35 +246,125 @@ async function initLiveRatings() {
   if (track3) track3.innerHTML = buildColumnHtml(col3Items.length ? col3Items : reviews);
 }
 
-/* ── Curated Model Catalog Fetch & Populate ── */
+/* ── Mobile Navigation Drawer Controller ── */
+function initMobileNavigation() {
+  const menuBtn = document.getElementById('mobileMenuBtn');
+  const drawer = document.getElementById('mobileNavDrawer');
+  const backdrop = document.getElementById('mobileNavBackdrop');
+  if (!menuBtn || !drawer) return;
+
+  function openDrawer() {
+    menuBtn.classList.add('active');
+    menuBtn.setAttribute('aria-expanded', 'true');
+    drawer.classList.add('open');
+    drawer.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeDrawer() {
+    menuBtn.classList.remove('active');
+    menuBtn.setAttribute('aria-expanded', 'false');
+    drawer.classList.remove('open');
+    drawer.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+  }
+
+  menuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = drawer.classList.contains('open');
+    if (isOpen) closeDrawer();
+    else openDrawer();
+  });
+
+  if (backdrop) {
+    backdrop.addEventListener('click', closeDrawer);
+  }
+
+  drawer.querySelectorAll('.mobile-nav-link').forEach(link => {
+    link.addEventListener('click', closeDrawer);
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && drawer.classList.contains('open')) {
+      closeDrawer();
+    }
+  });
+}
+
+/* ── 1-Click Code Copy Interaction ── */
+function initCodeCopyButtons() {
+  document.querySelectorAll('.code-copy-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      let textToCopy = btn.getAttribute('data-copy');
+      if (!textToCopy) {
+        const pre = btn.closest('.code-panel')?.querySelector('pre code') || btn.closest('.code-block-wrapper')?.querySelector('pre code');
+        if (pre) textToCopy = pre.innerText || pre.textContent;
+      }
+      if (!textToCopy) return;
+
+      try {
+        await navigator.clipboard.writeText(textToCopy);
+        const copyTextEl = btn.querySelector('.copy-text');
+        const origText = copyTextEl ? copyTextEl.textContent : 'Copy';
+        btn.classList.add('copied');
+        if (copyTextEl) copyTextEl.textContent = 'Copied!';
+
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          if (copyTextEl) copyTextEl.textContent = origText;
+        }, 1800);
+      } catch (err) {
+        console.log('Clipboard copy fallback:', err);
+      }
+    });
+  });
+}
+
+/* ── Curated Model Catalog Fetch, Search & Filter ── */
 async function initModelStoreCatalog() {
   const modelsGrid = document.getElementById('modelsGrid');
+  const searchInput = document.getElementById('modelSearchInput');
+  const searchClear = document.getElementById('modelSearchClear');
+  const filterPills = document.querySelectorAll('.model-filter-pills .filter-pill');
   if (!modelsGrid) return;
 
-  try {
-    let models = [];
-    const res = await fetch('./api/models.json');
-    if (res.ok) {
-      const data = await res.json();
-      models = data.models || [];
-    } else {
-      const fallbackRes = await fetch('/api/models');
-      if (fallbackRes.ok) {
-        const data = await fallbackRes.json();
-        models = data.models || data;
+  let allModels = [];
+  let currentCategory = 'all';
+  let searchQuery = '';
+
+  function renderModels(filtered) {
+    if (!filtered || filtered.length === 0) {
+      modelsGrid.innerHTML = `
+        <div class="model-catalog-empty">
+          <p>No tested models match "${searchQuery || currentCategory}".</p>
+          <button type="button" class="btn-ghost" id="modelResetFilters">Clear search & filters</button>
+        </div>
+      `;
+      const resetBtn = document.getElementById('modelResetFilters');
+      if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+          if (searchInput) {
+            searchInput.value = '';
+            if (searchClear) searchClear.style.display = 'none';
+          }
+          searchQuery = '';
+          currentCategory = 'all';
+          filterPills.forEach(p => p.classList.toggle('active', p.getAttribute('data-filter') === 'all'));
+          renderModels(allModels);
+        });
       }
+      return;
     }
 
-    if (!models || models.length === 0) return;
-
-    modelsGrid.innerHTML = models.map(model => {
+    modelsGrid.innerHTML = filtered.map(model => {
       const typeLower = (model.type || 'gguf').toLowerCase();
       const badgeClass = `badge-${typeLower}`;
       const iconUrl = model.iconUrl || (model.icon ? `https://raw.githubusercontent.com/lobehub/lobe-icons/main/packages/static-png/light/${model.icon}.png` : '');
-      const iconHtml = iconUrl ? `<img src="${iconUrl}" alt="${model.name}" class="model-brand-icon" />` : `<div class="model-brand-icon"></div>`;
+      const iconHtml = iconUrl ? `<img src="${iconUrl}" alt="${model.name}" class="model-brand-icon" onerror="this.style.display='none'" />` : `<div class="model-brand-icon"></div>`;
 
       const ramHtml = model.minRamGb ? `<span class="meta-chip meta-chip-ram">${model.minRamGb} GB RAM</span>` : '';
-      const tagsHtml = (model.tags || []).slice(0, 2).map(t => `<span class="meta-chip">${t}</span>`).join('');
+      const tagsHtml = (model.tags || []).slice(0, 3).map(t => `<span class="meta-chip">${t}</span>`).join('');
 
       return `
         <div class="model-card-site">
@@ -300,7 +392,97 @@ async function initModelStoreCatalog() {
         </div>
       `;
     }).join('');
+  }
 
+  function applyFilters() {
+    let filtered = allModels;
+
+    // Filter by category
+    if (currentCategory !== 'all') {
+      filtered = filtered.filter(m => {
+        const type = (m.type || '').toUpperCase();
+        const tags = (m.tags || []).map(t => t.toLowerCase());
+        const desc = (m.description || '').toLowerCase();
+        const name = (m.name || '').toLowerCase();
+
+        if (currentCategory === 'llm') {
+          return type === 'GGUF' && !tags.includes('vision') && !tags.includes('embedding') && !desc.includes('vision');
+        } else if (currentCategory === 'vision') {
+          return type === 'VISION' || tags.includes('vision') || desc.includes('vision') || name.includes('vision') || name.includes('minicpm') || name.includes('moondream');
+        } else if (currentCategory === 'audio') {
+          return type === 'SHERPA_ONNX' || type === 'VITS' || tags.includes('speech') || tags.includes('tts') || tags.includes('stt') || desc.includes('whisper') || desc.includes('piper');
+        } else if (currentCategory === 'embedding') {
+          return type === 'EMBEDDING' || tags.includes('embedding') || desc.includes('embedding') || desc.includes('rag');
+        }
+        return true;
+      });
+    }
+
+    // Filter by search query
+    if (searchQuery.trim().length > 0) {
+      const q = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter(m => {
+        const name = (m.name || '').toLowerCase();
+        const desc = (m.description || '').toLowerCase();
+        const tags = (m.tags || []).map(t => t.toLowerCase()).join(' ');
+        const type = (m.type || '').toLowerCase();
+        return name.includes(q) || desc.includes(q) || tags.includes(q) || type.includes(q);
+      });
+    }
+
+    renderModels(filtered);
+  }
+
+  // Setup search input listeners
+  if (searchInput) {
+    let searchDebounce = null;
+    searchInput.addEventListener('input', (e) => {
+      searchQuery = e.target.value;
+      if (searchClear) searchClear.style.display = searchQuery ? 'block' : 'none';
+      clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(applyFilters, 120);
+    });
+
+    if (searchClear) {
+      searchClear.addEventListener('click', () => {
+        searchInput.value = '';
+        searchQuery = '';
+        searchClear.style.display = 'none';
+        applyFilters();
+      });
+    }
+  }
+
+  // Setup category filter listeners
+  filterPills.forEach(pill => {
+    pill.addEventListener('click', () => {
+      filterPills.forEach(p => {
+        p.classList.remove('active');
+        p.setAttribute('aria-selected', 'false');
+      });
+      pill.classList.add('active');
+      pill.setAttribute('aria-selected', 'true');
+      currentCategory = pill.getAttribute('data-filter') || 'all';
+      applyFilters();
+    });
+  });
+
+  try {
+    const res = await fetch('./api/models.json');
+    if (res.ok) {
+      const data = await res.json();
+      allModels = data.models || [];
+    } else {
+      const fallbackRes = await fetch('/api/models');
+      if (fallbackRes.ok) {
+        const data = await fallbackRes.json();
+        allModels = data.models || data;
+      }
+    }
+
+    if (allModels && allModels.length > 0) {
+      applyFilters();
+    }
   } catch (err) {
     console.log('Model Catalog fetch error:', err);
   }

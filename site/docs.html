@@ -104,12 +104,43 @@
         <li><a href="https://github.com/jaswanthsanjay88/Bit_Android" target="_blank" rel="noopener" class="nav-link">GitHub</a></li>
       </ul>
 
-      <a href="https://github.com/jaswanthsanjay88/Bit_Android/releases/latest" class="btn-pill">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        <span>Download APK</span>
-      </a>
+      <div class="nav-actions">
+        <a href="https://github.com/jaswanthsanjay88/Bit_Android/releases/latest" class="btn-pill nav-download-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Download APK</span>
+        </a>
+        <button type="button" class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Toggle navigation" aria-expanded="false" aria-controls="mobileNavDrawer">
+          <span class="menu-bar"></span>
+          <span class="menu-bar"></span>
+          <span class="menu-bar"></span>
+        </button>
+      </div>
     </div>
   </header>
+
+  <!-- Mobile Navigation Drawer -->
+  <div class="mobile-nav-drawer" id="mobileNavDrawer" aria-hidden="true">
+    <div class="mobile-nav-backdrop" id="mobileNavBackdrop"></div>
+    <div class="mobile-nav-panel">
+      <ul class="mobile-nav-list">
+        <li><a href="index.html" class="mobile-nav-link">Home</a></li>
+        <li><a href="index.html#philosophy" class="mobile-nav-link">Philosophy</a></li>
+        <li><a href="index.html#products" class="mobile-nav-link">Products</a></li>
+        <li><a href="index.html#benchmarks" class="mobile-nav-link">Specs</a></li>
+        <li><a href="index.html#model-catalog" class="mobile-nav-link">Model Store</a></li>
+        <li><a href="docs.html" class="mobile-nav-link active">Documentation</a></li>
+        <li><a href="changelog.html" class="mobile-nav-link">Changelog</a></li>
+        <li><a href="privacy.html" class="mobile-nav-link">Privacy</a></li>
+        <li><a href="https://github.com/jaswanthsanjay88/Bit_Android" target="_blank" rel="noopener" class="mobile-nav-link">GitHub</a></li>
+      </ul>
+      <div class="mobile-nav-footer">
+        <a href="https://github.com/jaswanthsanjay88/Bit_Android/releases/latest" class="btn-pill" style="width: 100%; justify-content: center;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Download APK</span>
+        </a>
+      </div>
+    </div>
+  </div>
 
   <!-- ── Documentation Header ── -->
   <section class="docs-header">
@@ -1377,5 +1408,6 @@ ws     ::= [ \t\n]*</code></pre>
     });
   </script>
 
+  <script src="script.js"></script>
 </body>
 </html>

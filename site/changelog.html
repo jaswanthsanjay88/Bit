@@ -56,13 +56,43 @@
       <ul class="nav-links">
         <li><a href="index.html" class="nav-link">Home</a></li>
         <li><a href="index.html#benchmarks" class="nav-link">Specs</a></li>
+        <li><a href="docs.html" class="nav-link">Docs</a></li>
         <li><a href="privacy.html" class="nav-link">Privacy</a></li>
       </ul>
-      <a href="index.html#apply" class="btn-pill">
-        <span>Apply to Test</span>
-      </a>
+      <div class="nav-actions">
+        <a href="index.html#apply" class="btn-pill nav-download-btn">
+          <span>Apply to Test</span>
+        </a>
+        <button type="button" class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Toggle navigation" aria-expanded="false" aria-controls="mobileNavDrawer">
+          <span class="menu-bar"></span>
+          <span class="menu-bar"></span>
+          <span class="menu-bar"></span>
+        </button>
+      </div>
     </div>
   </header>
+
+  <!-- Mobile Navigation Drawer -->
+  <div class="mobile-nav-drawer" id="mobileNavDrawer" aria-hidden="true">
+    <div class="mobile-nav-backdrop" id="mobileNavBackdrop"></div>
+    <div class="mobile-nav-panel">
+      <ul class="mobile-nav-list">
+        <li><a href="index.html" class="mobile-nav-link">Home</a></li>
+        <li><a href="index.html#philosophy" class="mobile-nav-link">Philosophy</a></li>
+        <li><a href="index.html#products" class="mobile-nav-link">Products</a></li>
+        <li><a href="index.html#benchmarks" class="mobile-nav-link">Specs</a></li>
+        <li><a href="docs.html" class="mobile-nav-link">Documentation</a></li>
+        <li><a href="changelog.html" class="mobile-nav-link active">Changelog</a></li>
+        <li><a href="privacy.html" class="mobile-nav-link">Privacy</a></li>
+        <li><a href="https://github.com/jaswanthsanjay88/Bit_Android" target="_blank" rel="noopener" class="mobile-nav-link">GitHub</a></li>
+      </ul>
+      <div class="mobile-nav-footer">
+        <a href="index.html#apply" class="btn-pill" style="width: 100%; justify-content: center;">
+          <span>Apply to Test</span>
+        </a>
+      </div>
+    </div>
+  </div>
 
   <div class="container changelog-container">
     <h1 class="changelog-title">Changelog</h1>
@@ -294,5 +324,6 @@
 
     </div>
   </div>
+  <script src="script.js"></script>
 </body>
 </html>
