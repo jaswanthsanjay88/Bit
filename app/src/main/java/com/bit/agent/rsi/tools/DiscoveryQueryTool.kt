@@ -23,12 +23,12 @@ class DiscoveryQueryTool(
         type = "function",
         function = ToolFunction(
             name = "query_discovery_traces",
-            description = "Search previous discovery trees and execution traces to find prior successful solutions or error diagnostics for similar tasks.",
+            description = "Search previous discovery trees, execution traces, and success rate metrics. Leave empty or pass 'latest' or 'metrics' to view recent task history and overall success rates.",
             parameters = ToolParameters(
                 properties = mapOf(
                     "query" to ToolProperty(
                         type = "string",
-                        description = "Keyword to match against task descriptions, actions, or error diagnostics."
+                        description = "Optional search keyword (e.g. 'python', 'script'). Leave empty or use 'latest' / 'metrics' to retrieve recent task history and success rate metrics."
                     ),
                     "status" to ToolProperty(
                         type = "string",
@@ -36,7 +36,7 @@ class DiscoveryQueryTool(
                     ),
                     "limit" to ToolProperty(
                         type = "integer",
-                        description = "Maximum number of past discovery episodes to inspect (default 3, max 5)."
+                        description = "Maximum number of past discovery episodes to inspect (default 5, max 10)."
                     )
                 ),
                 required = emptyList()
@@ -54,11 +54,11 @@ class DiscoveryQueryTool(
 
         return try {
             val args = try { JSONObject(argumentsJson) } catch (_: Exception) { JSONObject() }
-            val query = args.optString("query", "").lowercase()
+            val rawQuery = args.optString("query", "").trim()
             val statusFilter = args.optString("status", "").takeIf { it.isNotBlank() }?.uppercase()
-            val limit = args.optInt("limit", 3).coerceIn(1, 5)
+            val limit = args.optInt("limit", 5).coerceIn(1, 10)
 
-            val trees = treeStore.listTrees(limit = 20)
+            val trees = treeStore.listTrees(limit = 50)
             if (trees.isEmpty()) {
                 return ToolObservation.success(
                     summary = "No discovery traces recorded yet.",
@@ -66,47 +66,89 @@ class DiscoveryQueryTool(
                 )
             }
 
-            val matchingTrees = trees.filter { tree ->
-                if (query.isBlank()) true
-                else {
-                    tree.taskDescription.lowercase().contains(query) ||
-                    tree.nodes.values.any { it.action.lowercase().contains(query) || it.diagnostics.lowercase().contains(query) }
-                }
-            }.take(limit)
+            // High-level execution metrics across recorded episodes
+            val totalEpisodes = trees.size
+            val successfulEpisodes = trees.count { tree ->
+                tree.metadata["success"] == "true" ||
+                tree.getBestNode()?.status == NodeStatus.SUCCESS ||
+                (tree.getBestNode()?.score ?: 0.0) >= 0.8
+            }
+            val successRate = if (totalEpisodes > 0) (successfulEpisodes * 100) / totalEpisodes else 0
+            val totalNodes = trees.sumOf { it.nodes.size }
+            val avgScore = if (trees.isNotEmpty()) {
+                val scores = trees.mapNotNull { it.getBestNode()?.score }
+                if (scores.isNotEmpty()) String.format("%.2f", scores.average()) else "N/A"
+            } else "N/A"
 
-            if (matchingTrees.isEmpty()) {
-                return ToolObservation.success(
-                    summary = "No discovery traces matching '$query'.",
-                    payload = "Found ${trees.size} total discovery episodes, but none matched '$query'."
-                )
+            // Meta/history terms that mean "show general history and metrics"
+            val metaTerms = setOf(
+                "all", "latest", "recent", "history", "traces", "trace", "tasks", "task",
+                "success", "rate", "rates", "metrics", "metric", "previously", "executed",
+                "execution", "records", "record", "stats", "statistics", "outcomes", "outcome"
+            )
+            val tokens = rawQuery.lowercase()
+                .split(Regex("""[^a-zA-Z0-9_\-.]"""))
+                .filter { it.isNotBlank() && it !in metaTerms }
+
+            val isGenericHistoryQuery = tokens.isEmpty() || rawQuery.isBlank()
+
+            val matchingTrees = if (isGenericHistoryQuery) {
+                trees.filter { tree ->
+                    if (statusFilter != null) {
+                        tree.nodes.values.any { it.status.name == statusFilter } ||
+                        (statusFilter == "SUCCESS" && tree.metadata["success"] == "true")
+                    } else true
+                }.take(limit)
+            } else {
+                trees.filter { tree ->
+                    val desc = tree.taskDescription.lowercase()
+                    val actions = tree.nodes.values.joinToString(" ") { it.action.lowercase() }
+                    val diagnostics = tree.nodes.values.joinToString(" ") { it.diagnostics.lowercase() }
+                    val combined = "$desc $actions $diagnostics"
+                    tokens.any { combined.contains(it) } &&
+                    (statusFilter == null || tree.nodes.values.any { it.status.name == statusFilter })
+                }.take(limit)
             }
 
+            val displayTrees = if (matchingTrees.isNotEmpty()) matchingTrees else trees.take(limit)
+
             val output = StringBuilder()
-            matchingTrees.forEachIndexed { idx, tree ->
-                output.appendLine("### Episode ${idx + 1}: ${tree.taskDescription.take(70)}")
-                output.appendLine("- Tree ID: ${tree.treeId}")
-                output.appendLine("- Total Nodes: ${tree.nodes.size} | Best Node ID: ${tree.bestNodeId ?: "none"}")
+            output.appendLine("### Discovery Execution History & Success Metrics")
+            output.appendLine("- Total Recorded Episodes: $totalEpisodes")
+            output.appendLine("- Successful Episodes: $successfulEpisodes ($successRate% success rate)")
+            output.appendLine("- Total Exploration Nodes: $totalNodes")
+            output.appendLine("- Average Success Score: $avgScore")
+            output.appendLine()
 
-                val candidateNodes = tree.nodes.values.filter { node ->
-                    if (statusFilter != null) {
-                        node.status.name == statusFilter
-                    } else true
-                }.take(3)
-
-                candidateNodes.forEach { node ->
-                    output.appendLine("  * [${node.status}] Score: ${node.score} | Action: ${node.action.take(50)}")
-                    if (node.status == NodeStatus.SUCCESS && node.candidateArtifact.isNotBlank()) {
-                        output.appendLine("    Solution Artifact: ${node.candidateArtifact.take(180)}...")
-                    } else if (node.diagnostics.isNotBlank()) {
-                        output.appendLine("    Diagnostics: ${node.diagnostics.take(150)}...")
-                    }
-                }
+            if (matchingTrees.isEmpty() && !isGenericHistoryQuery) {
+                output.appendLine("*(No episodes directly matched specific keyword '$rawQuery'. Showing ${displayTrees.size} latest episodes)*")
                 output.appendLine()
             }
 
+            output.appendLine("### Execution Episodes (Showing ${displayTrees.size}):")
+            displayTrees.forEachIndexed { idx, tree ->
+                val isSuccess = tree.metadata["success"] == "true" ||
+                        tree.getBestNode()?.status == NodeStatus.SUCCESS ||
+                        (tree.getBestNode()?.score ?: 0.0) >= 0.8
+                val statusLabel = if (isSuccess) "SUCCESS" else "FAILED"
+                val score = tree.getBestNode()?.score?.let { String.format("%.2f", it) } ?: "N/A"
+
+                output.appendLine("${idx + 1}. **Task**: ${tree.taskDescription.ifBlank { "Autonomous Task ${tree.treeId.take(8)}" }}")
+                output.appendLine("   - **Outcome**: $statusLabel | **Score**: $score | **Nodes**: ${tree.nodes.size}")
+                val outcomeSummary = tree.metadata["outcomeSummary"]
+                if (!outcomeSummary.isNullOrBlank()) {
+                    output.appendLine("   - **Summary**: ${outcomeSummary.take(120).trim()}...")
+                }
+                val candidateNodes = tree.nodes.values.take(3)
+                if (candidateNodes.isNotEmpty()) {
+                    val actions = candidateNodes.joinToString(", ") { it.action.take(40) }
+                    output.appendLine("   - **Actions**: $actions")
+                }
+            }
+
             ToolObservation.success(
-                summary = "Retrieved ${matchingTrees.size} matching discovery episodes.",
-                payload = output.toString().take(1300)
+                summary = "Retrieved $totalEpisodes discovery episodes ($successRate% success rate).",
+                payload = output.toString().take(1400)
             )
         } catch (e: Exception) {
             ToolObservation.error(
