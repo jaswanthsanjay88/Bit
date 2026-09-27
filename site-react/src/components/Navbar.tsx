@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import { Menu, X, Download, ArrowUpRight } from 'lucide-react';
 import { GithubIcon } from './GithubIcon';
 
