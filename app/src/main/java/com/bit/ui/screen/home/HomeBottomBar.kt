@@ -9,6 +9,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.Key
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -132,10 +137,13 @@ internal fun BottomBar(
     val context = LocalContext.current
     var showSttDownloadDialog by remember { mutableStateOf(false) }
     var value by remember { mutableStateOf("") }
+    var attachedSkill by remember { mutableStateOf<com.bit.models.Skill?>(null) }
     var isInputExpanded by remember { mutableStateOf(false) }
 
     val allSkills by remember { com.bit.skills.SkillManager.getInstance(context).skills }.collectAsStateWithLifecycle(emptyList())
-    val showSlashSuggestions = remember(value) { value.startsWith("/") && !value.contains("\n") }
+    val showSlashSuggestions = remember(value, attachedSkill) {
+        attachedSkill == null && value.startsWith("/") && !value.contains(" ") && !value.contains("\n")
+    }
     val slashQuery = remember(value) {
         if (value.startsWith("/")) value.substringAfter("/").substringBefore(" ").trim() else ""
     }
@@ -146,9 +154,43 @@ internal fun BottomBar(
         } else {
             active.filter { skill ->
                 com.bit.skills.SkillManager.getSkillSlug(skill).contains(slashQuery, ignoreCase = true) ||
+                skill.id.removePrefix("skill-").contains(slashQuery, ignoreCase = true) ||
                 skill.name.contains(slashQuery, ignoreCase = true) ||
                 skill.description.contains(slashQuery, ignoreCase = true)
             }.take(8)
+        }
+    }
+
+    val handleValueChange: (String) -> Unit = { newVal ->
+        if (attachedSkill == null && newVal.startsWith("/") && newVal.contains(" ")) {
+            val typedSlug = newVal.substringBefore(" ").removePrefix("/").lowercase().trim()
+            val matched = allSkills.firstOrNull { skill ->
+                skill.enabled && (
+                    com.bit.skills.SkillManager.getSkillSlug(skill).equals(typedSlug, ignoreCase = true) ||
+                    skill.id.removePrefix("skill-").equals(typedSlug, ignoreCase = true) ||
+                    skill.name.replace(Regex("""[^a-zA-Z0-9]+"""), "-").equals(typedSlug, ignoreCase = true) ||
+                    com.bit.skills.SkillManager.getSkillSlug(skill).replace("-linux-", "-").equals(typedSlug, ignoreCase = true)
+                )
+            } ?: if (typedSlug.isNotBlank() && typedSlug.matches(Regex("""[a-z0-9_-]+"""))) {
+                com.bit.models.Skill(
+                    id = "cmd-$typedSlug",
+                    name = typedSlug,
+                    description = "Command $typedSlug",
+                    instructions = "",
+                    icon = "code",
+                    skillType = com.bit.models.SkillType.INSTRUCTIONAL,
+                    enabled = true
+                )
+            } else null
+
+            if (matched != null) {
+                attachedSkill = matched
+                value = newVal.substringAfter(" ").trimStart()
+            } else {
+                value = newVal
+            }
+        } else {
+            value = newVal
         }
     }
     val isSttRecording by chatViewModel.isSttRecording.collectAsStateWithLifecycle()
@@ -472,7 +514,7 @@ internal fun BottomBar(
                 }
 
                 // ── Send Handler & Capabilities ──
-                val canSend = value.isNotBlank() || attachedImages.isNotEmpty() || attachedFiles.isNotEmpty()
+                val canSend = value.isNotBlank() || attachedSkill != null || attachedImages.isNotEmpty() || attachedFiles.isNotEmpty()
                 val handleSendMessage: () -> Unit = {
                     val now = System.currentTimeMillis()
                     if (now - lastSendTime >= 1000L) {
@@ -494,22 +536,34 @@ internal fun BottomBar(
                             lastSendTime = now
                             haptics.action()
                             val trimmedValue = value.trim()
-                            val isImageTrigger = trimmedValue.startsWith("/image", ignoreCase = true) ||
-                                    trimmedValue.startsWith("/draw", ignoreCase = true) ||
-                                    trimmedValue.startsWith("/paint", ignoreCase = true) ||
-                                    trimmedValue.startsWith("generate image", ignoreCase = true) ||
-                                    trimmedValue.startsWith("create image", ignoreCase = true)
+                            val effectivePrompt = if (attachedSkill != null) {
+                                val slug = com.bit.skills.SkillManager.getSkillSlug(attachedSkill!!)
+                                if (trimmedValue.startsWith("/$slug", ignoreCase = true)) {
+                                    trimmedValue
+                                } else if (trimmedValue.isNotBlank()) {
+                                    "/$slug $trimmedValue"
+                                } else {
+                                    "/$slug"
+                                }
+                            } else {
+                                trimmedValue
+                            }
+                            val isImageTrigger = effectivePrompt.startsWith("/image", ignoreCase = true) ||
+                                    effectivePrompt.startsWith("/draw", ignoreCase = true) ||
+                                    effectivePrompt.startsWith("/paint", ignoreCase = true) ||
+                                    effectivePrompt.startsWith("generate image", ignoreCase = true) ||
+                                    effectivePrompt.startsWith("create image", ignoreCase = true)
 
                             val shouldGenerateImage = isImageModelLoaded && (isImageTrigger || !isTextModelLoaded || chatState.generationType == ModelType.IMAGE_GENERATION)
 
                             if (shouldGenerateImage) {
                                 val cleanPrompt = when {
-                                    trimmedValue.startsWith("/image", ignoreCase = true) -> trimmedValue.substring(6).trim()
-                                    trimmedValue.startsWith("/draw", ignoreCase = true) -> trimmedValue.substring(5).trim()
-                                    trimmedValue.startsWith("/paint", ignoreCase = true) -> trimmedValue.substring(6).trim()
-                                    trimmedValue.startsWith("generate image", ignoreCase = true) -> trimmedValue.substring(14).trim()
-                                    trimmedValue.startsWith("create image", ignoreCase = true) -> trimmedValue.substring(12).trim()
-                                    else -> trimmedValue
+                                    effectivePrompt.startsWith("/image", ignoreCase = true) -> effectivePrompt.substring(6).trim()
+                                    effectivePrompt.startsWith("/draw", ignoreCase = true) -> effectivePrompt.substring(5).trim()
+                                    effectivePrompt.startsWith("/paint", ignoreCase = true) -> effectivePrompt.substring(6).trim()
+                                    effectivePrompt.startsWith("generate image", ignoreCase = true) -> effectivePrompt.substring(14).trim()
+                                    effectivePrompt.startsWith("create image", ignoreCase = true) -> effectivePrompt.substring(12).trim()
+                                    else -> effectivePrompt
                                 }.removePrefix(":").removePrefix(" ").trim()
 
                                 var inputImagePath: String? = null
@@ -532,11 +586,12 @@ internal fun BottomBar(
 
                                 chatViewModel.sendImageRequest(cleanPrompt, inputImage = inputImagePath)
                                 value = ""
+                                attachedSkill = null
                                 attachedImages = emptyList()
                                 attachedFiles = emptyList()
                                 isInputExpanded = false
                             } else {
-                                val finalPrompt = trimmedValue
+                                val finalPrompt = effectivePrompt
                                 val imageBytesList = attachedImages.mapNotNull { uri ->
                                     try {
                                         context.contentResolver.openInputStream(uri)?.use { stream ->
@@ -553,6 +608,7 @@ internal fun BottomBar(
 
                                 if (imageBytesList.isNotEmpty()) {
                                     value = ""
+                                    attachedSkill = null
                                     attachedImages = emptyList()
                                     attachedFiles = emptyList()
                                     isInputExpanded = false
@@ -575,6 +631,7 @@ internal fun BottomBar(
                                 } else {
                                     if (hasRags) {
                                         value = ""
+                                        attachedSkill = null
                                         attachedImages = emptyList()
                                         attachedFiles = emptyList()
                                         isInputExpanded = false
@@ -592,6 +649,7 @@ internal fun BottomBar(
                                         }
                                         chatViewModel.sendTextMessage(finalPrompt)
                                         value = ""
+                                        attachedSkill = null
                                         attachedImages = emptyList()
                                         attachedFiles = emptyList()
                                         isInputExpanded = false
@@ -662,8 +720,9 @@ internal fun BottomBar(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
-                                            val args = if (value.contains(" ")) value.substringAfter(" ") else ""
-                                            value = if (args.isNotBlank()) "/$slug $args" else "/$slug "
+                                            attachedSkill = skill
+                                            val args = if (value.contains(" ")) value.substringAfter(" ").trimStart() else ""
+                                            value = args
                                         }
                                         .padding(horizontal = 14.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -857,9 +916,12 @@ internal fun BottomBar(
                                 )
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                if (value.isNotEmpty()) {
+                                if (value.isNotEmpty() || attachedSkill != null) {
                                     FilledTonalIconButton(
-                                        onClick = { value = "" },
+                                        onClick = {
+                                            value = ""
+                                            attachedSkill = null
+                                        },
                                         modifier = Modifier.size(28.dp),
                                         colors = IconButtonDefaults.filledTonalIconButtonColors(
                                             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -902,6 +964,14 @@ internal fun BottomBar(
                             }
                         )
 
+                        if (attachedSkill != null) {
+                            AttachedSkillChip(
+                                skill = attachedSkill!!,
+                                onRemove = { attachedSkill = null },
+                                modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                            )
+                        }
+
                         Spacer(modifier = Modifier.height(8.dp))
 
                         Box(
@@ -912,18 +982,32 @@ internal fun BottomBar(
                         ) {
                             BasicTextField(
                                 value = value,
-                                onValueChange = { value = it },
+                                onValueChange = handleValueChange,
                                 enabled = !chatState.isGenerating,
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 2.dp)
+                                    .onPreviewKeyEvent { event ->
+                                        if (event.type == KeyEventType.KeyDown && event.key == Key.Backspace) {
+                                            if (value.isEmpty() && attachedSkill != null) {
+                                                attachedSkill = null
+                                                true
+                                            } else {
+                                                false
+                                            }
+                                        } else {
+                                            false
+                                        }
+                                    },
                                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                                 cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
                                 decorationBox = { innerTextField ->
                                     Box(contentAlignment = Alignment.TopStart) {
                                         if (value.isEmpty()) {
-                                            val expandedPlaceholder = if (isAgentMode) {
-                                                "Instruct autonomous agent or enter / for skills..."
-                                            } else {
-                                                "Ask me anything or enter / for skills..."
+                                            val expandedPlaceholder = when {
+                                                attachedSkill != null -> "Enter instructions for ${attachedSkill!!.name}..."
+                                                isAgentMode -> "Instruct autonomous agent or enter / for skills..."
+                                                else -> "Ask me anything or enter / for skills..."
                                             }
                                             Text(
                                                 text = expandedPlaceholder,
@@ -1022,20 +1106,41 @@ internal fun BottomBar(
                                 }
                             )
 
+                            if (attachedSkill != null) {
+                                AttachedSkillChip(
+                                    skill = attachedSkill!!,
+                                    onRemove = { attachedSkill = null },
+                                    modifier = Modifier.padding(top = 2.dp, bottom = 4.dp)
+                                )
+                            }
+
                             BasicTextField(
                                 value = value,
-                                onValueChange = { value = it },
+                                onValueChange = handleValueChange,
                                 enabled = !chatState.isGenerating,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .heightIn(min = 38.dp, max = 150.dp)
-                                    .padding(horizontal = 4.dp),
+                                    .padding(horizontal = 4.dp)
+                                    .onPreviewKeyEvent { event ->
+                                        if (event.type == KeyEventType.KeyDown && event.key == Key.Backspace) {
+                                            if (value.isEmpty() && attachedSkill != null) {
+                                                attachedSkill = null
+                                                true
+                                            } else {
+                                                false
+                                            }
+                                        } else {
+                                            false
+                                        }
+                                    },
                                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                                 cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
                                 decorationBox = { innerTextField ->
                                     Box(contentAlignment = Alignment.CenterStart) {
                                         if (value.isEmpty()) {
                                             val placeholder = when {
+                                                attachedSkill != null -> "Enter instructions for ${attachedSkill!!.name}..."
                                                 isImageModelLoaded && !isTextModelLoaded -> "Describe the image to generate..."
                                                 isImageModelLoaded && chatState.generationType == ModelType.IMAGE_GENERATION -> "Describe the image to generate..."
                                                 isAgentMode -> "Instruct agent (autonomous DAG execution)..."
@@ -1206,6 +1311,80 @@ internal fun BottomBar(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AttachedSkillChip(
+    skill: com.bit.models.Skill,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val slug = remember(skill) { com.bit.skills.SkillManager.getSkillSlug(skill) }
+    val iconVector = remember(skill.icon) {
+        when (skill.icon) {
+            "mcp" -> TnIcons.Mcp
+            "search" -> TnIcons.Search
+            "storage" -> TnIcons.Database
+            "terminal" -> TnIcons.Terminal
+            "code" -> TnIcons.Code
+            else -> TnIcons.Code
+        }
+    }
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                RoundedCornerShape(8.dp)
+            )
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .background(
+                    MaterialTheme.colorScheme.surfaceContainerHigh,
+                    RoundedCornerShape(4.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = iconVector,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        Text(
+            text = slug,
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = FontWeight.SemiBold
+            ),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .clip(CircleShape)
+                .clickable { onRemove() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = TnIcons.X,
+                contentDescription = "Remove skill",
+                modifier = Modifier.size(12.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

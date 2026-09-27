@@ -97,19 +97,72 @@ internal fun UserMessageBubble(
                             contentScale = ContentScale.Crop
                         )
                     }
-                    SelectionContainer {
-                        androidx.compose.material3.ProvideTextStyle(
-                            MaterialTheme.typography.bodyLarge.copy(
-                                fontWeight = FontWeight.Medium
-                            )
-                        ) {
-                            MarkdownText(
-                                text = message.content.content,
-                                modifier = Modifier.padding(
-                                    horizontal = 16.dp,
-                                    vertical = 10.dp
+                    val rawText = message.content.content.trim()
+                    val isSlash = rawText.startsWith("/") && rawText.length > 1 && !rawText.startsWith("//")
+                    val commandSlug = if (isSlash) rawText.substringBefore(" ").removePrefix("/").lowercase() else null
+                    val promptText = if (isSlash && rawText.contains(" ")) rawText.substringAfter(" ").trim() else if (isSlash) "" else rawText
+
+                    if (commandSlug != null) {
+                        Row(
+                            modifier = Modifier
+                                .padding(
+                                    start = 14.dp,
+                                    end = 14.dp,
+                                    top = 10.dp,
+                                    bottom = if (promptText.isNotBlank()) 2.dp else 10.dp
                                 )
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                .border(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .background(
+                                        MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        RoundedCornerShape(4.dp)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = TnIcons.Code,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(12.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Text(
+                                text = commandSlug,
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = MaterialTheme.colorScheme.onSurface
                             )
+                        }
+                    }
+
+                    if (promptText.isNotBlank()) {
+                        SelectionContainer {
+                            androidx.compose.material3.ProvideTextStyle(
+                                MaterialTheme.typography.bodyLarge.copy(
+                                    fontWeight = FontWeight.Medium
+                                )
+                            ) {
+                                MarkdownText(
+                                    text = promptText,
+                                    modifier = Modifier.padding(
+                                        horizontal = 16.dp,
+                                        vertical = if (commandSlug != null) 6.dp else 10.dp
+                                    )
+                                )
+                            }
                         }
                     }
                 }

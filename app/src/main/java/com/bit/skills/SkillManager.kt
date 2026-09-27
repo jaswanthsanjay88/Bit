@@ -51,6 +51,20 @@ class SkillManager @Inject constructor(
 
         val DEFAULT_BUILTIN_SKILLS = listOf(
             Skill(
+                id = "skill-plan",
+                name = "Plan",
+                description = "Implementation planning and task breakdown before execution.",
+                instructions = """
+                    - Decompose Objectives: Break complex tasks into distinct, verifiable phases.
+                    - Identify Risks: Check dependencies, file boundaries, and breaking changes before execution.
+                    - Verification Gates: Define clear testable criteria for every phase.
+                """.trimIndent(),
+                icon = "code",
+                skillType = SkillType.INSTRUCTIONAL,
+                enabled = true,
+                isBuiltIn = true
+            ),
+            Skill(
                 id = "skill-web-search",
                 name = "Web Search & Scraping",
                 description = "Searches the live web via DuckDuckGo and scrapes clean markdown text.",
@@ -381,14 +395,19 @@ class SkillManager @Inject constructor(
         return _skills.value.find { skill ->
             val slug = getSkillSlug(skill)
             skill.id.equals(q, ignoreCase = true) ||
+            skill.id.removePrefix("skill-").equals(cleanSlug, ignoreCase = true) ||
             skill.name.equals(q, ignoreCase = true) ||
             slug.equals(cleanSlug, ignoreCase = true) ||
+            slug.replace("-linux-", "-").equals(cleanSlug, ignoreCase = true) ||
             skill.name.lowercase().contains(cleanSlug)
         }
     }
 
     fun getSkillBySlug(slug: String): Skill? {
         val clean = slug.trim().removePrefix("/").lowercase()
-        return _skills.value.find { getSkillSlug(it) == clean }
+        return _skills.value.find {
+            val s = getSkillSlug(it)
+            s == clean || s.replace("-linux-", "-") == clean || it.id.removePrefix("skill-") == clean
+        }
     }
 }
