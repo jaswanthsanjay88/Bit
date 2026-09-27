@@ -14,6 +14,11 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -118,6 +123,62 @@ import kotlinx.coroutines.delay
 import androidx.compose.runtime.mutableLongStateOf
 
 
+// ── Slash Command Matching & Visual Transformation ──────────────────────────────
+
+internal data class SlashMatch(
+    val slashIndex: Int,
+    val query: String,
+    val range: IntRange
+)
+
+internal fun findActiveSlash(text: String): SlashMatch? {
+    if (!text.contains("/")) return null
+    val lastSlash = text.lastIndexOf('/')
+    if (lastSlash < 0) return null
+    if (lastSlash > 0 && !text[lastSlash - 1].isWhitespace()) return null
+
+    val afterSlash = text.substring(lastSlash + 1)
+    if (afterSlash.contains(" ") || afterSlash.contains("\n")) return null
+
+    return SlashMatch(
+        slashIndex = lastSlash,
+        query = afterSlash.trim(),
+        range = lastSlash until text.length
+    )
+}
+
+internal class SlashCommandVisualTransformation(
+    private val badgeBackground: Color,
+    private val badgeContentColor: Color
+) : VisualTransformation {
+    private val commandRegex = Regex("""(?<=^|\s)/(?:[a-zA-Z0-9_-]*)""")
+
+    override fun filter(text: AnnotatedString): TransformedText {
+        val raw = text.text
+        if (!raw.contains("/")) {
+            return TransformedText(text, OffsetMapping.Identity)
+        }
+
+        val builder = AnnotatedString.Builder(raw)
+        for (match in commandRegex.findAll(raw)) {
+            val start = match.range.first
+            val end = match.range.last + 1
+            if (end > start) {
+                builder.addStyle(
+                    SpanStyle(
+                        color = badgeContentColor,
+                        background = badgeBackground,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    start,
+                    end
+                )
+            }
+        }
+        return TransformedText(builder.toAnnotatedString(), OffsetMapping.Identity)
+    }
+}
+
 // ── BottomBar ───────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -141,12 +202,11 @@ internal fun BottomBar(
     var isInputExpanded by remember { mutableStateOf(false) }
 
     val allSkills by remember { com.bit.skills.SkillManager.getInstance(context).skills }.collectAsStateWithLifecycle(emptyList())
-    val showSlashSuggestions = remember(value, attachedSkill) {
-        attachedSkill == null && value.startsWith("/") && !value.contains(" ") && !value.contains("\n")
+    val activeSlash = remember(value) { findActiveSlash(value) }
+    val showSlashSuggestions = remember(activeSlash, attachedSkill) {
+        attachedSkill == null && activeSlash != null
     }
-    val slashQuery = remember(value) {
-        if (value.startsWith("/")) value.substringAfter("/").substringBefore(" ").trim() else ""
-    }
+    val slashQuery = remember(activeSlash) { activeSlash?.query ?: "" }
     val filteredSkills = remember(allSkills, slashQuery) {
         val active = allSkills.filter { it.enabled }
         if (slashQuery.isBlank()) {
@@ -161,37 +221,10 @@ internal fun BottomBar(
         }
     }
 
-    val handleValueChange: (String) -> Unit = { newVal ->
-        if (attachedSkill == null && newVal.startsWith("/") && newVal.contains(" ")) {
-            val typedSlug = newVal.substringBefore(" ").removePrefix("/").lowercase().trim()
-            val matched = allSkills.firstOrNull { skill ->
-                skill.enabled && (
-                    com.bit.skills.SkillManager.getSkillSlug(skill).equals(typedSlug, ignoreCase = true) ||
-                    skill.id.removePrefix("skill-").equals(typedSlug, ignoreCase = true) ||
-                    skill.name.replace(Regex("""[^a-zA-Z0-9]+"""), "-").equals(typedSlug, ignoreCase = true) ||
-                    com.bit.skills.SkillManager.getSkillSlug(skill).replace("-linux-", "-").equals(typedSlug, ignoreCase = true)
-                )
-            } ?: if (typedSlug.isNotBlank() && typedSlug.matches(Regex("""[a-z0-9_-]+"""))) {
-                com.bit.models.Skill(
-                    id = "cmd-$typedSlug",
-                    name = typedSlug,
-                    description = "Command $typedSlug",
-                    instructions = "",
-                    icon = "code",
-                    skillType = com.bit.models.SkillType.INSTRUCTIONAL,
-                    enabled = true
-                )
-            } else null
-
-            if (matched != null) {
-                attachedSkill = matched
-                value = newVal.substringAfter(" ").trimStart()
-            } else {
-                value = newVal
-            }
-        } else {
-            value = newVal
-        }
+    val badgeBg = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f)
+    val badgeFg = MaterialTheme.colorScheme.primary
+    val slashVisualTransformation = remember(badgeBg, badgeFg) {
+        SlashCommandVisualTransformation(badgeBg, badgeFg)
     }
     val isSttRecording by chatViewModel.isSttRecording.collectAsStateWithLifecycle()
     val isSttTranscribing by chatViewModel.isSttTranscribing.collectAsStateWithLifecycle()
@@ -720,9 +753,14 @@ internal fun BottomBar(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
-                                            attachedSkill = skill
-                                            val args = if (value.contains(" ")) value.substringAfter(" ").trimStart() else ""
-                                            value = args
+                                            val currentSlash = findActiveSlash(value)
+                                            if (currentSlash != null) {
+                                                val before = value.substring(0, currentSlash.slashIndex)
+                                                val after = value.substring((currentSlash.range.last + 1).coerceAtMost(value.length))
+                                                value = "$before/$slug $after"
+                                            } else {
+                                                value = if (value.isNotBlank()) "$value /$slug " else "/$slug "
+                                            }
                                         }
                                         .padding(horizontal = 14.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -982,7 +1020,8 @@ internal fun BottomBar(
                         ) {
                             BasicTextField(
                                 value = value,
-                                onValueChange = handleValueChange,
+                                onValueChange = { value = it },
+                                visualTransformation = slashVisualTransformation,
                                 enabled = !chatState.isGenerating,
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1116,7 +1155,8 @@ internal fun BottomBar(
 
                             BasicTextField(
                                 value = value,
-                                onValueChange = handleValueChange,
+                                onValueChange = { value = it },
+                                visualTransformation = slashVisualTransformation,
                                 enabled = !chatState.isGenerating,
                                 modifier = Modifier
                                     .fillMaxWidth()

@@ -45,6 +45,10 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.unit.sp
 import com.bit.ui.components.InlineColors
 import com.bit.ui.components.buildInlineFormatted
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
 
 // ── UserMessageBubble ──
 
@@ -98,68 +102,18 @@ internal fun UserMessageBubble(
                         )
                     }
                     val rawText = message.content.content.trim()
-                    val isSlash = rawText.startsWith("/") && rawText.length > 1 && !rawText.startsWith("//")
-                    val commandSlug = if (isSlash) rawText.substringBefore(" ").removePrefix("/").lowercase() else null
-                    val promptText = if (isSlash && rawText.contains(" ")) rawText.substringAfter(" ").trim() else if (isSlash) "" else rawText
-
-                    if (commandSlug != null) {
-                        Row(
-                            modifier = Modifier
-                                .padding(
-                                    start = 14.dp,
-                                    end = 14.dp,
-                                    top = 10.dp,
-                                    bottom = if (promptText.isNotBlank()) 2.dp else 10.dp
-                                )
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                                .border(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                    RoundedCornerShape(8.dp)
-                                )
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(18.dp)
-                                    .background(
-                                        MaterialTheme.colorScheme.surfaceContainerHigh,
-                                        RoundedCornerShape(4.dp)
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = TnIcons.Code,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(12.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            Text(
-                                text = commandSlug,
-                                style = MaterialTheme.typography.labelMedium.copy(
-                                    fontWeight = FontWeight.SemiBold
-                                ),
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-
-                    if (promptText.isNotBlank()) {
+                    if (rawText.isNotBlank()) {
                         SelectionContainer {
                             androidx.compose.material3.ProvideTextStyle(
                                 MaterialTheme.typography.bodyLarge.copy(
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.Normal
                                 )
                             ) {
-                                MarkdownText(
-                                    text = promptText,
+                                UserMessageContent(
+                                    text = rawText,
                                     modifier = Modifier.padding(
                                         horizontal = 16.dp,
-                                        vertical = if (commandSlug != null) 6.dp else 10.dp
+                                        vertical = 10.dp
                                     )
                                 )
                             }
@@ -169,6 +123,117 @@ internal fun UserMessageBubble(
             }
 
         }
+    }
+}
+
+@Composable
+private fun UserMessageContent(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    val slashCommandRegex = remember { Regex("""(?<=^|\s)/([a-zA-Z0-9_-]+)""") }
+    val hasSlash = remember(text) { text.contains("/") && slashCommandRegex.containsMatchIn(text) }
+
+    if (!hasSlash) {
+        MarkdownText(
+            text = text,
+            modifier = modifier
+        )
+    } else {
+        val matches = remember(text) { slashCommandRegex.findAll(text).toList() }
+        val primary = MaterialTheme.colorScheme.primary
+        val primaryContainer = MaterialTheme.colorScheme.primaryContainer
+        val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+        val inlineColors = remember(surfaceVariant, primary) {
+            InlineColors(
+                codeBg = surfaceVariant.copy(alpha = 0.5f),
+                highlightBg = primary.copy(alpha = 0.3f),
+                mathColor = primary
+            )
+        }
+
+        val annotatedString = remember(text, primary, primaryContainer, inlineColors) {
+            buildAnnotatedString {
+                var cursor = 0
+                matches.forEachIndexed { index, match ->
+                    val start = match.range.first
+                    val end = match.range.last + 1
+                    val slug = match.groupValues[1]
+
+                    if (start > cursor) {
+                        append(buildInlineFormatted(text.substring(cursor, start), inlineColors))
+                    }
+
+                    // Inline badge token: [icon] slug
+                    val inlineId = "cmd_icon_$index"
+                    appendInlineContent(id = inlineId, alternateText = "/")
+                    withStyle(
+                        SpanStyle(
+                            color = primary,
+                            background = primaryContainer.copy(alpha = 0.75f),
+                            fontWeight = FontWeight.Bold
+                        )
+                    ) {
+                        append(slug)
+                    }
+
+                    cursor = end
+                }
+                if (cursor < text.length) {
+                    append(buildInlineFormatted(text.substring(cursor), inlineColors))
+                }
+            }
+        }
+
+        val inlineContent = remember(matches, primary, primaryContainer) {
+            matches.mapIndexed { index, match ->
+                val slug = match.groupValues[1]
+                val iconVector = when (slug.lowercase()) {
+                    "search", "web-search" -> TnIcons.Search
+                    "image", "draw", "paint" -> TnIcons.Sparkles
+                    "terminal", "bash", "cmd" -> TnIcons.Terminal
+                    "storage", "memory" -> TnIcons.Database
+                    "code", "dev" -> TnIcons.Code
+                    else -> TnIcons.Sparkles
+                }
+                val inlineId = "cmd_icon_$index"
+                inlineId to InlineTextContent(
+                    Placeholder(
+                        width = 18.sp,
+                        height = 18.sp,
+                        placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                    )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .background(
+                                color = primaryContainer.copy(alpha = 0.85f),
+                                shape = RoundedCornerShape(4.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = iconVector,
+                            contentDescription = null,
+                            modifier = Modifier.size(11.dp),
+                            tint = primary
+                        )
+                    }
+                }
+            }.toMap()
+        }
+
+        Text(
+            text = annotatedString,
+            inlineContent = inlineContent,
+            style = MaterialTheme.typography.bodyLarge.copy(
+                fontWeight = FontWeight.Normal,
+                lineHeight = 22.sp
+            ),
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = modifier
+        )
     }
 }
 

@@ -974,10 +974,10 @@ class ChatViewModel @Inject constructor(
 
     fun sendChat(prompt: String) {
         val trimmedPrompt = prompt.trim()
-        val isExplicitGoal = trimmedPrompt.startsWith("/goal", ignoreCase = true)
+        val isExplicitGoal = Regex("""(?:^|\s)/goal(?:\s|:|$|\b)""", RegexOption.IGNORE_CASE).containsMatchIn(trimmedPrompt)
         if (isAgentMode.value || isExplicitGoal) {
             val goal = if (isExplicitGoal) {
-                trimmedPrompt.substringAfter("/goal").trim().removePrefix(":").trim()
+                trimmedPrompt.replace(Regex("""(?:^|\s)/goal(?:\s|:|$|\b)""", RegexOption.IGNORE_CASE), " ").trim().removePrefix(":").trim()
             } else {
                 trimmedPrompt
             }
@@ -1217,6 +1217,24 @@ class ChatViewModel @Inject constructor(
         return outputStream.toByteArray()
     }
 
+    private fun resolveActiveSkillsPrompt(rawPrompt: String): String {
+        if (!rawPrompt.contains("/")) return ""
+        val skillManager = com.bit.skills.SkillManager.getInstance(appContext)
+        val slashTokens = Regex("""(?<=^|\s)/([a-zA-Z0-9_-]+)""").findAll(rawPrompt).map {
+            it.groupValues[1].lowercase()
+        }.toSet()
+        if (slashTokens.isEmpty()) return ""
+
+        val matchedSkills = slashTokens.mapNotNull { token ->
+            skillManager.getSkillBySlug(token) ?: skillManager.findSkill(token)
+        }.distinctBy { it.id }.filter { it.enabled }
+
+        if (matchedSkills.isEmpty()) return ""
+        return matchedSkills.joinToString("\n\n") { skill ->
+            "## Active Skill Context: ${skill.name}\n${skill.instructions}"
+        }
+    }
+
     /**
      * Send a message with images (VLM). Requires a VLM projector to be loaded.
      * @param prompt User's text prompt
@@ -1334,13 +1352,9 @@ class ChatViewModel @Inject constructor(
 
                 var effectivePrompt = if (prompt.isBlank()) "Describe this image in detail." else prompt
                 val trimmedImgPrompt = prompt.trim()
-                if (trimmedImgPrompt.startsWith("/")) {
-                    val firstWord = trimmedImgPrompt.substringBefore(" ").removePrefix("/").lowercase()
-                    val skillManager = com.bit.skills.SkillManager.getInstance(appContext)
-                    val matchedSkill = skillManager.getSkillBySlug(firstWord) ?: skillManager.findSkill(firstWord)
-                    if (matchedSkill != null && matchedSkill.enabled) {
-                        effectivePrompt = "## Active Skill Context: ${matchedSkill.name}\n${matchedSkill.instructions}\n\n$effectivePrompt"
-                    }
+                val activeSkillsContext = resolveActiveSkillsPrompt(trimmedImgPrompt)
+                if (activeSkillsContext.isNotBlank()) {
+                    effectivePrompt = "$activeSkillsContext\n\n$effectivePrompt"
                 }
                 val augmentedPrompt = if (docAndRagContext != null) {
                     "Context:\n$docAndRagContext\n\n$effectivePrompt"
@@ -1652,14 +1666,9 @@ class ChatViewModel @Inject constructor(
 
         var finalPrompt = prompt
         val trimmed = prompt.trim()
-        if (trimmed.startsWith("/")) {
-            val firstWord = trimmed.substringBefore(" ").removePrefix("/").lowercase()
-            val skillManager = com.bit.skills.SkillManager.getInstance(appContext)
-            val matchedSkill = skillManager.getSkillBySlug(firstWord) ?: skillManager.findSkill(firstWord)
-            if (matchedSkill != null && matchedSkill.enabled) {
-                val skillInstruction = "## Active Skill Context: ${matchedSkill.name}\n${matchedSkill.instructions}\n"
-                finalPrompt = "$skillInstruction\n$finalPrompt"
-            }
+        val activeSkillsContext = resolveActiveSkillsPrompt(trimmed)
+        if (activeSkillsContext.isNotBlank()) {
+            finalPrompt = "$activeSkillsContext\n\n$finalPrompt"
         }
         if (finalPrepend.isNotBlank()) finalPrompt = "$finalPrepend\n$finalPrompt"
         if (finalPostpend.isNotBlank()) finalPrompt = "$finalPrompt\n$finalPostpend"
