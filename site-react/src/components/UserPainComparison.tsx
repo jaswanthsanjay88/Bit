@@ -81,7 +81,7 @@ export const UserPainComparison: React.FC = () => {
   const [activeMode, setActiveMode] = useState<'sovereign' | 'cloud'>('sovereign');
 
   return (
-    <section className="py-24 bg-black border-t border-white/[0.08] relative overflow-hidden">
+    <section id="comparison" className="py-24 bg-black border-t border-white/[0.08] relative overflow-hidden">
       {/* Background architectural grid */}
       <div className="absolute inset-0 bg-grid-architectural opacity-40 pointer-events-none" />
 

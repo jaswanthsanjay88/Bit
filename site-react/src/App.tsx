@@ -1,45 +1,56 @@
 import React from 'react';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
-import { StatsStrip } from './components/StatsStrip';
+import { SocialProof } from './components/SocialProof';
+import { FeatureStories } from './components/FeatureStories';
+import { SimpleHowItWorks } from './components/SimpleHowItWorks';
 import { UserPainComparison } from './components/UserPainComparison';
-import { FeatureGrid } from './components/FeatureGrid';
-import { HorizontalPipeline } from './components/HorizontalPipeline';
+import { DeviceRequirements } from './components/DeviceRequirements';
 import { TerminalBlock } from './components/TerminalBlock';
 import { ModelStore } from './components/ModelStore';
+import { FaqSection } from './components/FaqSection';
+import { FinalCta } from './components/FinalCta';
 import { Footer } from './components/Footer';
 
 export const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-black text-zinc-100 flex flex-col selection:bg-zinc-800 selection:text-white">
-      {/* Top Fixed Header */}
+      {/* 01. Minimal Navigation Bar */}
       <Navbar />
 
-      {/* Main Content Sections */}
       <main className="flex-1">
-        {/* Hero with Interactive Agent Cockpit Simulator */}
+        {/* 02. Hero with Live Cockpit Simulator */}
         <Hero />
 
-        {/* Proof / Stat Strip */}
-        <StatsStrip />
+        {/* 03. Social Proof & Architecture Credibility */}
+        <SocialProof />
 
-        {/* User Pain vs Sovereign Freedom Comparison */}
+        {/* 04. The Big 3 Feature Stories (Full-Width Chapters) */}
+        <FeatureStories />
+
+        {/* 05. How It Works (Simple 3-Step Flow) */}
+        <SimpleHowItWorks />
+
+        {/* 06. Proof & Trust (Cloud Trap vs Sovereign Freedom) */}
         <UserPainComparison />
 
-        {/* Real Product Surfaces Feature Grid */}
-        <FeatureGrid />
+        {/* 07. Device Compatibility & RAM Tiers */}
+        <DeviceRequirements />
 
-        {/* Horizontal Pipeline (How It Works) */}
-        <HorizontalPipeline />
-
-        {/* Terminal ADB Install & GBNF Grammar Block */}
+        {/* 08. 1-Click ADB Install & Terminal Sideload */}
         <TerminalBlock />
 
-        {/* Interactive Model Store Catalog */}
+        {/* 09. Verified Model Matrix (Clean Preview + Expandable) */}
         <ModelStore />
+
+        {/* 10. Interactive FAQ Accordion */}
+        <FaqSection />
+
+        {/* 11. Final High-Impact Call to Action */}
+        <FinalCta />
       </main>
 
-      {/* Minimalist Dense Footer */}
+      {/* 12. Minimalist Dense Footer */}
       <Footer />
     </div>
   );

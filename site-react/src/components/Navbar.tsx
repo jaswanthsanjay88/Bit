@@ -39,19 +39,19 @@ export const Navbar: React.FC = () => {
             </a>
           </div>
 
-          {/* Desktop Nav Links */}
+          {/* Desktop Nav Links (4 Big-Tech Links) */}
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-zinc-400">
             <a href="#features" className="hover:text-white transition-colors duration-150">
               Features
             </a>
-            <a href="#pipeline" className="hover:text-white transition-colors duration-150">
-              Architecture
+            <a href="#comparison" className="hover:text-white transition-colors duration-150">
+              Why Sovereign
             </a>
-            <a href="#terminal" className="hover:text-white transition-colors duration-150">
-              Install
+            <a href="#requirements" className="hover:text-white transition-colors duration-150">
+              Requirements
             </a>
-            <a href="#models" className="hover:text-white transition-colors duration-150">
-              Model Store
+            <a href="#faq" className="hover:text-white transition-colors duration-150">
+              FAQ
             </a>
             <a
               href="https://github.com/jaswanthsanjay88/Bit_Android"
@@ -74,7 +74,7 @@ export const Navbar: React.FC = () => {
               className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg bg-white text-black hover:bg-zinc-200 transition-colors shadow-[0_0_20px_rgba(255,255,255,0.15)]"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Get APK</span>
+              <span>Download APK</span>
             </motion.a>
           </div>
 
@@ -92,7 +92,7 @@ export const Navbar: React.FC = () => {
         </div>
       </div>
 
-      {/* Mobile Drawer with AnimatePresence */}
+      {/* Mobile Drawer */}
       <AnimatePresence>
         {mobileMenuOpen && (
           <motion.div
@@ -110,25 +110,25 @@ export const Navbar: React.FC = () => {
               Features
             </a>
             <a
-              href="#pipeline"
+              href="#comparison"
               onClick={() => setMobileMenuOpen(false)}
               className="block px-3 py-2 rounded-md text-sm font-medium text-zinc-300 hover:bg-zinc-900 hover:text-white"
             >
-              Architecture
+              Why Sovereign
             </a>
             <a
-              href="#terminal"
+              href="#requirements"
               onClick={() => setMobileMenuOpen(false)}
               className="block px-3 py-2 rounded-md text-sm font-medium text-zinc-300 hover:bg-zinc-900 hover:text-white"
             >
-              Install
+              Requirements
             </a>
             <a
-              href="#models"
+              href="#faq"
               onClick={() => setMobileMenuOpen(false)}
               className="block px-3 py-2 rounded-md text-sm font-medium text-zinc-300 hover:bg-zinc-900 hover:text-white"
             >
-              Model Store
+              FAQ
             </a>
             <a
               href="https://github.com/jaswanthsanjay88/Bit_Android"
