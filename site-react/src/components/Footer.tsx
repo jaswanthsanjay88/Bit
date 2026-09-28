@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Lock, ArrowUpRight, Terminal } from 'lucide-react';
+import { Lock, ArrowUpRight } from 'lucide-react';
 
 export const Footer: React.FC = () => {
   return (
@@ -127,10 +127,10 @@ export const Footer: React.FC = () => {
             </h4>
             <div className="space-y-3 text-zinc-400 leading-relaxed">
               <p>
-                BIT does not collect analytics, logs, telemetry, device identifiers, or biometric audio recordings.
+                BIT does not collect analytics, telemetry, logs, device identifiers, or biometric audio recordings.
               </p>
               <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded bg-zinc-900 border border-white/10 text-[10px] font-mono text-zinc-300">
-                <Lock className="w-3 h-3 text-emerald-400" />
+                <Lock className="w-3 h-3 text-zinc-300" />
                 <span>Zero telemetry guaranteed</span>
               </div>
             </div>

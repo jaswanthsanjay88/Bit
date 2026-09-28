@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Layers, Mic, HardDrive, Database, Sliders, Cpu, Eye, X, CheckCircle } from 'lucide-react';
+import { springs } from '../lib/motion';
 
 interface FeatureCard {
   id: string;
@@ -72,14 +74,16 @@ export const FeatureGrid: React.FC = () => {
         {/* Feature Cards Grid (2x2) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {FEATURES.map((feat) => (
-            <div
+            <motion.div
               key={feat.id}
-              className="rounded-2xl glass-panel p-6 sm:p-8 flex flex-col justify-between border border-white/[0.08] hover:border-white/20 transition-all duration-200 group"
+              whileHover={{ y: -3 }}
+              transition={springs.snappy}
+              className="rounded-2xl surface-card p-6 sm:p-8 flex flex-col justify-between group"
             >
               <div>
                 <div className="flex items-center justify-between gap-3 mb-4">
                   <div className="flex items-center gap-2 text-xs font-mono text-zinc-400">
-                    <span className="p-1.5 rounded-md bg-zinc-900 border border-white/10">
+                    <span className="p-1.5 rounded-md bg-zinc-800 border border-white/10">
                       {feat.icon}
                     </span>
                     <span>{feat.tag}</span>
@@ -87,7 +91,7 @@ export const FeatureGrid: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setSelectedImage(feat.imageSrc)}
-                    className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white transition-colors"
+                    className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white transition-colors tactile-button"
                   >
                     <Eye className="w-3.5 h-3.5" />
                     <span>Expand view</span>
@@ -112,7 +116,7 @@ export const FeatureGrid: React.FC = () => {
                 </div>
               </div>
 
-              {/* Realistic Phone Screen Mockup Frame */}
+              {/* Titanium Phone Mockup Screen */}
               <div
                 onClick={() => setSelectedImage(feat.imageSrc)}
                 className="cursor-pointer relative overflow-hidden rounded-xl bg-zinc-950 border border-white/10 group-hover:border-white/25 transition-all shadow-[0_12px_40px_rgba(0,0,0,0.8)] aspect-[16/10] flex items-center justify-center p-3"
@@ -129,13 +133,17 @@ export const FeatureGrid: React.FC = () => {
                   <span>Inspect UI</span>
                 </div>
               </div>
-            </div>
+            </motion.div>
           ))}
         </div>
 
         {/* Secondary Surface Cards: Sampler & Diagnostics */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8">
-          <div className="rounded-2xl glass-panel p-6 border border-white/[0.08] flex flex-col justify-between">
+          <motion.div
+            whileHover={{ y: -2 }}
+            transition={springs.snappy}
+            className="rounded-2xl surface-card p-6 flex flex-col justify-between"
+          >
             <div className="flex items-center gap-2 text-xs font-mono text-zinc-400 mb-3">
               <Sliders className="w-4 h-4 text-zinc-300" />
               <span>RUNTIME TUNING</span>
@@ -155,9 +163,13 @@ export const FeatureGrid: React.FC = () => {
                 loading="lazy"
               />
             </div>
-          </div>
+          </motion.div>
 
-          <div className="rounded-2xl glass-panel p-6 border border-white/[0.08] flex flex-col justify-between">
+          <motion.div
+            whileHover={{ y: -2 }}
+            transition={springs.snappy}
+            className="rounded-2xl surface-card p-6 flex flex-col justify-between"
+          >
             <div className="flex items-center gap-2 text-xs font-mono text-zinc-400 mb-3">
               <Cpu className="w-4 h-4 text-zinc-300" />
               <span>HARDWARE TELEMETRY</span>
@@ -177,38 +189,48 @@ export const FeatureGrid: React.FC = () => {
                 loading="lazy"
               />
             </div>
-          </div>
+          </motion.div>
         </div>
       </div>
 
-      {/* Lightbox Modal */}
-      {selectedImage && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-4 sm:p-8"
-          onClick={() => setSelectedImage(null)}
-        >
-          <div
-            className="relative max-w-xl max-h-[90vh] rounded-2xl overflow-hidden border border-white/20 shadow-2xl bg-zinc-950"
-            onClick={(e) => e.stopPropagation()}
+      {/* Lightbox Modal with AnimatePresence */}
+      <AnimatePresence>
+        {selectedImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            role="dialog"
+            aria-modal="true"
+            className="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 sm:p-8"
+            onClick={() => setSelectedImage(null)}
           >
-            <button
-              type="button"
-              onClick={() => setSelectedImage(null)}
-              className="absolute top-4 right-4 z-20 p-2 rounded-full bg-black/80 border border-white/20 text-white hover:bg-zinc-800 transition-colors"
-              aria-label="Close Preview"
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={springs.snappy}
+              className="relative max-w-xl max-h-[90vh] rounded-2xl overflow-hidden border border-white/20 shadow-2xl bg-zinc-950"
+              onClick={(e) => e.stopPropagation()}
             >
-              <X className="w-5 h-5" />
-            </button>
-            <img
-              src={selectedImage}
-              alt="Full Resolution Screen Capture"
-              className="w-full h-auto max-h-[85vh] object-contain"
-            />
-          </div>
-        </div>
-      )}
+              <button
+                type="button"
+                onClick={() => setSelectedImage(null)}
+                className="absolute top-4 right-4 z-20 p-2 rounded-full bg-black/80 border border-white/20 text-white hover:bg-zinc-800 transition-colors tactile-button"
+                aria-label="Close Preview"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <img
+                src={selectedImage}
+                alt="Full Resolution Screen Capture"
+                className="w-full h-auto max-h-[85vh] object-contain"
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </section>
   );
 };

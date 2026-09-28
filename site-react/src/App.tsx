@@ -2,6 +2,7 @@ import React from 'react';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
 import { StatsStrip } from './components/StatsStrip';
+import { UserPainComparison } from './components/UserPainComparison';
 import { FeatureGrid } from './components/FeatureGrid';
 import { HorizontalPipeline } from './components/HorizontalPipeline';
 import { TerminalBlock } from './components/TerminalBlock';
@@ -21,6 +22,9 @@ export const App: React.FC = () => {
 
         {/* Proof / Stat Strip */}
         <StatsStrip />
+
+        {/* User Pain vs Sovereign Freedom Comparison */}
+        <UserPainComparison />
 
         {/* Real Product Surfaces Feature Grid */}
         <FeatureGrid />

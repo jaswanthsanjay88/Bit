@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { Mic, GitBranch, Cpu, Volume2, ArrowRight, ShieldCheck, Check } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Mic, GitBranch, Cpu, Volume2, ShieldCheck } from 'lucide-react';
+import { springs } from '../lib/motion';
 
 interface PipelineStage {
   step: string;
@@ -123,12 +125,19 @@ export const HorizontalPipeline: React.FC = () => {
                 key={stg.step}
                 type="button"
                 onClick={() => setActiveStageIndex(idx)}
-                className={`text-left p-4 rounded-xl border transition-all duration-150 interactive-card relative ${
+                className={`text-left p-4 rounded-xl border transition-all duration-150 tactile-button relative ${
                   isSelected
                     ? 'bg-zinc-900 border-white/30 shadow-[0_0_25px_rgba(255,255,255,0.06)]'
                     : 'bg-zinc-900/30 border-white/[0.06] hover:border-white/15'
                 }`}
               >
+                {isSelected && (
+                  <motion.div
+                    layoutId="pipeline-active-indicator"
+                    className="absolute inset-0 rounded-xl border-2 border-white/20 pointer-events-none"
+                    transition={springs.snappy}
+                  />
+                )}
                 <div className="flex items-center justify-between mb-3">
                   <span className="font-mono text-xs font-bold text-zinc-500 tabular-nums">
                     STAGE {stg.step}
@@ -148,63 +157,72 @@ export const HorizontalPipeline: React.FC = () => {
           })}
         </div>
 
-        {/* Detailed Stage Deep Dive Card */}
-        <div className="rounded-2xl glass-panel-elevated p-6 sm:p-8 border border-white/15">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* Left 6 cols: Description & Specs */}
-            <div className="lg:col-span-6 space-y-6">
-              <div className="flex items-center gap-3">
-                <span className="font-mono text-xs px-2.5 py-1 rounded bg-zinc-800 border border-white/10 text-zinc-300">
-                  STAGE {activeStage.step}
-                </span>
-                <h3 className="text-2xl font-bold text-white tracking-tight">
-                  {activeStage.name}
-                </h3>
-              </div>
-
-              <p className="text-sm text-zinc-300 leading-relaxed font-normal">
-                {activeStage.details}
-              </p>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
-                {activeStage.specs.map((sp, sIdx) => (
-                  <div key={sIdx} className="p-3 rounded-lg bg-zinc-900/80 border border-white/5">
-                    <span className="text-[10px] font-mono text-zinc-500 block mb-1 uppercase tracking-wider">
-                      {sp.label}
-                    </span>
-                    <span className="text-xs font-semibold text-zinc-200 block">
-                      {sp.value}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex items-center gap-2 text-xs font-mono text-emerald-400 pt-2">
-                <ShieldCheck className="w-4 h-4" />
-                <span>Zero telemetry: 100% on-device memory scope</span>
-              </div>
-            </div>
-
-            {/* Right 6 cols: Code Snippet / AST visualization */}
-            <div className="lg:col-span-6">
-              <div className="rounded-xl bg-black border border-white/10 overflow-hidden shadow-2xl">
-                <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5 bg-zinc-900/60">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
-                    <span className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
-                    <span className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
-                    <span className="text-xs font-mono text-zinc-400 ml-2">pipeline_stage_{activeStage.step}.kt</span>
-                  </div>
-                  <span className="text-[10px] font-mono text-zinc-500 uppercase">SYNTAX VERIFIED</span>
+        {/* Detailed Stage Deep Dive Card with AnimatePresence */}
+        <div className="rounded-2xl surface-card-elevated p-6 sm:p-8 border border-white/15">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeStage.step}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={springs.snappy}
+              className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start"
+            >
+              {/* Left 6 cols: Description & Specs */}
+              <div className="lg:col-span-6 space-y-6">
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-xs px-2.5 py-1 rounded bg-zinc-800 border border-white/10 text-zinc-300">
+                    STAGE {activeStage.step}
+                  </span>
+                  <h3 className="text-2xl font-bold text-white tracking-tight">
+                    {activeStage.name}
+                  </h3>
                 </div>
-                <div className="p-4 overflow-x-auto text-xs font-mono leading-relaxed text-zinc-300">
-                  <pre>
-                    <code>{activeStage.codeSnippet}</code>
-                  </pre>
+
+                <p className="text-sm text-zinc-300 leading-relaxed font-normal">
+                  {activeStage.details}
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                  {activeStage.specs.map((sp, sIdx) => (
+                    <div key={sIdx} className="p-3 rounded-lg bg-zinc-900 border border-white/5">
+                      <span className="text-[10px] font-mono text-zinc-500 block mb-1 uppercase tracking-wider">
+                        {sp.label}
+                      </span>
+                      <span className="text-xs font-semibold text-zinc-200 block">
+                        {sp.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2 text-xs font-mono text-zinc-300 pt-2">
+                  <ShieldCheck className="w-4 h-4 text-zinc-400" />
+                  <span>Zero telemetry: 100% on-device memory scope</span>
                 </div>
               </div>
-            </div>
-          </div>
+
+              {/* Right 6 cols: Code Snippet / AST visualization */}
+              <div className="lg:col-span-6">
+                <div className="rounded-xl bg-black border border-white/10 overflow-hidden shadow-2xl">
+                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5 bg-zinc-900/60">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
+                      <span className="text-xs font-mono text-zinc-400 ml-2">pipeline_stage_{activeStage.step}.kt</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-zinc-500 uppercase">SYNTAX VERIFIED</span>
+                  </div>
+                  <div className="p-4 overflow-x-auto text-xs font-mono leading-relaxed text-zinc-300">
+                    <pre>
+                      <code>{activeStage.codeSnippet}</code>
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
     </section>

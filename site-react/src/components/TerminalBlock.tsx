@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { Terminal, Copy, Check, Download, GitBranch, ArrowUpRight } from 'lucide-react';
+import { motion } from 'motion/react';
+import { Terminal, Copy, Check, ArrowUpRight } from 'lucide-react';
+import { springs } from '../lib/motion';
 
 interface TerminalTab {
   id: string;
@@ -86,42 +88,52 @@ export const TerminalBlock: React.FC = () => {
         </div>
 
         {/* Monospace Terminal Card */}
-        <div className="rounded-2xl glass-panel-elevated border border-white/15 overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.9)]">
+        <div className="rounded-2xl surface-card-elevated border border-white/15 overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.9)]">
           {/* Top Tabs Bar */}
-          <div className="flex flex-wrap items-center justify-between border-b border-white/10 bg-zinc-950/80 px-4 py-2.5">
+          <div className="flex flex-wrap items-center justify-between border-b border-white/10 bg-zinc-950 px-4 py-2.5">
             <div className="flex items-center gap-1.5 sm:gap-2">
-              {TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => {
-                    setActiveTabId(tab.id);
-                    setCopied(false);
-                  }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-all duration-150 ${
-                    activeTabId === tab.id
-                      ? 'bg-zinc-800 text-white font-semibold border border-white/10'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
-                  }`}
-                >
-                  {tab.name}
-                </button>
-              ))}
+              {TABS.map((tab) => {
+                const isActive = activeTabId === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveTabId(tab.id);
+                      setCopied(false);
+                    }}
+                    className={`relative px-3 py-1.5 rounded-lg text-xs font-mono transition-colors duration-150 tactile-button ${
+                      isActive ? 'text-white font-semibold' : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    {isActive && (
+                      <motion.div
+                        layoutId="terminal-active-tab"
+                        className="absolute inset-0 rounded-lg bg-zinc-800 border border-white/10 shadow-sm"
+                        transition={springs.snappy}
+                      />
+                    )}
+                    <span className="relative z-10">{tab.name}</span>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="flex items-center gap-2 mt-2 sm:mt-0">
               <span className="text-[11px] font-mono text-zinc-500 hidden sm:inline">
                 {activeTab.filename}
               </span>
-              <button
+              <motion.button
                 type="button"
                 onClick={handleCopy}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-900 hover:bg-zinc-800 border border-white/10 text-xs font-mono text-zinc-300 hover:text-white transition-all active:scale-95"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.95 }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-900 hover:bg-zinc-800 border border-white/10 text-xs font-mono text-zinc-300 hover:text-white transition-all shadow-sm"
               >
                 {copied ? (
                   <>
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="text-emerald-400 font-semibold">Copied!</span>
+                    <Check className="w-3.5 h-3.5 text-zinc-200" />
+                    <span className="text-white font-semibold">Copied</span>
                   </>
                 ) : (
                   <>
@@ -129,12 +141,12 @@ export const TerminalBlock: React.FC = () => {
                     <span>Copy Command</span>
                   </>
                 )}
-              </button>
+              </motion.button>
             </div>
           </div>
 
           {/* Terminal Code Display */}
-          <div className="p-6 bg-zinc-950/95 overflow-x-auto text-xs sm:text-sm font-mono leading-relaxed text-zinc-200">
+          <div className="p-6 bg-zinc-950 overflow-x-auto text-xs sm:text-sm font-mono leading-relaxed text-zinc-200">
             <pre>
               <code>{activeTab.command}</code>
             </pre>
@@ -147,7 +159,7 @@ export const TerminalBlock: React.FC = () => {
               href="https://github.com/jaswanthsanjay88/Bit_Android/releases"
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1 text-zinc-300 hover:text-white font-medium"
+              className="inline-flex items-center gap-1 text-zinc-300 hover:text-white font-medium tactile-button"
             >
               <span>GitHub Releases</span>
               <ArrowUpRight className="w-3.5 h-3.5" />

@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Download, Terminal, ArrowRight, ShieldCheck, Cpu, CheckCircle2, Activity, Play } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Download, Terminal, ArrowRight, ShieldCheck, Cpu, CheckCircle2, Activity } from 'lucide-react';
 import { GithubIcon } from './GithubIcon';
+import { springs, motionTokens } from '../lib/motion';
 
 interface SimulationScenario {
   id: string;
@@ -84,8 +86,20 @@ export const Hero: React.FC = () => {
   const [activeStep, setActiveStep] = useState(0);
   const [displayedText, setDisplayedText] = useState('');
   const [isSimulating, setIsSimulating] = useState(false);
+  
+  // Mouse spotlight coordinates
+  const heroRef = useRef<HTMLDivElement>(null);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
-  // Dynamic simulation progression
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!heroRef.current) return;
+    const rect = heroRef.current.getBoundingClientRect();
+    setMousePos({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    });
+  };
+
   useEffect(() => {
     let isMounted = true;
     setIsSimulating(true);
@@ -129,34 +143,51 @@ export const Hero: React.FC = () => {
   }, [activeScenarioIndex]);
 
   return (
-    <section className="relative pt-32 pb-20 md:pt-40 md:pb-28 overflow-hidden bg-grid-subtle">
-      {/* Top subtle radial aura */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[350px] bg-gradient-to-b from-zinc-800/20 via-zinc-900/10 to-transparent blur-3xl pointer-events-none" />
+    <section
+      ref={heroRef}
+      onMouseMove={handleMouseMove}
+      className="relative pt-32 pb-20 md:pt-40 md:pb-28 overflow-hidden bg-black"
+    >
+      {/* Interactive mouse spotlight */}
+      <div
+        className="pointer-events-none absolute -inset-px opacity-30 transition-opacity duration-300"
+        style={{
+          background: `radial-gradient(600px circle at ${mousePos.x}px ${mousePos.y}px, rgba(255, 255, 255, 0.08), transparent 80%)`,
+        }}
+      />
+
+      {/* Background architectural grid */}
+      <div className="absolute inset-0 bg-grid-architectural opacity-30 pointer-events-none" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         {/* Release Pill Badge */}
         <div className="flex justify-center mb-6">
-          <a
+          <motion.a
             href="https://github.com/jaswanthsanjay88/Bit_Android/releases"
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-zinc-900/90 border border-white/10 text-xs text-zinc-300 hover:border-white/20 transition-all hover:bg-zinc-850 group"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-zinc-950 border border-white/10 text-xs text-zinc-300 hover:border-white/20 transition-colors shadow-sm group"
           >
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="relative flex h-2 w-2">
+              <span className="radar-ring absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+            </span>
             <span className="font-mono text-zinc-400">BIT v2.1.1</span>
             <span className="text-zinc-600">|</span>
-            <span className="text-zinc-300 group-hover:text-white transition-colors">
-              Autonomous on-device agentic runtime
+            <span className="text-zinc-200 group-hover:text-white transition-colors">
+              Sovereign on-device runtime
             </span>
             <ArrowRight className="w-3 h-3 text-zinc-400 group-hover:translate-x-0.5 transition-transform" />
-          </a>
+          </motion.a>
         </div>
 
         {/* Massive Vercel-style Headline */}
         <div className="text-center max-w-4xl mx-auto mb-6">
-          <h1 className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-white leading-[1.06]">
+          <h1 className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-white leading-[1.05]">
             AI that never leaves <br className="hidden sm:inline" />
-            <span className="bg-gradient-to-b from-white via-zinc-200 to-zinc-500 bg-clip-text text-transparent">
+            <span className="text-zinc-400">
               your phone.
             </span>
           </h1>
@@ -165,41 +196,48 @@ export const Hero: React.FC = () => {
         {/* Crisp Subhead */}
         <div className="text-center max-w-2xl mx-auto mb-10">
           <p className="text-base sm:text-lg text-zinc-400 leading-relaxed font-normal">
-            Autonomous local subagents, GBNF-constrained tool execution, and real-time offline voice. Powered natively by GGUF and llama.cpp. Zero telemetry, zero cloud dependency.
+            Autonomous local agents, GBNF-constrained tool execution, and real-time offline voice. Powered natively by GGUF and llama.cpp. Zero telemetry. Zero cloud dependency.
           </p>
         </div>
 
         {/* Dual Primary CTAs */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 mb-16">
-          <a
+          <motion.a
             href="#terminal"
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-white text-black font-semibold text-sm hover:bg-zinc-200 transition-all duration-150 active:scale-[0.98] shadow-[0_0_30px_rgba(255,255,255,0.2)]"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.96 }}
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-white text-black font-semibold text-sm hover:bg-zinc-200 transition-all duration-150 shadow-[0_0_24px_rgba(255,255,255,0.18)]"
           >
             <Download className="w-4 h-4" />
             <span>Download APK</span>
-          </a>
-          <a
+          </motion.a>
+          <motion.a
             href="https://github.com/jaswanthsanjay88/Bit_Android"
             target="_blank"
             rel="noreferrer"
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-zinc-900/80 hover:bg-zinc-800 text-zinc-200 hover:text-white font-medium text-sm border border-white/10 hover:border-white/20 transition-all duration-150 active:scale-[0.98]"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.96 }}
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-zinc-950 hover:bg-zinc-900 text-zinc-200 hover:text-white font-medium text-sm border border-white/10 hover:border-white/20 transition-all duration-150"
           >
             <GithubIcon className="w-4 h-4" />
             <span>View on GitHub</span>
             <span className="text-xs font-mono text-zinc-500 ml-1">2.1k</span>
-          </a>
+          </motion.a>
         </div>
 
         {/* Live Product Visual: Interactive On-Device Agent Simulator */}
         <div className="max-w-4xl mx-auto">
-          <div className="relative rounded-2xl glass-panel-elevated p-1 md:p-2 border border-white/10 shadow-[0_20px_70px_rgba(0,0,0,0.8)]">
-            {/* Top Device Status Bar / Agent Dynamic Island */}
-            <div className="bg-zinc-950/90 rounded-xl border border-white/5 p-4 md:p-6 space-y-5">
+          <div className="relative rounded-2xl surface-card-elevated p-1 md:p-2 border border-white/10 shadow-[0_20px_70px_rgba(0,0,0,0.9)]">
+            <div className="bg-zinc-950 rounded-xl border border-white/5 p-4 md:p-6 space-y-5">
+              {/* Top Bar with Status and Scenario Switcher */}
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-3 h-3 rounded-full bg-emerald-500/80 ring-4 ring-emerald-500/10" />
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="radar-ring absolute inline-flex h-full w-full rounded-full bg-white opacity-60" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-zinc-200" />
+                  </span>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono font-medium text-zinc-200">BIT Runtime Agent</span>
+                    <span className="text-xs font-mono font-medium text-zinc-200">BIT Runtime Harness</span>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-900 text-zinc-400 border border-white/10">
                       ARM64 Neon SIMD
                     </span>
@@ -207,13 +245,13 @@ export const Hero: React.FC = () => {
                 </div>
 
                 {/* Scenario Switcher Tabs */}
-                <div className="flex items-center gap-1.5 p-1 rounded-lg bg-zinc-900/90 border border-white/5 text-xs">
+                <div className="flex items-center gap-1.5 p-1 rounded-lg bg-zinc-900 border border-white/5 text-xs">
                   {SCENARIOS.map((sc, idx) => (
                     <button
                       key={sc.id}
                       type="button"
                       onClick={() => setActiveScenarioIndex(idx)}
-                      className={`px-3 py-1 rounded-md font-mono text-[11px] transition-all ${
+                      className={`px-3 py-1 rounded-md font-mono text-[11px] transition-all tactile-button ${
                         activeScenarioIndex === idx
                           ? 'bg-zinc-800 text-white font-semibold shadow-sm'
                           : 'text-zinc-400 hover:text-zinc-200'
@@ -236,8 +274,8 @@ export const Hero: React.FC = () => {
                 <div className="flex items-center gap-4 text-[11px] font-mono text-zinc-400">
                   <span>RAM: <strong className="text-zinc-200 tabular-nums">{scenario.ramUsage}</strong></span>
                   <span className="hidden sm:inline">Speed: <strong className="text-zinc-200 tabular-nums">{scenario.tokensPerSec} t/s</strong></span>
-                  <span className="text-emerald-400 flex items-center gap-1">
-                    <ShieldCheck className="w-3.5 h-3.5" />
+                  <span className="text-zinc-200 flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-zinc-400" />
                     <span>0B Egress</span>
                   </span>
                 </div>
@@ -247,8 +285,8 @@ export const Hero: React.FC = () => {
               <div className="space-y-4 pt-1">
                 {/* User Prompt */}
                 <div className="flex justify-end">
-                  <div className="max-w-[85%] rounded-xl bg-zinc-850 border border-white/10 px-4 py-2.5 text-xs sm:text-sm text-zinc-200">
-                    <p className="font-mono text-zinc-400 text-[10px] mb-1">USER INTENT</p>
+                  <div className="max-w-[85%] rounded-xl bg-zinc-900 border border-white/10 px-4 py-2.5 text-xs sm:text-sm text-zinc-200">
+                    <p className="font-mono text-zinc-500 text-[10px] mb-1">USER INTENT</p>
                     {scenario.userPrompt}
                   </div>
                 </div>
@@ -256,11 +294,11 @@ export const Hero: React.FC = () => {
                 {/* Subagent Reasoning Box */}
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-[11px] font-mono text-zinc-500 uppercase tracking-wider">
-                    <Terminal className="w-3.5 h-3.5" />
+                    <Terminal className="w-3.5 h-3.5 text-zinc-400" />
                     <span>Subagent Execution Trace</span>
                   </div>
 
-                  <div className="rounded-xl bg-black/60 border border-white/5 p-3.5 font-mono text-xs space-y-2">
+                  <div className="rounded-xl bg-black border border-white/5 p-3.5 font-mono text-xs space-y-2">
                     {/* Step Execution Badges */}
                     {scenario.agentSteps.map((step, idx) => (
                       <div
@@ -271,7 +309,7 @@ export const Hero: React.FC = () => {
                       >
                         <CheckCircle2
                           className={`w-3.5 h-3.5 ${
-                            idx <= activeStep ? 'text-emerald-400' : 'text-zinc-600'
+                            idx <= activeStep ? 'text-zinc-200' : 'text-zinc-700'
                           }`}
                         />
                         <span className="text-zinc-300 text-[11px]">{step}</span>
@@ -288,7 +326,7 @@ export const Hero: React.FC = () => {
                       </div>
                       <div className="flex items-center gap-2 text-zinc-500">
                         <span>Latency: <strong className="text-zinc-400 tabular-nums">{scenario.toolCall.duration}</strong></span>
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-medium">
+                        <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 font-medium">
                           GRAMMAR VALID
                         </span>
                       </div>
@@ -299,7 +337,7 @@ export const Hero: React.FC = () => {
                 {/* Agent Response Stream */}
                 <div className="rounded-xl bg-zinc-900/40 border border-white/10 p-4 text-xs sm:text-sm text-zinc-100">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="font-mono text-[10px] text-zinc-400 uppercase tracking-wider">
+                    <span className="font-mono text-[10px] text-zinc-500 uppercase tracking-wider">
                       SYNTHESIZED OUTPUT
                     </span>
                     <span className="font-mono text-[10px] text-zinc-500 tabular-nums">
