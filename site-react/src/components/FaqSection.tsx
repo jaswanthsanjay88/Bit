@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { ChevronDown, HelpCircle } from 'lucide-react';
-import { springs } from '../lib/motion';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
+import { RevealText } from './motion/RevealText';
+import { Reveal } from './motion/Reveal';
+import { ease, spring } from '../lib/motion';
 
 interface FaqItem {
   id: string;
@@ -12,105 +13,139 @@ interface FaqItem {
 const FAQS: FaqItem[] = [
   {
     id: 'offline',
-    question: 'Is BIT truly 100% offline, or does it call an API proxy?',
-    answer: 'BIT executes 100% locally on your smartphone processor using an embedded C++ llama.cpp runtime via JNI. You can turn on Airplane Mode and disconnect Wi-Fi and Cellular entirely; every core capability—chat, voice transcription, GBNF tool calling, and document RAG—continues to run with zero interruption.'
+    question: 'Does any data ever leave my device?',
+    answer: 'Zero bytes leave your phone. All model inference, vector embedding generation, SQLite memory indexing, and audio processing execute directly on your hardware via compiled C++ (llama.cpp and whisper.cpp). You can activate Airplane Mode and turn off Wi-Fi and Cellular entirely; BIT works with zero degradation.'
   },
   {
-    id: 'battery',
-    question: 'Will running local models drain my battery or overheat the phone?',
-    answer: 'BIT uses quantized 4-bit weights (Q4_K_M) and hardware SIMD vectorization (ARM Neon) to minimize CPU active time. Tensor operations run only during active inference turns. Memory buffers are unloaded when idle, preventing background battery drain and avoiding thermal throttling.'
+    id: 'devices',
+    question: 'Which Android devices and processors are supported?',
+    answer: 'Any Android phone running Android 12.0 (API level 31) or newer with an ARM64-v8a processor. Lightweight 4-bit models like Qwen 3.5 0.8B and Liquid LFM2 350M require only 4GB of physical RAM and run comfortably on mid-tier chips (Snapdragon 695, Helio G99). Larger 7B and 8B models recommend 8GB to 12GB of RAM with a flagship processor (Snapdragon 8 Gen 1+, Dimensity 9000+, or Tensor G2+).'
   },
   {
     id: 'models',
-    question: 'Where do the models come from and are they free to use?',
-    answer: 'All models are open-weights hosted publicly on HuggingFace by organizations like Alibaba (Qwen), Liquid AI, and Rhasspy. There are no subscriptions, paywalls, or DRM locks. You can also sideload your own custom GGUF weights directly into the application.'
+    question: 'Which open-source models can I download and run?',
+    answer: 'BIT supports any standard GGUF-quantized model. The built-in Model Store provides tested, one-tap downloads for Qwen 3.5 (0.8B, 2B), Liquid LFM2, and SmolLM. Advanced users can also sideload custom GGUF weights directly from local storage or transfer them from a computer.'
   },
   {
-    id: 'tools',
-    question: 'How does tool calling work without an external server?',
-    answer: 'Tools execute directly on-device. Local tasks (document search, file parsing, encrypted SQLite queries, unit calculations) run against local Android APIs. Web grounding tools, when activated with internet access, make direct HTTP requests without passing through any intermediate proxy or analytics service.'
-  },
-  {
-    id: 'requirements',
-    question: 'What are the minimum device specifications to run BIT?',
-    answer: 'Any Android phone running Android 12.0 or higher (API level 31+) with an ARM64-v8a processor. Entry-level models like Qwen 3.5 0.8B and LFM2 350M require only 4GB of physical RAM and run smoothly on mid-range chipsets like Snapdragon 695 and Helio G99.'
+    id: 'voice',
+    question: 'How does real-time voice mode operate without an internet connection?',
+    answer: 'Voice conversation combines an embedded quantized Whisper C++ model for real-time speech-to-text with an offline neural text-to-speech engine (Piper TTS) running on CPU. Audio buffers remain strictly in temporary memory and are never uploaded to any remote transcription service.'
   },
   {
     id: 'license',
-    question: 'Why is BIT open source and free? What is the catch?',
-    answer: 'There is no catch. BIT is an open-source sovereign computing project released under the Apache 2.0 license. We do not monetize data, sell subscriptions, or serve ads. The complete codebase is publicly auditable on GitHub.'
+    question: 'Why is BIT free and open source? What is the catch?',
+    answer: 'There is no catch. BIT is an open-source research and engineering initiative licensed under Apache 2.0. We do not sell subscriptions, collect telemetry, track usage analytics, or serve advertisements. The full codebase, native bindings, and build scripts are publicly verifiable on GitHub.'
   }
 ];
 
 export const FaqSection: React.FC = () => {
   const [openId, setOpenId] = useState<string | null>('offline');
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const shouldReduceMotion = useReducedMotion();
 
   const toggleFaq = (id: string) => {
     setOpenId((prev) => (prev === id ? null : id));
   };
 
   return (
-    <section id="faq" className="py-28 md:py-36 bg-[#07080A] relative">
-      <div className="max-w-[900px] mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="text-center max-w-2xl mx-auto mb-20">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.04] border border-white/10 text-xs font-mono text-[#B6FF3B] mb-4">
-            <HelpCircle className="w-3.5 h-3.5" />
-            <span>Common Questions</span>
+    <section id="faq" className="w-full bg-white section-spacing border-t border-[var(--line)]">
+      <div className="section-container">
+        <div className="max-w-[820px] mx-auto">
+          
+          {/* Header */}
+          <div className="mb-14 sm:mb-16">
+            <div className="text-xs uppercase tracking-widest text-[#a3a3a3] font-medium mb-3">
+              FAQ
+            </div>
+            <RevealText
+              text="Frequently asked questions"
+              as="h2"
+              className="text-3xl sm:text-4xl lg:text-[44px] font-semibold text-[#0a0a0a] tracking-[-0.035em] mb-4 text-balance"
+            />
+            <Reveal delay={0.1}>
+              <p className="text-[17px] text-[#6b6b6b] leading-relaxed">
+                Architecture details on local inference, hardware bounds, and privacy guarantees.
+              </p>
+            </Reveal>
           </div>
-          <h2 className="text-4xl sm:text-5xl font-extrabold tracking-[-0.04em] text-white mb-4">
-            Frequently Asked Questions
-          </h2>
-          <p className="text-lg text-[#A1A1AA]">
-            Everything you need to know about on-device sovereign intelligence.
-          </p>
-        </div>
 
-        {/* Larger Accordion List */}
-        <div className="space-y-4">
-          {FAQS.map((faq) => {
-            const isOpen = openId === faq.id;
+          {/* Clean Hairline Accordion List */}
+          <div className="border-t border-[var(--line)]">
+            {FAQS.map((faq) => {
+              const isOpen = openId === faq.id;
+              const isHovered = hoveredId === faq.id;
 
-            return (
-              <div
-                key={faq.id}
-                className="rounded-2xl surface-2 border border-white/10 overflow-hidden transition-colors"
-              >
-                <button
-                  type="button"
-                  onClick={() => toggleFaq(faq.id)}
-                  className="w-full p-6 sm:p-7 text-left flex items-center justify-between gap-6 hover:bg-white/[0.02] transition-colors"
+              return (
+                <div
+                  key={faq.id}
+                  onMouseEnter={() => setHoveredId(faq.id)}
+                  onMouseLeave={() => setHoveredId(null)}
+                  className={`border-b transition-colors duration-200 ${
+                    isHovered ? 'border-[var(--line-strong)]' : 'border-[var(--line)]'
+                  }`}
                 >
-                  <span className="text-lg sm:text-xl font-bold text-white tracking-tight">
-                    {faq.question}
-                  </span>
-                  <motion.div
-                    animate={{ rotate: isOpen ? 180 : 0 }}
-                    transition={springs.snappy}
-                    className="w-8 h-8 rounded-lg bg-[#07080A] border border-white/10 flex items-center justify-center shrink-0 text-[#B6FF3B]"
+                  <button
+                    type="button"
+                    onClick={() => toggleFaq(faq.id)}
+                    aria-expanded={isOpen}
+                    aria-controls={`faq-answer-${faq.id}`}
+                    id={`faq-btn-${faq.id}`}
+                    className="w-full py-6 sm:py-7 text-left flex items-center justify-between gap-6 group cursor-pointer focus-ring rounded"
                   >
-                    <ChevronDown className="w-4 h-4" />
-                  </motion.div>
-                </button>
-
-                <AnimatePresence initial={false}>
-                  {isOpen && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={springs.snappy}
-                      className="overflow-hidden"
+                    <motion.span
+                      animate={{
+                        x: isHovered && !shouldReduceMotion ? 4 : 0,
+                      }}
+                      transition={{ duration: 0.18, ease }}
+                      className="text-lg sm:text-[20px] font-medium text-[#0a0a0a] group-hover:text-black transition-colors leading-snug"
                     >
-                      <div className="p-6 sm:p-7 pt-0 text-base sm:text-lg text-[#A1A1AA] leading-relaxed font-normal border-t border-white/5">
-                        {faq.answer}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            );
-          })}
+                      {faq.question}
+                    </motion.span>
+
+                    {/* Minimal + to - Morph Icon */}
+                    <div className="relative w-6 h-6 shrink-0 flex items-center justify-center text-[#0a0a0a]">
+                      {/* Horizontal bar */}
+                      <span className="absolute w-3.5 h-[1.5px] bg-[#0a0a0a] rounded-full" />
+                      {/* Vertical bar rotating to minus */}
+                      <motion.span
+                        animate={{
+                          rotate: isOpen ? 90 : 0,
+                          opacity: isOpen ? 0 : 1,
+                        }}
+                        transition={spring}
+                        className="absolute w-[1.5px] h-3.5 bg-[#0a0a0a] rounded-full"
+                      />
+                    </div>
+                  </button>
+
+                  <AnimatePresence initial={false}>
+                    {isOpen && (
+                      <motion.div
+                        id={`faq-answer-${faq.id}`}
+                        role="region"
+                        aria-labelledby={`faq-btn-${faq.id}`}
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.35, ease }}
+                        className="overflow-hidden"
+                      >
+                        <motion.div
+                          initial={shouldReduceMotion ? false : { y: 6, opacity: 0 }}
+                          animate={{ y: 0, opacity: 1 }}
+                          transition={{ duration: 0.3, delay: 0.06, ease }}
+                          className="pb-7 pr-8 sm:pr-12 text-[16px] sm:text-[17px] text-[#6b6b6b] leading-relaxed"
+                        >
+                          {faq.answer}
+                        </motion.div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            })}
+          </div>
+
         </div>
       </div>
     </section>

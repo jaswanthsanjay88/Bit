@@ -1,60 +1,127 @@
 import React from 'react';
-import { motion } from 'motion/react';
-import { Download, ShieldCheck, ArrowRight, Smartphone } from 'lucide-react';
+import { motion, useReducedMotion } from 'motion/react';
+import { Download, Cpu } from 'lucide-react';
 import { GithubIcon } from './GithubIcon';
-import { springs } from '../lib/motion';
+import { RevealText } from './motion/RevealText';
+import { Reveal } from './motion/Reveal';
+import { Magnetic } from './motion/Magnetic';
+import { ease } from '../lib/motion';
 
 export const FinalCta: React.FC = () => {
+  const shouldReduceMotion = useReducedMotion();
+
+  const chips = [
+    { icon: <Cpu className="w-3.5 h-3.5 text-[#a3a3a3]" />, text: 'Requires Android 12+' },
+    { text: 'ARM64-v8a Architecture' },
+    { text: '4GB+ RAM Recommended' },
+    { text: 'Apache 2.0 Open Source' },
+  ];
+
   return (
-    <section className="py-32 md:py-44 bg-gradient-to-b from-[#0D1508] via-[#080E05] to-[#07080A] border-t border-[#B6FF3B]/20 relative overflow-hidden">
-      {/* Soft Full-Bleed Lime Radial Glow */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[450px] bg-gradient-to-b from-[#B6FF3B]/15 to-transparent blur-3xl pointer-events-none rounded-full" />
+    <section id="download" className="w-full bg-white section-spacing border-t border-[var(--line)]">
+      <div className="section-container">
+        
+        {/* Dark Block with clip-path enter animation */}
+        <motion.div
+          initial={
+            shouldReduceMotion
+              ? { opacity: 0 }
+              : {
+                  clipPath: 'inset(6% 4% round 24px)',
+                  opacity: 0,
+                  y: 30,
+                }
+          }
+          whileInView={{
+            clipPath: 'inset(0% 0% round 24px)',
+            opacity: 1,
+            y: 0,
+          }}
+          viewport={{ once: true, amount: 0.2 }}
+          transition={{ duration: 0.9, ease }}
+          className="relative rounded-[24px] bg-[#0a0a0a] text-white py-16 sm:py-24 px-6 sm:px-12 lg:px-16 text-center overflow-hidden border border-white/10"
+        >
+          {/* Faint animated dot-grid drifting slowly */}
+          <div className="absolute inset-0 bg-dot-drift opacity-[0.04] pointer-events-none" />
 
-      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#B6FF3B]/10 border border-[#B6FF3B]/30 text-xs font-mono text-[#B6FF3B] mb-8">
-          <ShieldCheck className="w-4 h-4" />
-          <span>Zero Telemetry &bull; 100% On-Device Sovereignty</span>
-        </div>
+          {/* Headline */}
+          <div className="relative z-10 max-w-3xl mx-auto mb-6">
+            <RevealText
+              text="Reclaim your cognitive sovereignty."
+              as="h2"
+              className="text-3xl sm:text-5xl lg:text-[54px] font-semibold text-white tracking-[-0.035em] leading-[1.08] text-balance"
+            />
+          </div>
 
-        <h2 className="text-5xl sm:text-7xl md:text-8xl font-extrabold tracking-[-0.045em] text-white mb-6 leading-[0.98]">
-          Reclaim your cognitive sovereignty.
-        </h2>
+          {/* Subtitle */}
+          <div className="relative z-10 max-w-xl mx-auto mb-10">
+            <Reveal delay={0.1}>
+              <p className="text-[17px] sm:text-[18px] text-[#a3a3a3] leading-relaxed mx-auto text-pretty">
+                No subscriptions. No cloud surveillance. No internet requirement. Install the sovereign AI assistant that never leaves your phone.
+              </p>
+            </Reveal>
+          </div>
 
-        <p className="text-lg sm:text-xl text-zinc-300 max-w-2xl mx-auto mb-12 leading-relaxed font-normal">
-          No monthly subscription. No cloud surveillance. No internet requirement. Install the sovereign AI agent that never leaves your phone.
-        </p>
+          {/* Action Buttons wrapped in Magnetic */}
+          <div className="relative z-10 flex flex-col sm:flex-row items-center justify-center gap-4 mb-10">
+            <Magnetic maxDistance={6} radius={80}>
+              <motion.a
+                href="https://github.com/jaswanthsanjay88/Bit_Android/releases/latest"
+                target="_blank"
+                rel="noreferrer"
+                whileHover={{ y: -1 }}
+                whileTap={{ scale: 0.97 }}
+                className="relative overflow-hidden w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-3.5 h-12 rounded-full bg-white text-[#0a0a0a] font-medium text-[15px] hover:bg-[#fafafa] transition-colors focus-ring"
+              >
+                {/* 5s subtle sheen sweep overlay */}
+                {!shouldReduceMotion && (
+                  <span className="absolute inset-0 animate-sheen pointer-events-none" />
+                )}
+                <Download className="w-4 h-4 text-[#0a0a0a] shrink-0" />
+                <span>Download APK (v2.1.1)</span>
+              </motion.a>
+            </Magnetic>
 
-        {/* Big Buttons */}
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-6">
-          <motion.a
-            href="#terminal"
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.96 }}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-10 py-4 h-14 rounded-2xl btn-accent text-base"
-          >
-            <Download className="w-5 h-5" />
-            <span>Download APK (v2.1.1)</span>
-          </motion.a>
+            <Magnetic maxDistance={6} radius={80}>
+              <motion.a
+                href="https://github.com/jaswanthsanjay88/Bit_Android"
+                target="_blank"
+                rel="noreferrer"
+                whileHover={{ y: -1 }}
+                whileTap={{ scale: 0.97 }}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-7 py-3.5 h-12 rounded-full bg-[#141414] border border-white/15 text-white font-medium text-[15px] hover:bg-[#1a1a1a] transition-colors focus-ring"
+              >
+                <GithubIcon className="w-4 h-4 text-white shrink-0" />
+                <span>View on GitHub</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-white/10 text-white/90 font-mono ml-1">
+                  2.1k
+                </span>
+              </motion.a>
+            </Magnetic>
+          </div>
 
-          <motion.a
-            href="https://github.com/jaswanthsanjay88/Bit_Android"
-            target="_blank"
-            rel="noreferrer"
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.96 }}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-8 py-4 h-14 rounded-2xl btn-ghost text-base font-medium"
-          >
-            <GithubIcon className="w-5 h-5 text-zinc-400" />
-            <span>View Source on GitHub</span>
-            <span className="text-xs font-mono text-[#B6FF3B] ml-1">2.1k</span>
-          </motion.a>
-        </div>
+          {/* Staggered Requirement Chips */}
+          <div className="relative z-10 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-[#a3a3a3] border-t border-white/10 pt-8 max-w-2xl mx-auto">
+            {chips.map((chip, idx) => (
+              <motion.div
+                key={idx}
+                initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.4, delay: 0.2 + idx * 0.08, ease }}
+                className="inline-flex items-center gap-1.5"
+              >
+                {chip.icon}
+                <span>{chip.text}</span>
+                {idx < chips.length - 1 && (
+                  <span className="hidden sm:inline text-white/20 ml-2">&bull;</span>
+                )}
+              </motion.div>
+            ))}
+          </div>
 
-        {/* Device Requirement Line right under button */}
-        <div className="flex items-center justify-center gap-2 text-xs sm:text-sm font-mono text-zinc-400">
-          <Smartphone className="w-4 h-4 text-[#B6FF3B]" />
-          <span>Requires Android 12+ (API 31+) &bull; 64-bit ARM64 processor &bull; Free & Open Source</span>
-        </div>
+        </motion.div>
+
       </div>
     </section>
   );

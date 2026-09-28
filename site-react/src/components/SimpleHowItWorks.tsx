@@ -1,97 +1,142 @@
-import React from 'react';
-import { motion } from 'motion/react';
-import { Download, HardDrive, WifiOff } from 'lucide-react';
-import { springs } from '../lib/motion';
+import React, { useRef, useState } from 'react';
+import { motion, useScroll, useSpring, useTransform, useReducedMotion } from 'motion/react';
+import { RevealText } from './motion/RevealText';
+import { Reveal } from './motion/Reveal';
+import { ease, spring } from '../lib/motion';
 
 interface Step {
   numeral: string;
-  title: string;
+  headline: string;
   description: string;
-  icon: React.ReactNode;
 }
 
 const STEPS: Step[] = [
   {
     numeral: '01',
-    title: 'Install the Release APK',
-    description: 'Sideload the lightweight Android package directly via browser download or a single ADB terminal command.',
-    icon: <Download className="w-5 h-5 text-[#B6FF3B]" />
+    headline: 'Install the APK',
+    description: 'Download the signed release directly from GitHub with zero Play Store or account requirements.',
   },
   {
     numeral: '02',
-    title: 'Pick Verified Open Weights',
-    description: 'Download verified GGUF weights directly from HuggingFace with automatic RAM safety verification for your silicon.',
-    icon: <HardDrive className="w-5 h-5 text-[#B6FF3B]" />
+    headline: 'Pick a model',
+    description: 'Select an optimized GGUF quantized model tailored for your phone’s available RAM.',
   },
   {
     numeral: '03',
-    title: 'Disconnect & Run Forever',
-    description: 'Toggle airplane mode. Your autonomous agent runs locally forever with zero latency, zero cloud fees, and zero data leakage.',
-    icon: <WifiOff className="w-5 h-5 text-[#B6FF3B]" />
-  }
+    headline: 'Turn on airplane mode and go',
+    description: 'Cut all network connections. Your assistant, documents, and voice run 100% locally.',
+  },
 ];
 
 export const SimpleHowItWorks: React.FC = () => {
+  const shouldReduceMotion = useReducedMotion();
+  const sectionRef = useRef<HTMLElement>(null);
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+
+  const { scrollYProgress } = useScroll({
+    target: sectionRef,
+    offset: ['start center', 'end center'],
+  });
+
+  const smoothProgress = useSpring(scrollYProgress, {
+    stiffness: 300,
+    damping: 35,
+  });
+
   return (
-    <section id="how-it-works" className="py-28 md:py-36 bg-[#0D0F14] border-y border-white/[0.08] relative">
-      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="text-center max-w-2xl mx-auto mb-20">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.04] border border-white/10 text-xs font-mono text-[#B6FF3B] mb-4">
-            <span>Simple 3-Step Setup</span>
+    <section
+      ref={sectionRef}
+      id="how-it-works"
+      className="w-full bg-white section-spacing border-t border-[var(--line)]"
+    >
+      <div className="section-container">
+        
+        {/* Section Heading */}
+        <div className="text-center max-w-2xl mx-auto mb-20 sm:mb-24">
+          <div className="text-xs uppercase tracking-widest text-[#a3a3a3] font-medium mb-3">
+            Workflow
           </div>
-          <h2 className="text-4xl sm:text-5xl font-extrabold tracking-[-0.04em] text-white mb-4">
-            Up and running in 60 seconds.
-          </h2>
-          <p className="text-lg text-[#A1A1AA]">
-            Zero accounts. Zero cloud API keys. Zero recurring subscription tollgates.
-          </p>
+          <RevealText
+            text="How it works"
+            as="h2"
+            className="text-3xl sm:text-4xl lg:text-[46px] font-semibold text-[#0a0a0a] tracking-[-0.035em] leading-[1.08] mb-4 text-balance"
+          />
+          <Reveal delay={0.1}>
+            <p className="text-[17px] text-[#6b6b6b] leading-relaxed mx-auto text-pretty">
+              Three steps from download to 100% offline sovereign intelligence.
+            </p>
+          </Reveal>
         </div>
 
-        {/* 3 Large Steps Connected by a Line */}
+        {/* 3 Step Flow with Scroll Connector */}
         <div className="relative">
-          {/* Desktop Connecting Line behind cards */}
-          <div className="hidden md:block absolute top-1/2 left-[15%] right-[15%] h-[2px] bg-gradient-to-r from-transparent via-[#B6FF3B]/30 to-transparent -translate-y-12 z-0 pointer-events-none" />
+          
+          {/* Base Horizontal hairline connector */}
+          <div
+            className="hidden md:block absolute top-[44px] left-[10%] right-[10%] h-[1px] bg-[var(--line)] z-0"
+            aria-hidden="true"
+          />
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 lg:gap-10 relative z-10">
-            {STEPS.map((st, idx) => (
-              <motion.div
-                key={st.numeral}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ ...springs.snappy, delay: idx * 0.12 }}
-                whileHover={{ y: -4 }}
-                className="surface-2 rounded-2xl p-8 flex flex-col justify-between border border-white/10 hover:border-[#B6FF3B]/40 transition-all duration-200 cursor-default shadow-lg"
-              >
-                <div>
-                  {/* Top Row: Big Numeral & Icon */}
-                  <div className="flex items-center justify-between mb-8">
-                    <span className="text-5xl sm:text-6xl font-extrabold tracking-tight text-[#B6FF3B] tabular-nums">
-                      {st.numeral}
-                    </span>
-                    <div className="w-12 h-12 rounded-xl bg-[#07080A] border border-white/10 flex items-center justify-center shadow-inner">
-                      {st.icon}
-                    </div>
+          {/* Active progress hairline connector driven by scroll */}
+          {!shouldReduceMotion && (
+            <motion.div
+              style={{ scaleX: smoothProgress, transformOrigin: '0% 50%' }}
+              className="hidden md:block absolute top-[44px] left-[10%] right-[10%] h-[1.5px] bg-[#0a0a0a] z-0"
+              aria-hidden="true"
+            />
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-12 sm:gap-10 relative z-10">
+            {STEPS.map((step, idx) => {
+              const isHovered = hoveredIdx === idx;
+
+              return (
+                <motion.div
+                  key={idx}
+                  initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, amount: 0.2 }}
+                  transition={{ duration: 0.5, delay: idx * 0.12, ease }}
+                  onMouseEnter={() => setHoveredIdx(idx)}
+                  onMouseLeave={() => setHoveredIdx(null)}
+                  className="flex flex-col items-start text-left cursor-default group"
+                >
+                  {/* Outline Numeral that nudges up on hover */}
+                  <motion.div
+                    animate={{
+                      y: isHovered && !shouldReduceMotion ? -4 : 0,
+                    }}
+                    transition={spring}
+                    className="text-7xl sm:text-8xl font-bold tracking-tighter leading-none mb-6 select-none text-numeral-outline group-hover:text-numeral-solid transition-colors duration-300"
+                  >
+                    {step.numeral}
+                  </motion.div>
+
+                  {/* Step Title with growing underline on hover */}
+                  <div className="relative mb-3">
+                    <h3 className="text-xl sm:text-2xl font-semibold text-[#0a0a0a] tracking-tight">
+                      {step.headline}
+                    </h3>
+                    <motion.div
+                      animate={{ scaleX: isHovered && !shouldReduceMotion ? 1 : 0 }}
+                      transition={{ duration: 0.25, ease }}
+                      style={{ transformOrigin: '0% 50%' }}
+                      className="h-[1.5px] bg-[#0a0a0a] w-full mt-1"
+                      aria-hidden="true"
+                    />
                   </div>
 
-                  <h3 className="text-2xl font-bold text-white mb-3 tracking-tight">
-                    {st.title}
-                  </h3>
-
-                  <p className="text-base text-[#A1A1AA] leading-relaxed font-normal">
-                    {st.description}
+                  {/* Step Description */}
+                  <p className="text-[16px] sm:text-[17px] text-[#6b6b6b] leading-relaxed">
+                    {step.description}
                   </p>
-                </div>
-
-                <div className="pt-6 mt-8 border-t border-white/5 flex items-center justify-between text-xs font-mono text-zinc-500">
-                  <span>Requirement</span>
-                  <span className="text-zinc-300">Android 12+</span>
-                </div>
-              </motion.div>
-            ))}
+                </motion.div>
+              );
+            })}
           </div>
+
         </div>
+
       </div>
     </section>
   );
