@@ -1,163 +1,232 @@
 @import "tailwindcss";
 
+:root {
+  --bg: #ffffff;
+  --bg-subtle: #fafafa;      /* use very rarely */
+  --fg: #0a0a0a;
+  --fg-muted: #6b6b6b;
+  --fg-faint: #a3a3a3;
+  --line: rgba(10, 10, 10, 0.08);
+  --line-strong: rgba(10, 10, 10, 0.16);
+  --ink-bg: #0a0a0a;         /* only for ONE dark moment: the CTA */
+  --ink-fg: #fafafa;
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);       /* default */
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring-soft: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 150ms;
+  --dur-base: 300ms;
+  --dur-slow: 600ms;
+  --dur-hero: 900ms;
+
+  --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color-scheme: light;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+::selection {
+  background-color: var(--fg);
+  color: var(--bg);
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bg);
+  color: var(--fg);
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+  background-color: var(--bg);
+  color: var(--fg-muted);
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+#root {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
 @layer base {
-  :root {
-    --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    --bg-base: #07080A;
-    --bg-surface-1: #0D0F14;
-    --bg-surface-2: #141720;
-    --bg-surface-3: #1B1F2B;
-    --accent: #B6FF3B;
-    --accent-muted: rgba(182, 255, 59, 0.15);
-    --text-primary: #FFFFFF;
-    --text-secondary: #A1A1AA;
-    color-scheme: dark;
-  }
-
-  html {
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    background-color: #07080A;
-  }
-
-  body {
-    font-family: var(--font-sans);
-    background-color: #07080A;
-    color: #A1A1AA;
-    overflow-x: hidden;
-    font-size: 1.0625rem; /* 17px base */
-    line-height: 1.6;
-  }
-
   h1, h2, h3, h4, h5, h6 {
     text-wrap: balance;
-    letter-spacing: -0.04em;
-    color: #FFFFFF;
-    font-weight: 700;
+    letter-spacing: -0.035em;
+    color: var(--fg);
+    font-weight: 600;
   }
 
   p {
     text-wrap: pretty;
-  }
-
-  .tabular-nums {
-    font-variant-numeric: tabular-nums;
-  }
-
-  code, pre, kbd {
-    font-family: var(--font-mono);
+    max-width: 56ch;
   }
 }
 
-/* Background grid patterns */
-.bg-grid-ambient {
-  background-size: 48px 48px;
-  background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
 
-/* Depth surfaces */
-.surface-1 {
-  background-color: #0D0F14;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+code, pre, kbd {
+  font-family: var(--font-mono);
 }
 
-.surface-2 {
-  background-color: #141720;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 20px 40px -15px rgba(0, 0, 0, 0.8);
+/* Common container constraints */
+.section-container {
+  width: 100%;
+  max-width: 1080px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 24px;
+  padding-right: 24px;
 }
 
-.surface-accent-glow {
-  background: radial-gradient(circle at 50% 0%, rgba(182, 255, 59, 0.08), transparent 70%), #0D0F14;
-  border: 1px solid rgba(182, 255, 59, 0.25);
-  box-shadow: 0 0 35px -5px rgba(182, 255, 59, 0.15), inset 0 1px 0 rgba(182, 255, 59, 0.3);
+@media (min-width: 768px) {
+  .section-container {
+    padding-left: 40px;
+    padding-right: 40px;
+  }
 }
 
-/* Floating animation for phones */
-@keyframes float-gentle {
+.section-spacing {
+  padding-top: clamp(96px, 14vw, 180px);
+  padding-bottom: clamp(96px, 14vw, 180px);
+}
+
+/* Hairline outlines & dividers */
+.border-line {
+  border-color: var(--line);
+}
+
+.border-line-strong {
+  border-color: var(--line-strong);
+}
+
+.bg-line {
+  background-color: var(--line);
+}
+
+/* Outline numerals for How it works */
+.text-numeral-outline {
+  -webkit-text-stroke: 1px var(--line-strong);
+  color: transparent;
+  transition: -webkit-text-stroke-color var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out);
+}
+
+.text-numeral-solid {
+  -webkit-text-stroke: 1px var(--fg);
+  color: var(--fg);
+}
+
+/* Sheen sweep for Final CTA button */
+@keyframes sheen-sweep {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-sheen {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: sheen-sweep 5s infinite;
+}
+
+/* Subtle 0B Network shimmer */
+@keyframes text-shimmer {
   0%, 100% {
-    transform: translateY(0px) rotate(0deg);
+    opacity: 0.7;
   }
   50% {
-    transform: translateY(-8px) rotate(0.5deg);
+    opacity: 1;
   }
 }
 
-@keyframes float-tilt-left {
+.animate-shimmer {
+  animation: text-shimmer 1.5s ease-in-out infinite;
+}
+
+/* Waveform bars scale keyframes */
+@keyframes wave-bar {
   0%, 100% {
-    transform: translateY(0px) rotate(-6deg);
+    transform: scaleY(0.2);
   }
   50% {
-    transform: translateY(-10px) rotate(-5.2deg);
+    transform: scaleY(1);
   }
 }
 
-@keyframes float-tilt-right {
-  0%, 100% {
-    transform: translateY(0px) rotate(6deg);
+/* Breathing voice ring */
+@keyframes voice-breath {
+  0% {
+    transform: scale(1);
+    opacity: 0.35;
   }
-  50% {
-    transform: translateY(-10px) rotate(6.8deg);
+  100% {
+    transform: scale(1.18);
+    opacity: 0;
   }
 }
 
-.animate-float-center {
-  animation: float-gentle 7s ease-in-out infinite;
+.animate-breath {
+  animation: voice-breath 2.4s ease-out infinite;
 }
 
-.animate-float-left {
-  animation: float-tilt-left 8s ease-in-out infinite;
+/* Subtle dot-grid drift */
+@keyframes grid-drift {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 40px 40px;
+  }
 }
 
-.animate-float-right {
-  animation: float-tilt-right 7.5s ease-in-out infinite;
+.bg-dot-drift {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.15) 1px, transparent 1px);
+  background-size: 20px 20px;
+  animation: grid-drift 60s linear infinite;
 }
 
-/* Custom glow utility */
-.radial-lime-glow {
-  background: radial-gradient(circle at center, rgba(182, 255, 59, 0.18) 0%, rgba(182, 255, 59, 0.03) 50%, transparent 75%);
+/* Focus visible styles */
+.focus-ring {
+  outline: none;
 }
 
-/* Button mechanics */
-.btn-accent {
-  background-color: #B6FF3B;
-  color: #07080A;
-  font-weight: 700;
-  transition: transform 0.14s ease, box-shadow 0.14s ease, filter 0.14s ease;
-  box-shadow: 0 0 24px rgba(182, 255, 59, 0.28);
+.focus-ring:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 3px;
 }
 
-.btn-accent:hover {
-  filter: brightness(1.05);
-  box-shadow: 0 0 32px rgba(182, 255, 59, 0.42);
-}
-
-.btn-accent:active {
-  transform: scale(0.96);
-}
-
-.btn-ghost {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #FFFFFF;
-  transition: transform 0.14s ease, background-color 0.14s ease, border-color 0.14s ease;
-}
-
-.btn-ghost:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.24);
-}
-
-.btn-ghost:active {
-  transform: scale(0.96);
-}
-
+/* Reduced motion accessibility rule */
 @media (prefers-reduced-motion: reduce) {
-  *, ::before, ::after {
+  *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
