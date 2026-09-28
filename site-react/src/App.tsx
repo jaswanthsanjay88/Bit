@@ -1,56 +1,60 @@
 import React from 'react';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
-import { StatsStrip } from './components/StatsStrip';
+import { TrustRow } from './components/TrustRow';
 import { FeatureStories } from './components/FeatureStories';
-import { SimpleHowItWorks } from './components/SimpleHowItWorks';
 import { UserPainComparison } from './components/UserPainComparison';
-import { DeviceRequirements } from './components/DeviceRequirements';
-import { TerminalBlock } from './components/TerminalBlock';
-import { ModelStore } from './components/ModelStore';
+import { SimpleHowItWorks } from './components/SimpleHowItWorks';
+import { FounderNote } from './components/FounderNote';
 import { FaqSection } from './components/FaqSection';
 import { FinalCta } from './components/FinalCta';
 import { Footer } from './components/Footer';
+import { ScrollProgress } from './components/motion/ScrollProgress';
+import { CustomCursor } from './components/motion/CustomCursor';
+import { useLenis } from './lib/useLenis';
 
 export const App: React.FC = () => {
+  // Initialize smooth scrolling with Lenis
+  useLenis();
+
   return (
-    <div className="min-h-screen bg-[#07080A] text-zinc-100 flex flex-col selection:bg-[#B6FF3B] selection:text-black">
-      {/* 01. Minimal Navigation Bar */}
+    <div className="min-h-screen bg-white text-[#6b6b6b] flex flex-col selection:bg-[#0a0a0a] selection:text-white">
+      {/* 1px Scroll Progress Hairline at very top */}
+      <ScrollProgress />
+
+      {/* Additive Pointer Indicator for desktop */}
+      <CustomCursor />
+
+      {/* 01. Floating Pill Navigation */}
       <Navbar />
 
       <main className="flex-1">
-        {/* 02. Hero with Live Cockpit Simulator & 3 Fanned Phones */}
+        {/* 02. Minimal Light Hero with Choreography & Alive Mockup */}
         <Hero />
 
-        {/* 03. Stats Strip (4 Big Numbers in Electric Lime) */}
-        <StatsStrip />
+        {/* 03. Section A: Stats Row (4-col grid with vertical hairlines) */}
+        <TrustRow />
 
-        {/* 04. The Big 3 Feature Stories (Full-Width Chapters) */}
+        {/* 04. Section B: Feature Sections (reusable open layout with live traces) */}
         <FeatureStories />
 
-        {/* 05. How It Works (Simple 3-Step Flow) */}
-        <SimpleHowItWorks />
-
-        {/* 06. Proof & Trust (Cloud Trap vs Sovereign BIT) */}
+        {/* 05. Section C: Cloud vs. On-Device (Two-column hairline table) */}
         <UserPainComparison />
 
-        {/* 07. Device Compatibility & RAM Tiers */}
-        <DeviceRequirements />
+        {/* 06. Section D: How It Works (01 02 03 outline numerals with scroll connector) */}
+        <SimpleHowItWorks />
 
-        {/* 08. 1-Click ADB Install & Terminal Sideload */}
-        <TerminalBlock />
+        {/* 07. Section E: Founder Note (640px open column with avatar ring) */}
+        <FounderNote />
 
-        {/* 09. Verified Model Matrix (Clean Preview + Expandable) */}
-        <ModelStore />
-
-        {/* 10. Interactive FAQ Accordion */}
+        {/* 08. Section E: FAQ Accordion (hairline rows with +/- morph) */}
         <FaqSection />
 
-        {/* 11. Final High-Impact Call to Action */}
+        {/* 09. Section E: Final Dark CTA Card with clip-path & sheen sweep */}
         <FinalCta />
       </main>
 
-      {/* 12. Simplified 3-Column Footer */}
+      {/* 10. Minimal 1-Row Footer with growing link underlines */}
       <Footer />
     </div>
   );
