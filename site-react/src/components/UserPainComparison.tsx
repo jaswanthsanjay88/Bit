@@ -1,204 +1,170 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { ShieldCheck, WifiOff, Lock, Cpu, Zap, AlertTriangle, Check, ArrowRight } from 'lucide-react';
+import React from 'react';
+import { motion } from 'motion/react';
+import { X, Check, ShieldCheck, ArrowRight } from 'lucide-react';
 import { springs } from '../lib/motion';
 
-interface ComparisonPoint {
-  id: string;
-  category: string;
-  cloudPain: {
+interface ComparisonRow {
+  dimension: string;
+  cloud: {
     title: string;
-    description: string;
-    metric: string;
+    detail: string;
   };
-  sovereignBenefit: {
+  bit: {
     title: string;
-    description: string;
-    metric: string;
+    detail: string;
   };
 }
 
-const COMPARISONS: ComparisonPoint[] = [
+const COMPARISON_ROWS: ComparisonRow[] = [
   {
-    id: 'privacy',
-    category: 'DATA SURVEILLANCE',
-    cloudPain: {
-      title: 'Prompt & Voice Telemetry',
-      description: 'Your private chats, microphone recordings, documents, and device tokens are dispatched to third-party data centers.',
-      metric: 'Every request leaves phone'
+    dimension: 'Data Egress & Privacy',
+    cloud: {
+      title: 'Dispatched to Cloud Servers',
+      detail: 'Every prompt, voice recording, and file leaves your phone for corporate data centers.'
     },
-    sovereignBenefit: {
-      title: 'Zero Egress Guarantee',
-      description: 'Encrypted SQLite vector storage and local model inference. Everything stays in your phone sandboxed process.',
-      metric: '0 Bytes network egress'
+    bit: {
+      title: '0.00 Bytes Network Egress',
+      detail: 'Encrypted local SQLite storage. Inference executes entirely in your sandboxed process.'
     }
   },
   {
-    id: 'offline',
-    category: 'NETWORK RELIABILITY',
-    cloudPain: {
-      title: 'Locked Out in Dead Zones',
-      description: 'Airplane mode, remote transit, server capacity errors (503), or provider outages render cloud assistants useless.',
-      metric: '100% Cloud dependent'
+    dimension: 'Offline Reliability',
+    cloud: {
+      title: '100% Network Dependent',
+      detail: 'Completely broken in airplane mode, subway transit, remote areas, or server 503 outages.'
     },
-    sovereignBenefit: {
+    bit: {
       title: 'True Airplane Mode Autonomy',
-      description: 'Speech recognition, reasoning, and speech synthesis execute completely offline with zero cell service.',
-      metric: '100% Offline execution'
+      detail: 'Speech-to-text, reasoning, tool execution, and voice synthesis run completely offline.'
     }
   },
   {
-    id: 'reliability',
-    category: 'TOOL ACCURACY',
-    cloudPain: {
-      title: 'Hallucinated JSON Arguments',
-      description: 'Unconstrained models guess JSON formats, drop required fields, or invent imaginary API endpoints.',
-      metric: 'Frequent schema drift'
+    dimension: 'Tool Calling Accuracy',
+    cloud: {
+      title: 'Hallucinated Schema Drift',
+      detail: 'Unconstrained models guess JSON formats, drop parameters, and invent non-existent APIs.'
     },
-    sovereignBenefit: {
+    bit: {
       title: 'GBNF Grammar Clamped',
-      description: 'Backus-Naur context-free grammars constrain token logits at decode time. Malformed JSON is mathematically impossible.',
-      metric: '100% Valid JSON AST'
+      detail: 'Context-free Backus-Naur grammars mathematically guarantee 100% valid JSON AST decoding.'
     }
   },
   {
-    id: 'cost',
-    category: 'FINANCIAL CONTROL',
-    cloudPain: {
-      title: 'Subscription Tollgates',
-      description: '$20 to $200 recurring monthly subscriptions for access to your own thought process and automated workflows.',
-      metric: '$240+ / year recurring'
+    dimension: 'Pricing & Licensing',
+    cloud: {
+      title: '$240 to $600+ / Year',
+      detail: 'Continuous recurring subscription tollgates just to access your own automated workflows.'
     },
-    sovereignBenefit: {
+    bit: {
       title: 'Free & Open Source Forever',
-      description: 'Apache-2.0 licensed code. Own your intelligence. Download verified open-weights from HuggingFace without tollgates.',
-      metric: '$0.00 forever'
+      detail: 'Licensed under Apache 2.0. Verified open weights downloaded directly with zero tollgates.'
+    }
+  },
+  {
+    dimension: 'Telemetry & Tracking',
+    cloud: {
+      title: 'Monetized & Retained',
+      detail: 'User queries are cataloged for commercial retraining and analytics profiling.'
+    },
+    bit: {
+      title: 'Zero Telemetry Audited',
+      detail: 'Contains zero analytics SDKs, zero ad networks, and zero remote logging daemons.'
     }
   }
 ];
 
 export const UserPainComparison: React.FC = () => {
-  const [activeMode, setActiveMode] = useState<'sovereign' | 'cloud'>('sovereign');
-
   return (
-    <section id="comparison" className="py-24 bg-black border-t border-white/[0.08] relative overflow-hidden">
-      {/* Background architectural grid */}
-      <div className="absolute inset-0 bg-grid-architectural opacity-40 pointer-events-none" />
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+    <section id="comparison" className="py-28 md:py-36 bg-[#07080A] relative">
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="max-w-3xl mx-auto text-center mb-16">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900 border border-white/10 text-[11px] font-mono text-zinc-400 uppercase tracking-wider mb-4">
-            <ShieldCheck className="w-3.5 h-3.5 text-zinc-300" />
-            <span>The Reality of AI Today</span>
+        <div className="text-center max-w-3xl mx-auto mb-20">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.04] border border-white/10 text-xs font-mono text-[#B6FF3B] mb-4">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>Architecture Breakdown</span>
           </div>
-          <h2 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white mb-4">
-            Why sovereign AI is non-negotiable.
+          <h2 className="text-4xl sm:text-5xl font-extrabold tracking-[-0.04em] text-white mb-4">
+            Cloud AI vs Sovereign AI
           </h2>
-          <p className="text-sm sm:text-base text-zinc-400 leading-relaxed max-w-2xl mx-auto">
-            Cloud AI treats your private data as training fuel and charges you a monthly toll. BIT restores complete ownership directly to your silicon.
+          <p className="text-lg text-[#A1A1AA]">
+            Why running intelligence on local silicon is fundamentally superior to renting cloud tokens.
           </p>
-
-          {/* Mode Switcher Pill */}
-          <div className="mt-8 inline-flex items-center p-1.5 rounded-xl bg-zinc-950 border border-white/10 shadow-lg">
-            <button
-              type="button"
-              onClick={() => setActiveMode('sovereign')}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-mono transition-all duration-150 tactile-button ${
-                activeMode === 'sovereign'
-                  ? 'bg-zinc-100 text-black font-bold shadow-md'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              <Check className="w-3.5 h-3.5" />
-              <span>BIT Sovereign</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveMode('cloud')}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-mono transition-all duration-150 tactile-button ${
-                activeMode === 'cloud'
-                  ? 'bg-zinc-800 text-white font-bold shadow-md'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              <AlertTriangle className="w-3.5 h-3.5" />
-              <span>Cloud Assistants</span>
-            </button>
-          </div>
         </div>
 
-        {/* Dynamic Comparison Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {COMPARISONS.map((item) => {
-            const isSovereign = activeMode === 'sovereign';
-            const data = isSovereign ? item.sovereignBenefit : item.cloudPain;
-
-            return (
-              <motion.div
-                key={item.id}
-                layout
-                transition={springs.snappy}
-                className={`p-6 rounded-2xl flex flex-col justify-between border transition-all duration-200 ${
-                  isSovereign
-                    ? 'bg-zinc-950/80 border-white/[0.12] hover:border-white/25 shadow-[0_4px_24px_rgba(0,0,0,0.6)]'
-                    : 'bg-zinc-950/40 border-zinc-800/80 hover:border-zinc-700'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-4">
-                    <span className="text-[10px] font-mono tracking-wider text-zinc-500 uppercase">
-                      {item.category}
-                    </span>
-                    <span
-                      className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
-                        isSovereign
-                          ? 'bg-zinc-900 text-zinc-200 border-white/10'
-                          : 'bg-zinc-900/60 text-zinc-500 border-zinc-800'
-                      }`}
-                    >
-                      {data.metric}
-                    </span>
-                  </div>
-
-                  <h3 className="text-base font-bold text-white mb-2 tracking-tight">
-                    {data.title}
-                  </h3>
-
-                  <p className="text-xs text-zinc-400 leading-relaxed mb-6 font-normal">
-                    {data.description}
-                  </p>
-                </div>
-
-                <div className="pt-4 border-t border-white/5 flex items-center justify-between text-[11px] font-mono text-zinc-400">
-                  <span>Architecture:</span>
-                  <span className="text-zinc-200 font-medium">
-                    {isSovereign ? '100% Local Silicon' : 'Remote Data Center'}
-                  </span>
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
-
-        {/* Bottom Banner */}
-        <div className="mt-12 p-6 rounded-2xl bg-zinc-950 border border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-white/10 flex items-center justify-center shrink-0">
-              <Lock className="w-5 h-5 text-zinc-300" />
-            </div>
+        {/* Two-Column Comparison Table (Red-tinted Cloud vs Lime-tinted BIT) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
+          
+          {/* Column 1: Cloud AI (Red-tinted) */}
+          <div className="rounded-2xl p-8 sm:p-10 bg-[#0E1015] border border-red-500/20 shadow-xl space-y-8 flex flex-col justify-between">
             <div>
-              <h4 className="text-sm font-bold text-white">Your privacy is not a feature toggle.</h4>
-              <p className="text-xs text-zinc-400">BIT contains zero telemetry, analytics, ad networks, or cloud sync daemons.</p>
+              <div className="flex items-center justify-between pb-6 border-b border-white/5">
+                <div>
+                  <span className="text-xs font-mono uppercase tracking-wider text-red-400">The Cloud Trap</span>
+                  <h3 className="text-2xl sm:text-3xl font-bold text-white mt-1">Cloud Assistants</h3>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-red-950/40 border border-red-500/30 flex items-center justify-center text-red-400">
+                  <X className="w-5 h-5" />
+                </div>
+              </div>
+
+              <div className="space-y-6 pt-6">
+                {COMPARISON_ROWS.map((row, idx) => (
+                  <div key={idx} className="space-y-1.5 pb-5 border-b border-white/5 last:border-0 last:pb-0">
+                    <span className="text-xs font-mono text-zinc-500 uppercase tracking-wider block">
+                      {row.dimension}
+                    </span>
+                    <div className="text-base font-semibold text-zinc-200">
+                      {row.cloud.title}
+                    </div>
+                    <p className="text-sm text-zinc-400 font-normal leading-relaxed">
+                      {row.cloud.detail}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-6 border-t border-white/5 text-xs text-red-400/80 font-mono">
+              Result: You remain dependent on external servers and subscription fees.
             </div>
           </div>
-          <a
-            href="#terminal"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-100 hover:bg-white text-black font-semibold text-xs transition-all tactile-button shrink-0"
-          >
-            <span>Deploy to Android</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </a>
+
+          {/* Column 2: BIT Sovereign (Electric Lime-tinted with Glow) */}
+          <div className="rounded-2xl p-8 sm:p-10 bg-[#0E1508]/80 border-2 border-[#B6FF3B]/40 shadow-[0_0_50px_rgba(182,255,59,0.12)] space-y-8 flex flex-col justify-between relative">
+            <div>
+              <div className="flex items-center justify-between pb-6 border-b border-[#B6FF3B]/15">
+                <div>
+                  <span className="text-xs font-mono uppercase tracking-wider text-[#B6FF3B]">True Sovereignty</span>
+                  <h3 className="text-2xl sm:text-3xl font-bold text-white mt-1">BIT On-Device</h3>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-[#B6FF3B]/20 border border-[#B6FF3B]/40 flex items-center justify-center text-[#B6FF3B]">
+                  <Check className="w-5 h-5" />
+                </div>
+              </div>
+
+              <div className="space-y-6 pt-6">
+                {COMPARISON_ROWS.map((row, idx) => (
+                  <div key={idx} className="space-y-1.5 pb-5 border-b border-white/5 last:border-0 last:pb-0">
+                    <span className="text-xs font-mono text-[#B6FF3B] uppercase tracking-wider block">
+                      {row.dimension}
+                    </span>
+                    <div className="text-base font-semibold text-white">
+                      {row.bit.title}
+                    </div>
+                    <p className="text-sm text-zinc-300 font-normal leading-relaxed">
+                      {row.bit.detail}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-6 border-t border-[#B6FF3B]/15 text-xs text-[#B6FF3B] font-mono flex items-center justify-between">
+              <span>Result: Total data privacy, zero subscriptions, 100% offline.</span>
+              <ShieldCheck className="w-4 h-4 shrink-0" />
+            </div>
+          </div>
+
         </div>
       </div>
     </section>

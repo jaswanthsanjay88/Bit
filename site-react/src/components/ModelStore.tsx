@@ -14,7 +14,7 @@ export interface ModelItem {
   tags: string[];
 }
 
-const FALLBACK_MODELS: ModelItem[] = [
+const VERIFIED_MODELS: ModelItem[] = [
   {
     id: "qwen3.5-0.8b-q4km",
     name: "Qwen 3.5 0.8B",
@@ -26,24 +26,24 @@ const FALLBACK_MODELS: ModelItem[] = [
     tags: ["Chat", "Tool Calling", "Tested"]
   },
   {
-    id: "qwen3.5-0.8b-q8",
-    name: "Qwen 3.5 0.8B (Q8_0)",
-    description: "Full 8-bit precision variant. Zero quantization perplexity degradation for critical tool parsing.",
-    type: "GGUF",
-    url: "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q8_0.gguf",
-    size: "900 MB",
-    minRamGb: 4,
-    tags: ["Chat", "Tool Calling", "High Quality"]
-  },
-  {
     id: "qwen3.5-4b-q4km",
     name: "Qwen 3.5 4B",
-    description: "Balanced reasoning engine with high-throughput coding and planning abilities. Tested on Dimensity 9200 / 8 Gen 2.",
+    description: "Balanced reasoning engine with high-throughput coding and planning. Recommended for mid-range devices.",
     type: "GGUF",
     url: "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf",
     size: "2.7 GB",
     minRamGb: 6,
-    tags: ["Chat", "Tool Calling", "Tested"]
+    tags: ["Chat", "Tool Calling", "High Quality"]
+  },
+  {
+    id: "lfm2-350m-q8",
+    name: "LFM2 350M",
+    description: "Ultra-fast liquid foundation model from Liquid AI. Instant responses delivering 60+ tokens/sec on Cortex-A78.",
+    type: "GGUF",
+    url: "https://huggingface.co/LiquidAI/LFM2-350M-GGUF/resolve/main/LFM2-350M-Q8_0.gguf",
+    size: "400 MB",
+    minRamGb: 3,
+    tags: ["Chat", "Ultra Fast", "Tested"]
   },
   {
     id: "qwen3.5-9b-q4km",
@@ -53,17 +53,7 @@ const FALLBACK_MODELS: ModelItem[] = [
     url: "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf",
     size: "5.5 GB",
     minRamGb: 8,
-    tags: ["Chat", "Tool Calling", "High Quality"]
-  },
-  {
-    id: "lfm2-350m-q8",
-    name: "LFM2 350M",
-    description: "Ultra-fast liquid foundation model from Liquid AI. Delivers 60+ tokens/sec on Cortex-A78 cores.",
-    type: "GGUF",
-    url: "https://huggingface.co/LiquidAI/LFM2-350M-GGUF/resolve/main/LFM2-350M-Q8_0.gguf",
-    size: "400 MB",
-    minRamGb: 3,
-    tags: ["Chat", "Ultra Fast", "Tested"]
+    tags: ["Chat", "Tool Calling", "Flagship"]
   },
   {
     id: "lfm2-vl-450m-q8",
@@ -93,7 +83,7 @@ const FALLBACK_MODELS: ModelItem[] = [
     url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.en.tar.bz2",
     size: "75 MB",
     minRamGb: 2,
-    tags: ["Audio", "STT", "Ultra Fast"]
+    tags: ["Audio", "STT", "Streaming"]
   },
   {
     id: "piper-voice-en",
@@ -113,33 +103,26 @@ const FALLBACK_MODELS: ModelItem[] = [
     url: "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/model.safetensors",
     size: "133 MB",
     minRamGb: 2,
-    tags: ["Embeddings", "RAG", "Tested"]
+    tags: ["Embeddings", "RAG", "Vectors"]
+  },
+  {
+    id: "qwen3.5-0.8b-q8",
+    name: "Qwen 3.5 0.8B (Q8_0)",
+    description: "Full 8-bit precision variant. Zero quantization perplexity degradation for critical tool parsing.",
+    type: "GGUF",
+    url: "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q8_0.gguf",
+    size: "900 MB",
+    minRamGb: 4,
+    tags: ["Chat", "High Precision"]
   }
 ];
 
 export const ModelStore: React.FC = () => {
-  const [models, setModels] = useState<ModelItem[]>(FALLBACK_MODELS);
+  const [models] = useState<ModelItem[]>(VERIFIED_MODELS);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState('ALL');
-  const [selectedRam, setSelectedRam] = useState('ALL');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
-
-  useEffect(() => {
-    fetch('/api/models.json')
-      .then((res) => {
-        if (!res.ok) throw new Error('Fetch failed');
-        return res.json();
-      })
-      .then((data) => {
-        if (data && data.models && Array.isArray(data.models)) {
-          setModels(data.models);
-        }
-      })
-      .catch(() => {
-        // Fallback array active
-      });
-  }, []);
 
   const handleCopyLink = (url: string, id: string) => {
     navigator.clipboard.writeText(url);
@@ -151,58 +134,50 @@ export const ModelStore: React.FC = () => {
     return models.filter((m) => {
       const matchesSearch =
         m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        m.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        m.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
+        m.description.toLowerCase().includes(searchQuery.toLowerCase());
 
       const matchesType =
         selectedType === 'ALL' ||
         (selectedType === 'CHAT' && m.type === 'GGUF') ||
         (selectedType === 'VISION' && m.type === 'VLM') ||
-        (selectedType === 'AUDIO' && (m.type === 'STT' || m.type === 'TTS')) ||
-        (selectedType === 'EMBEDDINGS' && m.type === 'Embeddings');
+        (selectedType === 'AUDIO' && (m.type === 'STT' || m.type === 'TTS'));
 
-      const matchesRam =
-        selectedRam === 'ALL' ||
-        (selectedRam === 'LOW' && m.minRamGb <= 4) ||
-        (selectedRam === 'MID' && m.minRamGb > 4 && m.minRamGb <= 6) ||
-        (selectedRam === 'HIGH' && m.minRamGb >= 8);
-
-      return matchesSearch && matchesType && matchesRam;
+      return matchesSearch && matchesType;
     });
-  }, [models, searchQuery, selectedType, selectedRam]);
+  }, [models, searchQuery, selectedType]);
 
-  // If not expanded, show top 3 popular models
   const displayedModels = isExpanded ? filteredModels : models.slice(0, 3);
 
   return (
-    <section id="models" className="py-20 bg-zinc-950 border-t border-white/[0.08] relative">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <section id="models" className="py-24 md:py-32 bg-[#0D0F14] border-t border-white/[0.08] relative">
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-6">
+        <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-6">
           <div className="max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded bg-zinc-900 border border-white/10 text-[11px] font-mono text-zinc-400 uppercase tracking-wider mb-4">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.04] border border-white/10 text-xs font-mono text-[#B6FF3B] mb-4">
               <Database className="w-3.5 h-3.5" />
-              <span>Offline Weights Matrix</span>
+              <span>Offline Model Store</span>
             </div>
-            <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white mb-2">
+            <h2 className="text-4xl sm:text-5xl font-extrabold tracking-[-0.04em] text-white mb-3">
               Verified Open Weights
             </h2>
-            <p className="text-sm text-zinc-400">
-              Pre-quantized GGUF, VLM, and ONNX weights validated for ARM processors. Zero DRM lock-in.
+            <p className="text-lg text-[#A1A1AA]">
+              Pre-quantized GGUF, VLM, and ONNX weights validated for mobile ARM processors. Direct HuggingFace downloads.
             </p>
           </div>
 
+          {/* Expand / Collapse Button */}
           <button
             type="button"
             onClick={() => setIsExpanded(!isExpanded)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-850 border border-white/10 text-xs font-mono text-zinc-300 hover:text-white transition-colors tactile-button self-start md:self-auto"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#141720] hover:bg-[#1C202C] border border-white/15 text-sm font-semibold text-white transition-all tactile-button self-start md:self-auto"
           >
             <span>{isExpanded ? 'Collapse Catalog' : 'Explore All 10 Models'}</span>
-            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            {isExpanded ? <ChevronUp className="w-4 h-4 text-[#B6FF3B]" /> : <ChevronDown className="w-4 h-4 text-[#B6FF3B]" />}
           </button>
         </div>
 
-        {/* Filter & Search Bar (Visible only when expanded) */}
+        {/* Filter Bar (Only when expanded) */}
         <AnimatePresence>
           {isExpanded && (
             <motion.div
@@ -212,152 +187,103 @@ export const ModelStore: React.FC = () => {
               transition={springs.snappy}
               className="overflow-hidden mb-8"
             >
-              <div className="p-4 rounded-xl surface-card border border-white/10 space-y-4">
-                <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-                  {/* Search Input */}
-                  <div className="relative w-full md:w-80">
-                    <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      placeholder="Search models, tags, architecture..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 text-xs bg-zinc-900 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-white/30 font-sans"
-                    />
-                  </div>
+              <div className="p-4 rounded-xl surface-2 border border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="relative w-full sm:w-80">
+                  <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search models..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 text-sm bg-[#07080A] border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-[#B6FF3B]/50 font-sans"
+                  />
+                </div>
 
-                  {/* Category Filter Chips */}
-                  <div className="flex flex-wrap items-center gap-1.5 w-full md:w-auto">
-                    {[
-                      { label: 'All', value: 'ALL' },
-                      { label: 'Chat LLMs', value: 'CHAT' },
-                      { label: 'Vision (VLM)', value: 'VISION' },
-                      { label: 'Audio (STT/TTS)', value: 'AUDIO' },
-                      { label: 'Embeddings', value: 'EMBEDDINGS' }
-                    ].map((chip) => {
-                      const isActive = selectedType === chip.value;
-                      return (
-                        <button
-                          key={chip.value}
-                          type="button"
-                          onClick={() => setSelectedType(chip.value)}
-                          className={`relative px-3 py-1.5 rounded-lg text-xs font-mono transition-colors tactile-button ${
-                            isActive ? 'text-black font-semibold' : 'text-zinc-400 hover:text-white'
-                          }`}
-                        >
-                          {isActive && (
-                            <motion.div
-                              layoutId="model-category-pill"
-                              className="absolute inset-0 rounded-lg bg-white shadow-sm"
-                              transition={springs.snappy}
-                            />
-                          )}
-                          <span className="relative z-10">{chip.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* RAM Filter */}
-                  <div className="flex items-center gap-1.5 self-start md:self-auto">
-                    <span className="text-[11px] font-mono text-zinc-500 mr-1">RAM:</span>
-                    {[
-                      { label: 'All', value: 'ALL' },
-                      { label: '<=4GB', value: 'LOW' },
-                      { label: '6GB', value: 'MID' },
-                      { label: '8GB+', value: 'HIGH' }
-                    ].map((chip) => (
-                      <button
-                        key={chip.value}
-                        type="button"
-                        onClick={() => setSelectedRam(chip.value)}
-                        className={`px-2 py-1 rounded text-[11px] font-mono transition-all tactile-button ${
-                          selectedRam === chip.value
-                            ? 'bg-zinc-800 text-white font-semibold border border-white/20'
-                            : 'text-zinc-500 hover:text-zinc-300'
-                        }`}
-                      >
-                        {chip.label}
-                      </button>
-                    ))}
-                  </div>
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                  {[
+                    { label: 'All', value: 'ALL' },
+                    { label: 'Chat LLMs', value: 'CHAT' },
+                    { label: 'Vision (VLM)', value: 'VISION' },
+                    { label: 'Audio', value: 'AUDIO' }
+                  ].map((chip) => (
+                    <button
+                      key={chip.value}
+                      type="button"
+                      onClick={() => setSelectedType(chip.value)}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        selectedType === chip.value
+                          ? 'bg-[#B6FF3B] text-[#07080A] font-bold shadow-sm'
+                          : 'bg-[#07080A] text-zinc-400 hover:text-white border border-white/5'
+                      }`}
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
                 </div>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Models Grid */}
-        <motion.div layout className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Cleaner Grid with Bigger Text */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {displayedModels.map((m) => {
             const isCopied = copiedId === m.id;
+
             return (
-              <motion.div
+              <div
                 key={m.id}
-                layout
-                className="rounded-xl surface-card p-5 border border-white/[0.08] hover:border-white/20 flex flex-col justify-between group"
+                className="rounded-2xl surface-2 p-6 flex flex-col justify-between border border-white/10 hover:border-white/20 transition-all group"
               >
                 <div>
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <div>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-900 text-zinc-300 border border-white/10 uppercase mr-2">
-                        {m.type}
-                      </span>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-900 text-zinc-500 border border-white/5">
-                        Min {m.minRamGb}GB RAM
-                      </span>
-                    </div>
-                    <span className="text-xs font-mono font-bold text-zinc-300 tabular-nums">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <span className="text-xs font-mono px-2.5 py-1 rounded bg-[#07080A] text-[#B6FF3B] border border-white/10 uppercase">
+                      {m.type}
+                    </span>
+                    <span className="text-sm font-mono font-bold text-white tabular-nums">
                       {m.size}
                     </span>
                   </div>
 
-                  <h3 className="text-base font-bold text-white mb-2 group-hover:text-zinc-100">
+                  <h3 className="text-xl font-bold text-white mb-2 group-hover:text-[#B6FF3B] transition-colors">
                     {m.name}
                   </h3>
-                  <p className="text-xs text-zinc-400 leading-relaxed mb-4 font-normal">
+
+                  <p className="text-sm text-[#A1A1AA] leading-relaxed mb-6 font-normal">
                     {m.description}
                   </p>
+                </div>
 
-                  <div className="flex flex-wrap gap-1.5 mb-6">
-                    {m.tags.map((tg, tIdx) => (
-                      <span
-                        key={tIdx}
-                        className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-900 text-zinc-400 border border-white/5"
-                      >
-                        {tg}
-                      </span>
-                    ))}
+                <div className="space-y-4 pt-4 border-t border-white/5">
+                  <div className="flex items-center justify-between text-xs font-mono text-zinc-400">
+                    <span>RAM Requirement</span>
+                    <span className="text-white font-semibold">Min {m.minRamGb}GB RAM</span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={m.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-white/[0.08] hover:bg-[#B6FF3B] text-white hover:text-[#07080A] text-xs font-bold transition-all"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download GGUF</span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyLink(m.url, m.id)}
+                      className="p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.1] border border-white/10 text-zinc-400 hover:text-white transition-colors"
+                      title="Copy Link"
+                    >
+                      {isCopied ? <Check className="w-4 h-4 text-[#B6FF3B]" /> : <Copy className="w-4 h-4" />}
+                    </button>
                   </div>
                 </div>
-
-                <div className="flex items-center gap-2 pt-3 border-t border-white/5">
-                  <a
-                    href={m.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-white/10 text-xs font-medium text-white transition-colors tactile-button"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download GGUF</span>
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => handleCopyLink(m.url, m.id)}
-                    className="p-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-white/10 text-zinc-400 hover:text-white transition-colors tactile-button"
-                    title="Copy Direct URL"
-                  >
-                    {isCopied ? (
-                      <Check className="w-3.5 h-3.5 text-zinc-200" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                </div>
-              </motion.div>
+              </div>
             );
           })}
-        </motion.div>
+        </div>
       </div>
     </section>
   );

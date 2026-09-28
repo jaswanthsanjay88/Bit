@@ -20,26 +20,26 @@ export const Navbar: React.FC = () => {
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-200 ${
         isScrolled
-          ? 'bg-black/90 backdrop-blur-md border-b border-white/[0.08] shadow-[0_4px_24px_rgba(0,0,0,0.8)]'
+          ? 'bg-[#07080A]/85 backdrop-blur-xl border-b border-white/[0.08] shadow-[0_4px_30px_rgba(0,0,0,0.85)]'
           : 'bg-transparent border-b border-transparent'
       }`}
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-18">
           {/* Logo & Brand */}
           <div className="flex items-center gap-3">
             <a href="#" className="flex items-center gap-2.5 group">
-              <div className="w-8 h-8 rounded-lg bg-zinc-950 border border-white/10 flex items-center justify-center p-1.5 transition-colors group-hover:border-white/30 shadow-sm">
+              <div className="w-8 h-8 rounded-lg bg-[#0E1015] border border-white/10 flex items-center justify-center p-1.5 transition-colors group-hover:border-[#B6FF3B]/50 shadow-sm">
                 <img src="/img/ic_logo.svg" alt="BIT Logo" className="w-full h-full object-contain filter invert opacity-90" />
               </div>
               <span className="font-bold tracking-tight text-white text-lg">BIT</span>
-              <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-zinc-900 text-zinc-400 border border-white/10 tabular-nums">
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-white/[0.05] text-[#B6FF3B] border border-[#B6FF3B]/30 tabular-nums">
                 v2.1.1
               </span>
             </a>
           </div>
 
-          {/* Desktop Nav Links (4 Big-Tech Links) */}
+          {/* Desktop Nav Links */}
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-zinc-400">
             <a href="#features" className="hover:text-white transition-colors duration-150">
               Features
@@ -59,19 +59,19 @@ export const Navbar: React.FC = () => {
               rel="noreferrer"
               className="flex items-center gap-1.5 hover:text-white transition-colors duration-150"
             >
-              <GithubIcon className="w-4 h-4" />
+              <GithubIcon className="w-4 h-4 text-zinc-400 group-hover:text-white" />
               <span>GitHub</span>
               <ArrowUpRight className="w-3 h-3 text-zinc-600" />
             </a>
           </nav>
 
-          {/* Action Button */}
+          {/* Action Button: Electric Lime */}
           <div className="hidden md:flex items-center gap-3">
             <motion.a
               href="#terminal"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.96 }}
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg bg-white text-black hover:bg-zinc-200 transition-colors shadow-[0_0_20px_rgba(255,255,255,0.15)]"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg btn-accent"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Download APK</span>
@@ -83,7 +83,7 @@ export const Navbar: React.FC = () => {
             <button
               type="button"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-900 border border-white/5 transition-colors tactile-button"
+              className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-900 border border-white/5 transition-colors"
               aria-label="Toggle Navigation Menu"
             >
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -100,7 +100,7 @@ export const Navbar: React.FC = () => {
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
             transition={springs.snappy}
-            className="md:hidden bg-zinc-950/95 backdrop-blur-xl border-b border-white/10 px-4 pt-3 pb-6 space-y-3 overflow-hidden"
+            className="md:hidden bg-[#07080A]/95 backdrop-blur-2xl border-b border-white/10 px-4 pt-4 pb-6 space-y-3 overflow-hidden"
           >
             <a
               href="#features"
@@ -143,7 +143,7 @@ export const Navbar: React.FC = () => {
               <a
                 href="#terminal"
                 onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-xs font-semibold rounded-lg bg-white text-black hover:bg-zinc-200 transition-colors"
+                className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-xs font-bold rounded-lg btn-accent"
               >
                 <Download className="w-4 h-4" />
                 <span>Download APK (v2.1.1)</span>

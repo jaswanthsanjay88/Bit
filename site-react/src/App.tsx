@@ -1,7 +1,7 @@
 import React from 'react';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
-import { SocialProof } from './components/SocialProof';
+import { StatsStrip } from './components/StatsStrip';
 import { FeatureStories } from './components/FeatureStories';
 import { SimpleHowItWorks } from './components/SimpleHowItWorks';
 import { UserPainComparison } from './components/UserPainComparison';
@@ -14,16 +14,16 @@ import { Footer } from './components/Footer';
 
 export const App: React.FC = () => {
   return (
-    <div className="min-h-screen bg-black text-zinc-100 flex flex-col selection:bg-zinc-800 selection:text-white">
+    <div className="min-h-screen bg-[#07080A] text-zinc-100 flex flex-col selection:bg-[#B6FF3B] selection:text-black">
       {/* 01. Minimal Navigation Bar */}
       <Navbar />
 
       <main className="flex-1">
-        {/* 02. Hero with Live Cockpit Simulator */}
+        {/* 02. Hero with Live Cockpit Simulator & 3 Fanned Phones */}
         <Hero />
 
-        {/* 03. Social Proof & Architecture Credibility */}
-        <SocialProof />
+        {/* 03. Stats Strip (4 Big Numbers in Electric Lime) */}
+        <StatsStrip />
 
         {/* 04. The Big 3 Feature Stories (Full-Width Chapters) */}
         <FeatureStories />
@@ -31,7 +31,7 @@ export const App: React.FC = () => {
         {/* 05. How It Works (Simple 3-Step Flow) */}
         <SimpleHowItWorks />
 
-        {/* 06. Proof & Trust (Cloud Trap vs Sovereign Freedom) */}
+        {/* 06. Proof & Trust (Cloud Trap vs Sovereign BIT) */}
         <UserPainComparison />
 
         {/* 07. Device Compatibility & RAM Tiers */}
@@ -50,7 +50,7 @@ export const App: React.FC = () => {
         <FinalCta />
       </main>
 
-      {/* 12. Minimalist Dense Footer */}
+      {/* 12. Simplified 3-Column Footer */}
       <Footer />
     </div>
   );

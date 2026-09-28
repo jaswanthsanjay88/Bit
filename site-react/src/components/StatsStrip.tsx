@@ -1,10 +1,8 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Shield, Lock, Cpu, Star } from 'lucide-react';
 import { springs } from '../lib/motion';
 
 interface StatItem {
-  icon: React.ReactNode;
   value: string;
   label: string;
   detail: string;
@@ -12,55 +10,53 @@ interface StatItem {
 
 const STATS: StatItem[] = [
   {
-    icon: <Lock className="w-4 h-4 text-zinc-300" />,
-    value: '100% Offline',
+    value: '100%',
     label: 'Zero Network Egress',
-    detail: 'Never pings an external server. Fully functional in airplane mode.'
+    detail: 'Fully autonomous in airplane mode with zero external pinging.'
   },
   {
-    icon: <Shield className="w-4 h-4 text-zinc-300" />,
     value: '0 Bytes',
     label: 'Data Leaves Device',
-    detail: 'Encrypted SQLite vector storage and local token caches.'
+    detail: 'Encrypted local SQLite storage with zero cloud telemetry.'
   },
   {
-    icon: <Cpu className="w-4 h-4 text-zinc-300" />,
-    value: 'Native C++',
-    label: 'llama.cpp & GGUF',
-    detail: 'Direct JNI bridge with ARM64 Neon SIMD and NPU acceleration.'
+    value: '45+ t/s',
+    label: 'Inference Throughput',
+    detail: 'ARM64 Neon SIMD and Qualcomm Hexagon NPU accelerated.'
   },
   {
-    icon: <Star className="w-4 h-4 text-zinc-300" />,
-    value: '2.1k+ Stars',
-    label: 'Apache 2.0 Open Source',
-    detail: 'Auditable, transparent Android agent runtime codebase.'
+    value: '2.1k+',
+    label: 'GitHub Stars',
+    detail: 'Apache 2.0 open-source code auditable by everyone.'
   }
 ];
 
 export const StatsStrip: React.FC = () => {
   return (
-    <section className="border-y border-white/[0.08] bg-zinc-950 py-12 relative">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8">
+    <section className="border-y border-white/[0.08] bg-[#0B0D12] py-16 relative">
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-10">
           {STATS.map((stat, idx) => (
             <motion.div
               key={idx}
-              whileHover={{ y: -2 }}
-              transition={springs.snappy}
-              className="p-5 rounded-xl bg-zinc-900/50 border border-white/[0.06] hover:border-white/20 transition-colors group cursor-default"
+              initial={{ opacity: 0, y: 16 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ ...springs.snappy, delay: idx * 0.08 }}
+              className="space-y-2 cursor-default"
             >
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center group-hover:border-white/25 transition-colors">
-                  {stat.icon}
-                </div>
-                <span className="text-xl sm:text-2xl font-bold tracking-tight text-white tabular-nums">
-                  {stat.value}
-                </span>
+              {/* Big Accent Number */}
+              <div className="text-4xl sm:text-5xl font-extrabold tracking-tight text-[#B6FF3B] tabular-nums">
+                {stat.value}
               </div>
-              <h4 className="text-xs font-mono font-medium text-zinc-300 uppercase tracking-wider mb-1">
+
+              {/* Caption Headline */}
+              <div className="text-base font-bold text-white tracking-tight">
                 {stat.label}
-              </h4>
-              <p className="text-xs text-zinc-500 leading-normal font-normal">
+              </div>
+
+              {/* Supporting Detail */}
+              <p className="text-sm text-[#A1A1AA] leading-relaxed font-normal">
                 {stat.detail}
               </p>
             </motion.div>

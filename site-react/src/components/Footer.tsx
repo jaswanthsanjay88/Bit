@@ -1,94 +1,68 @@
 import React from 'react';
-import { Lock, ArrowUpRight } from 'lucide-react';
+import { Lock, ArrowUpRight, ShieldCheck, Terminal, Download, Cpu } from 'lucide-react';
 
 export const Footer: React.FC = () => {
   return (
-    <footer className="border-t border-white/[0.08] bg-black text-zinc-400 text-xs py-16">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
-          {/* Col 1 */}
-          <div>
-            <h4 className="text-white font-mono font-medium uppercase tracking-wider text-[11px] mb-4">
-              Product
-            </h4>
-            <ul className="space-y-2.5">
+    <footer className="border-t border-white/[0.08] bg-[#07080A] text-[#A1A1AA] text-sm py-16 sm:py-20">
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-12 lg:gap-16 mb-16">
+          {/* Column 1: Sovereign Product */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2.5 mb-2">
+              <div className="w-6 h-6 rounded bg-[#141720] border border-white/10 flex items-center justify-center p-1">
+                <img src="/img/ic_logo.svg" alt="BIT" className="w-full h-full filter invert opacity-90" />
+              </div>
+              <span className="font-bold text-white tracking-tight text-base">BIT Runtime</span>
+            </div>
+            <p className="text-sm text-[#A1A1AA] leading-relaxed">
+              Autonomous on-device agent platform running quantized llama.cpp models directly on Android hardware with zero server dependency.
+            </p>
+            <ul className="space-y-2.5 pt-2 text-sm">
               <li>
-                <a href="#features" className="hover:text-white transition-colors">
-                  Autonomous Subagents
+                <a href="#features" className="text-zinc-300 hover:text-[#B6FF3B] transition-colors flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-600"></span>
+                  Autonomous Subagents & Tool Calling
                 </a>
               </li>
               <li>
-                <a href="#pipeline" className="hover:text-white transition-colors">
-                  GBNF Tool Calling
+                <a href="#features" className="text-zinc-300 hover:text-[#B6FF3B] transition-colors flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-600"></span>
+                  Streaming Voice & Silero VAD
                 </a>
               </li>
               <li>
-                <a href="#features" className="hover:text-white transition-colors">
-                  Offline Voice & VAD
+                <a href="#features" className="text-zinc-300 hover:text-[#B6FF3B] transition-colors flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-600"></span>
+                  Memory Vault & On-Device RAG
                 </a>
               </li>
               <li>
-                <a href="#features" className="hover:text-white transition-colors">
-                  Memory Vault RAG
-                </a>
-              </li>
-              <li>
-                <a href="#models" className="hover:text-white transition-colors">
-                  Quantized Model Catalog
-                </a>
-              </li>
-            </ul>
-          </div>
-
-          {/* Col 2 */}
-          <div>
-            <h4 className="text-white font-mono font-medium uppercase tracking-wider text-[11px] mb-4">
-              Architecture
-            </h4>
-            <ul className="space-y-2.5">
-              <li>
-                <a href="#pipeline" className="hover:text-white transition-colors">
-                  llama.kt Native JNI
-                </a>
-              </li>
-              <li>
-                <a href="#pipeline" className="hover:text-white transition-colors">
-                  ARM Neon SIMD Vectors
-                </a>
-              </li>
-              <li>
-                <a href="#pipeline" className="hover:text-white transition-colors">
-                  Sherpa-ONNX Streaming STT
-                </a>
-              </li>
-              <li>
-                <a href="#pipeline" className="hover:text-white transition-colors">
-                  Piper Neural TTS
-                </a>
-              </li>
-              <li>
-                <a href="#terminal" className="hover:text-white transition-colors">
-                  GBNF Grammar BNF
+                <a href="#models" className="text-zinc-300 hover:text-[#B6FF3B] transition-colors flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-600"></span>
+                  Verified GGUF Model Matrix
                 </a>
               </li>
             </ul>
           </div>
 
-          {/* Col 3 */}
-          <div>
-            <h4 className="text-white font-mono font-medium uppercase tracking-wider text-[11px] mb-4">
-              Distribution
+          {/* Column 2: Code & Distribution */}
+          <div className="space-y-4">
+            <h4 className="text-white font-bold text-base tracking-tight mb-2">
+              Code & Distribution
             </h4>
-            <ul className="space-y-2.5">
+            <p className="text-sm text-[#A1A1AA] leading-relaxed">
+              100% open source under Apache 2.0. Inspect every C++ binding, verify every permission, and compile from source.
+            </p>
+            <ul className="space-y-2.5 pt-2 text-sm">
               <li>
                 <a
                   href="https://github.com/jaswanthsanjay88/Bit_Android"
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 hover:text-white transition-colors"
+                  className="inline-flex items-center gap-1.5 text-zinc-300 hover:text-[#B6FF3B] transition-colors"
                 >
                   <span>GitHub Repository</span>
-                  <ArrowUpRight className="w-3 h-3 text-zinc-600" />
+                  <ArrowUpRight className="w-3.5 h-3.5 text-zinc-500" />
                 </a>
               </li>
               <li>
@@ -96,15 +70,15 @@ export const Footer: React.FC = () => {
                   href="https://github.com/jaswanthsanjay88/Bit_Android/releases"
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 hover:text-white transition-colors"
+                  className="inline-flex items-center gap-1.5 text-zinc-300 hover:text-[#B6FF3B] transition-colors"
                 >
-                  <span>Latest Release (v2.1.1)</span>
-                  <ArrowUpRight className="w-3 h-3 text-zinc-600" />
+                  <span>Production APK (v2.1.1)</span>
+                  <ArrowUpRight className="w-3.5 h-3.5 text-zinc-500" />
                 </a>
               </li>
               <li>
-                <a href="#terminal" className="hover:text-white transition-colors">
-                  ADB Install Guide
+                <a href="#terminal" className="inline-flex items-center gap-1.5 text-zinc-300 hover:text-[#B6FF3B] transition-colors">
+                  <span>ADB 1-Click Sideload Guide</span>
                 </a>
               </li>
               <li>
@@ -112,52 +86,58 @@ export const Footer: React.FC = () => {
                   href="https://github.com/jaswanthsanjay88/Bit_Android/blob/main/LICENSE"
                   target="_blank"
                   rel="noreferrer"
-                  className="hover:text-white transition-colors"
+                  className="inline-flex items-center gap-1.5 text-zinc-300 hover:text-[#B6FF3B] transition-colors"
                 >
-                  Apache 2.0 License
+                  <span>Apache 2.0 Open License</span>
+                  <ArrowUpRight className="w-3.5 h-3.5 text-zinc-500" />
                 </a>
               </li>
             </ul>
           </div>
 
-          {/* Col 4 */}
-          <div>
-            <h4 className="text-white font-mono font-medium uppercase tracking-wider text-[11px] mb-4">
-              Privacy Pledge
+          {/* Column 3: Sovereignty & Privacy Pledge */}
+          <div className="space-y-4">
+            <h4 className="text-white font-bold text-base tracking-tight mb-2">
+              Sovereignty Guarantee
             </h4>
-            <div className="space-y-3 text-zinc-400 leading-relaxed">
-              <p>
-                BIT does not collect analytics, telemetry, logs, device identifiers, or biometric audio recordings.
-              </p>
-              <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded bg-zinc-900 border border-white/10 text-[10px] font-mono text-zinc-300">
-                <Lock className="w-3 h-3 text-zinc-300" />
-                <span>Zero telemetry guaranteed</span>
+            <p className="text-sm text-[#A1A1AA] leading-relaxed">
+              BIT contains zero analytics SDKs, zero telemetry collectors, and zero hidden network endpoints. All inference runs locally in isolated process space.
+            </p>
+            <div className="p-4 rounded-xl bg-[#0D0F14] border border-white/[0.08] space-y-2.5">
+              <div className="flex items-center gap-2 text-xs font-semibold text-white">
+                <ShieldCheck className="w-4 h-4 text-[#B6FF3B]" />
+                <span>Zero Network Egress Audited</span>
               </div>
+              <p className="text-xs text-[#A1A1AA] leading-relaxed">
+                Tokens, embeddings, chat transcripts, and synthesized voice stay inside device sandbox storage permanently.
+              </p>
             </div>
           </div>
         </div>
 
         {/* Bottom Bar */}
-        <div className="pt-8 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded bg-zinc-900 border border-white/10 flex items-center justify-center p-1">
-              <img src="/img/ic_logo.svg" alt="BIT" className="w-full h-full filter invert opacity-80" />
-            </div>
-            <span className="font-mono text-xs text-zinc-300">
-              BIT Sovereign Runtime &bull; Apache-2.0
-            </span>
+        <div className="pt-8 border-t border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#A1A1AA]">
+          <div className="flex items-center gap-3">
+            <span>BIT Android &bull; Apache-2.0 Open Source</span>
+            <span>&bull;</span>
+            <span className="text-zinc-500">ARM64 Android 12+</span>
           </div>
 
-          <div className="flex items-center gap-6 text-[11px] font-mono text-zinc-500">
-            <span>ARM64 Android 12+</span>
-            <span>&bull;</span>
-            <span>100% On-Device</span>
-            <span>&bull;</span>
+          <div className="flex items-center gap-6">
+            <a href="#models" className="hover:text-white transition-colors">
+              Model Catalog
+            </a>
+            <a href="#terminal" className="hover:text-white transition-colors">
+              CLI Install
+            </a>
+            <a href="#faq" className="hover:text-white transition-colors">
+              FAQ
+            </a>
             <a
               href="https://github.com/jaswanthsanjay88/Bit_Android"
               target="_blank"
               rel="noreferrer"
-              className="text-zinc-400 hover:text-white transition-colors"
+              className="text-[#B6FF3B] hover:underline"
             >
               GitHub
             </a>

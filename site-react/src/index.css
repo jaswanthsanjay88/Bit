@@ -4,25 +4,37 @@
   :root {
     --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    --bg-base: #07080A;
+    --bg-surface-1: #0D0F14;
+    --bg-surface-2: #141720;
+    --bg-surface-3: #1B1F2B;
+    --accent: #B6FF3B;
+    --accent-muted: rgba(182, 255, 59, 0.15);
+    --text-primary: #FFFFFF;
+    --text-secondary: #A1A1AA;
     color-scheme: dark;
   }
 
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    background-color: #000000;
+    background-color: #07080A;
   }
 
   body {
     font-family: var(--font-sans);
-    background-color: #000000;
-    color: #e4e4e7;
+    background-color: #07080A;
+    color: #A1A1AA;
     overflow-x: hidden;
+    font-size: 1.0625rem; /* 17px base */
+    line-height: 1.6;
   }
 
   h1, h2, h3, h4, h5, h6 {
     text-wrap: balance;
-    letter-spacing: -0.035em;
+    letter-spacing: -0.04em;
+    color: #FFFFFF;
+    font-weight: 700;
   }
 
   p {
@@ -36,77 +48,112 @@
   code, pre, kbd {
     font-family: var(--font-mono);
   }
+}
 
-  img {
-    outline: 1px solid rgba(255, 255, 255, 0.08);
-    outline-offset: -1px;
+/* Background grid patterns */
+.bg-grid-ambient {
+  background-size: 48px 48px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+}
+
+/* Depth surfaces */
+.surface-1 {
+  background-color: #0D0F14;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.surface-2 {
+  background-color: #141720;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 20px 40px -15px rgba(0, 0, 0, 0.8);
+}
+
+.surface-accent-glow {
+  background: radial-gradient(circle at 50% 0%, rgba(182, 255, 59, 0.08), transparent 70%), #0D0F14;
+  border: 1px solid rgba(182, 255, 59, 0.25);
+  box-shadow: 0 0 35px -5px rgba(182, 255, 59, 0.15), inset 0 1px 0 rgba(182, 255, 59, 0.3);
+}
+
+/* Floating animation for phones */
+@keyframes float-gentle {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(0.5deg);
   }
 }
 
-/* Subtle architectural grid pattern */
-.bg-grid-architectural {
-  background-size: 40px 40px;
-  background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+@keyframes float-tilt-left {
+  0%, 100% {
+    transform: translateY(0px) rotate(-6deg);
+  }
+  50% {
+    transform: translateY(-10px) rotate(-5.2deg);
+  }
 }
 
-.bg-dot-matrix {
-  background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px);
-  background-size: 20px 20px;
+@keyframes float-tilt-right {
+  0%, 100% {
+    transform: translateY(0px) rotate(6deg);
+  }
+  50% {
+    transform: translateY(-10px) rotate(6.8deg);
+  }
 }
 
-/* Monochrome surface hierarchy (Material 3 + Vercel craft) */
-.surface-card {
-  background-color: #09090b;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  transition-property: border-color, box-shadow, transform;
-  transition-duration: 160ms;
-  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+.animate-float-center {
+  animation: float-gentle 7s ease-in-out infinite;
 }
 
-.surface-card:hover {
-  border-color: rgba(255, 255, 255, 0.18);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 12px 32px -8px rgba(0, 0, 0, 0.8);
+.animate-float-left {
+  animation: float-tilt-left 8s ease-in-out infinite;
 }
 
-.surface-card-elevated {
-  background-color: #121214;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 20px 50px -12px rgba(0, 0, 0, 0.9);
+.animate-float-right {
+  animation: float-tilt-right 7.5s ease-in-out infinite;
 }
 
-/* Tactile button mechanics */
-.tactile-button {
-  transition-property: transform, background-color, border-color, color, box-shadow;
-  transition-duration: 140ms;
-  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+/* Custom glow utility */
+.radial-lime-glow {
+  background: radial-gradient(circle at center, rgba(182, 255, 59, 0.18) 0%, rgba(182, 255, 59, 0.03) 50%, transparent 75%);
 }
 
-.tactile-button:active {
+/* Button mechanics */
+.btn-accent {
+  background-color: #B6FF3B;
+  color: #07080A;
+  font-weight: 700;
+  transition: transform 0.14s ease, box-shadow 0.14s ease, filter 0.14s ease;
+  box-shadow: 0 0 24px rgba(182, 255, 59, 0.28);
+}
+
+.btn-accent:hover {
+  filter: brightness(1.05);
+  box-shadow: 0 0 32px rgba(182, 255, 59, 0.42);
+}
+
+.btn-accent:active {
   transform: scale(0.96);
 }
 
-/* Shimmer animation for loading states */
-@keyframes shimmer {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
+.btn-ghost {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #FFFFFF;
+  transition: transform 0.14s ease, background-color 0.14s ease, border-color 0.14s ease;
 }
 
-.animate-shimmer {
-  animation: shimmer 1.8s infinite;
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.24);
 }
 
-/* Pulse radar effect */
-@keyframes radar-pulse {
-  0% { transform: scale(0.95); opacity: 0.8; }
-  50% { transform: scale(1.4); opacity: 0; }
-  100% { transform: scale(0.95); opacity: 0; }
-}
-
-.radar-ring {
-  animation: radar-pulse 2.2s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+.btn-ghost:active {
+  transform: scale(0.96);
 }
 
 @media (prefers-reduced-motion: reduce) {
