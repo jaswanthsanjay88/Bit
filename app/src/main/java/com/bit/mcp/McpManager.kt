@@ -222,6 +222,7 @@ class McpManager @Inject constructor(
         _servers.value = updated
         persistServers(updated)
         sessionRegistry.reconcile(updated)
+        notifyPluginCacheInvalidated()
         scope.launch {
             syncServer(newConfig.id)
         }
@@ -243,6 +244,7 @@ class McpManager @Inject constructor(
         _servers.value = updated
         persistServers(updated)
         sessionRegistry.reconcile(updated)
+        notifyPluginCacheInvalidated()
         scope.launch {
             sessionRegistry.syncAll(sanitized)
         }
@@ -255,6 +257,7 @@ class McpManager @Inject constructor(
         _servers.value = updated
         persistServers(updated)
         sessionRegistry.reconcile(updated)
+        notifyPluginCacheInvalidated()
     }
 
     fun removeServer(serverId: String) {
@@ -262,6 +265,7 @@ class McpManager @Inject constructor(
         _servers.value = updated
         persistServers(updated)
         sessionRegistry.reconcile(updated)
+        notifyPluginCacheInvalidated()
     }
 
     fun toggleServer(serverId: String, isEnabled: Boolean) {
@@ -271,6 +275,7 @@ class McpManager @Inject constructor(
         _servers.value = updated
         persistServers(updated)
         sessionRegistry.reconcile(updated)
+        notifyPluginCacheInvalidated()
     }
 
     fun toggleTool(serverId: String, toolName: String, isEnabled: Boolean) {
@@ -284,6 +289,7 @@ class McpManager @Inject constructor(
         }
         _servers.value = updated
         persistServers(updated)
+        notifyPluginCacheInvalidated()
     }
 
     fun toggleToolNeedsApproval(serverId: String, toolName: String, needsApproval: Boolean) {
@@ -297,6 +303,7 @@ class McpManager @Inject constructor(
         }
         _servers.value = updated
         persistServers(updated)
+        notifyPluginCacheInvalidated()
     }
 
     fun reorderServers(fromIndex: Int, toIndex: Int) {
@@ -306,12 +313,14 @@ class McpManager @Inject constructor(
             list.add(toIndex, item)
             _servers.value = list
             persistServers(list)
+            notifyPluginCacheInvalidated()
         }
     }
 
     fun setOrderedServers(orderedList: List<McpServerConfig>) {
         _servers.value = orderedList
         persistServers(orderedList)
+        notifyPluginCacheInvalidated()
     }
 
     suspend fun syncServer(serverId: String): Result<List<McpTool>> {
@@ -368,6 +377,15 @@ class McpManager @Inject constructor(
         }
         _servers.value = updated
         persistServers(updated)
+        notifyPluginCacheInvalidated()
+    }
+
+    private fun notifyPluginCacheInvalidated() {
+        try {
+            com.bit.plugins.PluginManager.invalidateToolCache()
+        } catch (e: Throwable) {
+            Log.w(TAG, "PluginManager tool cache invalidation skipped: ${e.message}")
+        }
     }
 
     private fun updateServerOAuth(serverId: String, oauthState: McpOAuthState?) {
@@ -453,6 +471,9 @@ fun parseMcpServersFromJson(jsonText: String): List<McpServerConfig> {
                             )
                         }
                         results.add(config)
+                    } else if (srvObj.has("command")) {
+                        val cmd = srvObj.optString("command", "")
+                        Log.w("McpManager", "Skipping stdio MCP server '$key' ($cmd): Mobile Android cannot spawn desktop stdio subprocesses (npx/python). Connect via an SSE/Streamable HTTP proxy bridge URL or PRoot service.")
                     }
                 }
             } else {

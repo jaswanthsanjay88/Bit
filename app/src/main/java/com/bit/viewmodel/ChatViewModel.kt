@@ -66,6 +66,11 @@ import com.bit.api.LlmProviderResolver
 import com.bit.api.ChatMessage
 import com.bit.api.Participant
 import com.bit.util.SearchResultFormatter
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.debounce
+import com.bit.ui.components.ContextUsageState
+import com.bit.ui.components.HeuristicTextTokenCounter
 
 enum class AgentPhase { Idle, Planning, Executing, Summarizing, Complete }
 
@@ -222,76 +227,73 @@ class ChatViewModel @Inject constructor(
         AppStateManager.setHasMessages(true)
 
         val steps = mutableListOf<ToolChainStepData>()
-        val thinkingLog = StringBuilder()
 
         harnessJob = viewModelScope.launch {
             try {
                 AppStateManager.setGeneratingText()
-                thinkingLog.appendLine("Analyzing task and decomposing into execution steps...")
-                _streamingAssistantMessage.value = "<think>\n$thinkingLog\n</think>"
                 emitStepEvent(com.bit.models.messages.StepEvent(type = "PLANNING", label = "Analyzing task and decomposing into execution steps"))
                 harnessEngine.executeGoal(goal).collect { state ->
                     when (state) {
                         is com.bit.agent.harness.state.AgentHarnessState.Decomposing -> {
                             _agentPhase.value = AgentPhase.Planning
-                            thinkingLog.appendLine("Synthesizing execution plan for: $goal...")
-                            _streamingAssistantMessage.value = "<think>\n$thinkingLog\n</think>"
                         }
                         is com.bit.agent.harness.state.AgentHarnessState.Executing -> {
+                            val isDirectAnswer = state.toolName.equals("direct_answer", ignoreCase = true) ||
+                                    state.toolName.equals("direct_response", ignoreCase = true)
                             _agentPhase.value = AgentPhase.Executing
-                            thinkingLog.appendLine("Executing step ${state.stepIndex}/${state.totalSteps}: ${state.activeStep.description} [${state.toolName}]...")
-                            _streamingAssistantMessage.value = "<think>\n$thinkingLog\n</think>"
-                            emitStepEvent(
-                                com.bit.models.messages.StepEvent(
-                                    type = "EXECUTING",
-                                    label = state.activeStep.description,
-                                    toolName = state.toolName,
-                                    stepIndex = state.stepIndex,
-                                    totalSteps = state.totalSteps
+                            if (!isDirectAnswer) {
+                                emitStepEvent(
+                                    com.bit.models.messages.StepEvent(
+                                        type = "EXECUTING",
+                                        label = state.activeStep.description,
+                                        toolName = state.toolName,
+                                        stepIndex = state.stepIndex,
+                                        totalSteps = state.totalSteps
+                                    )
                                 )
-                            )
-                            val displayPlan = com.bit.agent.harness.state.TaskPlan(goal, mutableListOf(state.activeStep))
-                            _agentPlan.value = harnessEngine.formatPlanToMarkdown(displayPlan, activeStepIndex = state.stepIndex)
+                                val displayPlan = com.bit.agent.harness.state.TaskPlan(goal, mutableListOf(state.activeStep))
+                                _agentPlan.value = harnessEngine.formatPlanToMarkdown(displayPlan, activeStepIndex = state.stepIndex)
+                            }
                         }
                         is com.bit.agent.harness.state.AgentHarnessState.GateChecking -> {
                             _agentPhase.value = AgentPhase.Executing
                             val step = state.step
                             val obs = state.observation
-                            thinkingLog.appendLine("Validating output of '${step.description}' (Passed: ${state.passed})...")
-                            _streamingAssistantMessage.value = "<think>\n$thinkingLog\n</think>"
-                            emitStepEvent(
-                                com.bit.models.messages.StepEvent(
-                                    type = "GATE",
-                                    label = "Validating '${step.description}'",
-                                    toolName = step.toolName,
-                                    durationMs = obs.executionTimeMs,
-                                    success = state.passed
+                            val isDirectAnswer = step.toolName.equals("direct_answer", ignoreCase = true) ||
+                                    step.toolName.equals("direct_response", ignoreCase = true)
+                            if (!isDirectAnswer) {
+                                emitStepEvent(
+                                    com.bit.models.messages.StepEvent(
+                                        type = "GATE",
+                                        label = "Validating '${step.description}'",
+                                        toolName = step.toolName,
+                                        durationMs = obs.executionTimeMs,
+                                        success = state.passed
+                                    )
                                 )
-                            )
-                            val pluginName = when {
-                                step.toolName.contains("search", ignoreCase = true) || step.toolName.contains("fetch", ignoreCase = true) -> "Web Search"
-                                step.toolName.contains("workspace", ignoreCase = true) || step.toolName.contains("shell", ignoreCase = true) -> "Linux Workspace"
-                                step.toolName.contains("memory", ignoreCase = true) || step.toolName.contains("vault", ignoreCase = true) -> "Memory Vault"
-                                else -> "Agent Tool"
-                            }
-                            val stepData = ToolChainStepData(
-                                round = state.step.retryCount + 1,
-                                toolName = step.toolName,
-                                pluginName = pluginName,
-                                args = step.toolArguments,
-                                result = obs.payload ?: obs.summary,
-                                success = obs.isSuccess,
-                                executionTimeMs = obs.executionTimeMs
-                            )
-                            if (steps.none { it.toolName == step.toolName && it.args == step.toolArguments }) {
-                                steps.add(stepData)
-                                _toolChainSteps.value = steps.toList()
+                                val pluginName = when {
+                                    step.toolName.contains("search", ignoreCase = true) || step.toolName.contains("fetch", ignoreCase = true) -> "Web Search"
+                                    step.toolName.contains("workspace", ignoreCase = true) || step.toolName.contains("shell", ignoreCase = true) -> "Linux Workspace"
+                                    step.toolName.contains("memory", ignoreCase = true) || step.toolName.contains("vault", ignoreCase = true) -> "Memory Vault"
+                                    else -> "Agent Tool"
+                                }
+                                val stepData = ToolChainStepData(
+                                    round = state.step.retryCount + 1,
+                                    toolName = step.toolName,
+                                    pluginName = pluginName,
+                                    args = step.toolArguments,
+                                    result = obs.payload ?: obs.summary,
+                                    success = obs.isSuccess,
+                                    executionTimeMs = obs.executionTimeMs
+                                )
+                                if (steps.none { it.toolName == step.toolName && it.args == step.toolArguments }) {
+                                    steps.add(stepData)
+                                    _toolChainSteps.value = steps.toList()
+                                }
                             }
                         }
                         is com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval -> {
                             _agentPhase.value = AgentPhase.Executing
-                            thinkingLog.appendLine("Awaiting approval for step '${state.activeStep.description}' [${state.toolName}]...")
-                            _streamingAssistantMessage.value = "<think>\n$thinkingLog\n</think>"
                             emitStepEvent(
                                 com.bit.models.messages.StepEvent(
                                     type = if (state.toolName.equals("ask_user", ignoreCase = true)) "QUESTION" else "APPROVAL",
@@ -305,8 +307,6 @@ class ChatViewModel @Inject constructor(
                         }
                         is com.bit.agent.harness.state.AgentHarnessState.SubagentRunning -> {
                             _agentPhase.value = AgentPhase.Executing
-                            thinkingLog.appendLine("Deploying subagent [${state.subagentTask.role}] for task: ${state.subagentTask.goal} (Step ${state.parentStepIndex}/${state.totalParentSteps})...")
-                            _streamingAssistantMessage.value = "<think>\n$thinkingLog\n</think>"
                             emitStepEvent(
                                 com.bit.models.messages.StepEvent(
                                     type = "SUBAGENT",
@@ -318,8 +318,6 @@ class ChatViewModel @Inject constructor(
                         }
                         is com.bit.agent.harness.state.AgentHarnessState.SelfCorrecting -> {
                             _agentPhase.value = AgentPhase.Executing
-                            thinkingLog.appendLine("Self-correcting step '${state.failedStep.description}': ${state.rootCause}. ${state.recoveryHint} (Attempt ${state.retryCount}/${state.maxRetries})...")
-                            _streamingAssistantMessage.value = "<think>\n$thinkingLog\n</think>"
                             emitStepEvent(
                                 com.bit.models.messages.StepEvent(
                                     type = "SELF_CORRECT",
@@ -340,14 +338,10 @@ class ChatViewModel @Inject constructor(
                                     success = true
                                 )
                             )
-                            val finalOutput = if (thinkingLog.isNotEmpty()) {
-                                "<think>\n$thinkingLog\n</think>\n\n${state.finalResult}"
-                            } else {
-                                state.finalResult
-                            }
+                            val finalOutput = state.finalResult
                             _streamingAssistantMessage.value = finalOutput
                             _agentSummary.value = state.finalResult
-                            persistAgentChat(goal, isNewChat, "Autonomous Agent Goal Execution", steps, finalOutput)
+                            persistAgentChat(goal, isNewChat, _agentPlan.value ?: "", steps, finalOutput)
                             AppStateManager.setGenerationComplete()
                             AppStateManager.chatRefreshed()
                             resetStreamingState()
@@ -362,19 +356,13 @@ class ChatViewModel @Inject constructor(
                                 )
                             )
                             val failMsg = "Agent Goal Execution Halted: ${state.reason}"
-                            val finalOutput = if (thinkingLog.isNotEmpty()) {
-                                "<think>\n$thinkingLog\n</think>\n\n$failMsg"
-                            } else {
-                                failMsg
-                            }
-                            _streamingAssistantMessage.value = finalOutput
+                            _streamingAssistantMessage.value = failMsg
                             _agentSummary.value = failMsg
-                            persistAgentChat(goal, isNewChat, "Autonomous Agent Goal Execution", steps, finalOutput)
+                            persistAgentChat(goal, isNewChat, _agentPlan.value ?: "", steps, failMsg)
                             AppStateManager.setGenerationComplete()
                             AppStateManager.chatRefreshed()
                             resetStreamingState()
                         }
-                        com.bit.agent.harness.state.AgentHarnessState.Idle -> {}
                     }
                 }
             } catch (e: Exception) {
@@ -560,6 +548,62 @@ class ChatViewModel @Inject constructor(
     private var currentMetrics: DecodingMetrics?
         get() = _currentMetrics.value
         set(value) { _currentMetrics.value = value }
+
+    // ── Agora-Style Context Window Tracking ──
+    private val _contextUsageState = MutableStateFlow(ContextUsageState())
+    val contextUsageState: StateFlow<ContextUsageState> = _contextUsageState.asStateFlow()
+
+    suspend fun updateContextUsageState() {
+        val modelId = currentModelId ?: ""
+        val modelType = ActiveModelSession.currentModelType.value
+
+        val budget = if (modelType == ProviderType.API) {
+            getRemoteInferenceConfig()?.contextSize ?: com.bit.models.ModelContextDefaults.resolve(modelId, ProviderType.API)
+        } else {
+            LlmModelWorker.lastLoadedGgufConfig?.let { cfg ->
+                runCatching {
+                    GgufEngineSchema.fromJson(cfg.modelLoadingParams, cfg.modelInferenceParams).loadingParams.ctxSize
+                }.getOrNull()
+            } ?: currentMetrics?.contextTokensMax?.takeIf { it > 0 } ?: com.bit.models.ModelContextDefaults.resolve(modelId, ProviderType.GGUF)
+        }
+
+        // Core system prompt (instructions, persona, date/time, user memory rules)
+        val sysPrompt = runCatching {
+            getCurrentModelSystemPrompt(userQuery = "", hasTools = false)
+        }.getOrDefault("")
+        val sysTokens = HeuristicTextTokenCounter.count(sysPrompt).toInt().coerceAtLeast(30)
+
+        // Tool definitions & skill prompts when Agent Mode or tools are active
+        val toolTokens = if (isAgentMode.value && PluginManager.hasEnabledTools()) {
+            val defs = PluginManager.getEnabledToolDefinitions()
+            val rawTokens = defs.size * 25 + 100
+            rawTokens.coerceIn(150, (budget * 0.15).toInt().coerceAtLeast(350))
+        } else 0
+
+        val msgTokens = _messages.sumOf { 
+            HeuristicTextTokenCounter.count(it.content.content).toInt() + 8 
+        } + HeuristicTextTokenCounter.count(_streamingAssistantMessage.value).toInt()
+
+        val rawUsed = sysTokens + toolTokens + msgTokens
+        val totalUsed = if (currentMetrics != null && currentMetrics!!.contextTokensUsed > 0) {
+            maxOf(rawUsed, currentMetrics!!.contextTokensUsed)
+        } else {
+            rawUsed
+        }.coerceAtMost(budget)
+
+        val pct = ((totalUsed.toFloat() / budget.coerceAtLeast(1)) * 100).toInt().coerceIn(0, 100)
+        val over = totalUsed.toFloat() / budget.coerceAtLeast(1) >= 0.85f
+
+        _contextUsageState.value = ContextUsageState(
+            systemPromptTokens = sysTokens,
+            toolTokens = toolTokens,
+            messageTokens = msgTokens,
+            totalUsedTokens = totalUsed,
+            tokenBudget = budget,
+            usagePercent = pct,
+            isOverThreshold = over
+        )
+    }
     private var currentImageMetrics: ImageGenerationMetrics? = null
     private var currentGeneratedImage: Bitmap? = null
     private var imageGenerationStartTime: Long = 0
@@ -858,6 +902,23 @@ class ChatViewModel @Inject constructor(
                     _currentGenerationType.value = ModelType.IMAGE_GENERATION
                 }
             }
+        }
+
+        // ── Observe Context Composition and Token Window in real-time ──
+        viewModelScope.launch {
+            updateContextUsageState()
+            @OptIn(FlowPreview::class)
+            kotlinx.coroutines.flow.combine(
+                snapshotFlow { _messages.size },
+                _streamingAssistantMessage,
+                isAgentMode,
+                _currentMetrics,
+                LlmModelWorker.isGgufModelLoaded
+            ) { _, _, _, _, _ -> }
+                .debounce(100L)
+                .collect {
+                    updateContextUsageState()
+                }
         }
     }
 
@@ -1499,7 +1560,8 @@ class ChatViewModel @Inject constructor(
                             content = MessageContent(contentType = ContentType.Text, content = finalResponse),
                             modelId = currentModelId,
                             decodingMetrics = currentMetrics,
-                            ragResults = ragResultItems
+                            ragResults = ragResultItems,
+                            researchTrace = captureActiveResearchTrace()
                         )
                         _messages.add(assistantMessage)
                         chatManager.addMessage(chatId, assistantMessage)
@@ -2035,7 +2097,8 @@ class ChatViewModel @Inject constructor(
                         content = MessageContent(contentType = ContentType.Text, content = cleanResponse),
                         modelId = currentModelId,
                         decodingMetrics = currentMetrics,
-                        ragResults = ragResultItems
+                        ragResults = ragResultItems,
+                        researchTrace = captureActiveResearchTrace()
                     )
                     _messages.add(assistantMessage)
                     chatManager.addMessage(chatId, assistantMessage)
@@ -2217,14 +2280,17 @@ class ChatViewModel @Inject constructor(
             }
         } else null
 
-        val safeMaxTokens = if (maxTokens > 0) maxTokens.coerceIn(1, 131072) else 4096
+        val safeMaxTokens = if (remoteCfg.maxTokens > 0) remoteCfg.maxTokens.coerceIn(1, 131072) else (if (maxTokens > 0) maxTokens.coerceIn(1, 131072) else 4096)
         val config = ProviderConfig(
             apiKey = apiKey,
             modelId = remoteCfg.model,
-            systemPrompt = sysPrompt,
+            systemPrompt = remoteCfg.customSystemPrompt?.takeIf { it.isNotBlank() } ?: sysPrompt,
             baseUrl = baseUrl,
             tools = tools,
-            thinkingEnabled = _thinkingModeEnabled.value,
+            thinkingEnabled = _thinkingModeEnabled.value || remoteCfg.thinkingEnabled,
+            thinkingBudgetTokens = remoteCfg.thinkingBudget,
+            temperature = remoteCfg.temperature,
+            topP = remoteCfg.topP,
             maxTokens = safeMaxTokens
         )
 
@@ -2478,6 +2544,11 @@ class ChatViewModel @Inject constructor(
         return result
     }
 
+    private fun captureActiveResearchTrace(): com.bit.agent.harness.model.ResearchTrace? {
+        val trace = com.bit.agent.harness.engine.ResearchSessionBus.currentTrace.value
+        return if (trace.phases.isNotEmpty()) trace.copy(isRunning = false) else null
+    }
+
     private suspend fun persistAgentChat(
         prompt: String,
         isNewChat: Boolean,
@@ -2523,15 +2594,22 @@ class ChatViewModel @Inject constructor(
             chatManager.addMessage(targetChatId, pendingUserMsg)
         }
 
+        val realSteps = steps.filterNot {
+            it.toolName.equals("direct_answer", ignoreCase = true) ||
+            it.toolName.equals("direct_response", ignoreCase = true)
+        }
+        val cleanPlan = if (realSteps.isEmpty()) null else plan.takeIf { !it.contains("direct_answer", ignoreCase = true) }
+
         val assistantMessage = Messages(
             role = Role.Assistant,
             content = MessageContent(contentType = ContentType.Text, content = summary),
             modelId = currentModelId,
             decodingMetrics = currentMetrics,
             ragResults = ragResultItems,
-            toolChainSteps = steps,
-            agentPlan = plan,
-            agentSummary = summary
+            toolChainSteps = realSteps.takeIf { it.isNotEmpty() },
+            agentPlan = cleanPlan,
+            agentSummary = summary,
+            researchTrace = captureActiveResearchTrace()
         )
         
         // Remove ephemeral plugin result messages from in-memory UI to prevent duplicates
@@ -2557,7 +2635,14 @@ class ChatViewModel @Inject constructor(
         val endpoint: String,
         val model: String,
         val stream: Boolean,
-        val authHeader: String?
+        val authHeader: String?,
+        val contextSize: Int = com.bit.models.ModelContextDefaults.DEFAULT_API_CONTEXT,
+        val maxTokens: Int = 4096,
+        val temperature: Float = 0.7f,
+        val topP: Float = 0.95f,
+        val customSystemPrompt: String? = null,
+        val thinkingEnabled: Boolean = false,
+        val thinkingBudget: Int = 4096
     )
 
     private suspend fun getRemoteInferenceConfig(): RemoteInferenceConfig? {
@@ -2573,12 +2658,31 @@ class ChatViewModel @Inject constructor(
             val stream = json.optBoolean("stream", false)
             val auth = json.optString("authHeader").takeIf { it.isNotBlank() }
                 ?: json.optString("authorization").takeIf { it.isNotBlank() }
+            val contextSize = json.optInt("contextSize", 0).takeIf { it > 0 }
+                ?: com.bit.models.ModelContextDefaults.resolve(model, ProviderType.API)
+
+            val infJson = config.modelInferenceParams?.takeIf { it.isNotBlank() }?.let {
+                try { JSONObject(it) } catch (_: Exception) { null }
+            }
+            val maxTokens = infJson?.optInt("maxTokens", 4096)?.takeIf { it > 0 } ?: 4096
+            val temperature = infJson?.optDouble("temperature", 0.7)?.toFloat() ?: 0.7f
+            val topP = infJson?.optDouble("topP", 0.95)?.toFloat() ?: 0.95f
+            val customSystemPrompt = infJson?.optString("systemPrompt")?.takeIf { it.isNotBlank() }
+            val thinkingEnabled = infJson?.optBoolean("thinkingEnabled", false) ?: false
+            val thinkingBudget = infJson?.optInt("thinkingBudget", 4096) ?: 4096
 
             RemoteInferenceConfig(
                 endpoint = endpoint,
                 model = model,
                 stream = stream,
-                authHeader = auth
+                authHeader = auth,
+                contextSize = contextSize,
+                maxTokens = maxTokens,
+                temperature = temperature,
+                topP = topP,
+                customSystemPrompt = customSystemPrompt,
+                thinkingEnabled = thinkingEnabled,
+                thinkingBudget = thinkingBudget
             )
         } catch (_: Exception) {
             null
@@ -2785,13 +2889,16 @@ class ChatViewModel @Inject constructor(
                 }
             }
             
-            val safeTokens = if (maxTokens > 0) maxTokens.coerceIn(1, 131072) else 4096
+            val safeTokens = if (remoteCfg.maxTokens > 0) remoteCfg.maxTokens.coerceIn(1, 131072) else (if (maxTokens > 0) maxTokens.coerceIn(1, 131072) else 4096)
             val config = ProviderConfig(
                 apiKey = apiKey,
                 modelId = remoteCfg.model,
-                systemPrompt = sysPrompt,
+                systemPrompt = remoteCfg.customSystemPrompt?.takeIf { it.isNotBlank() } ?: sysPrompt,
                 baseUrl = baseUrl,
-                thinkingEnabled = _thinkingModeEnabled.value,
+                thinkingEnabled = _thinkingModeEnabled.value || remoteCfg.thinkingEnabled,
+                thinkingBudgetTokens = remoteCfg.thinkingBudget,
+                temperature = remoteCfg.temperature,
+                topP = remoteCfg.topP,
                 maxTokens = safeTokens
             )
             
@@ -3012,14 +3119,17 @@ class ChatViewModel @Inject constructor(
                 jsonSerializer.decodeFromString<com.bit.api.ToolDefinition>(toolJsonString)
             }
             
-            val safeTokens = if (maxTokens > 0) maxTokens.coerceIn(1, 131072) else 4096
+            val safeTokens = if (remoteCfg.maxTokens > 0) remoteCfg.maxTokens.coerceIn(1, 131072) else (if (maxTokens > 0) maxTokens.coerceIn(1, 131072) else 4096)
             val config = ProviderConfig(
                 apiKey = apiKey,
                 modelId = remoteCfg.model,
-                systemPrompt = null,
+                systemPrompt = remoteCfg.customSystemPrompt?.takeIf { it.isNotBlank() },
                 baseUrl = baseUrl,
                 tools = tools.takeIf { it.isNotEmpty() },
-                thinkingEnabled = _thinkingModeEnabled.value,
+                thinkingEnabled = _thinkingModeEnabled.value || remoteCfg.thinkingEnabled,
+                thinkingBudgetTokens = remoteCfg.thinkingBudget,
+                temperature = remoteCfg.temperature,
+                topP = remoteCfg.topP,
                 maxTokens = safeTokens
             )
             
@@ -3281,8 +3391,25 @@ class ChatViewModel @Inject constructor(
 
         // Progressive disclosure skill catalog: exposed to BOTH local GGUF models and Cloud API models.
         // Consumes only ~15 tokens per skill in <available_skills> XML, keeping local 2k-4k KV caches safe.
+        val modelType = ActiveModelSession.currentModelType.value
+        val modelContextBudget = if (modelType == ProviderType.API) {
+            getRemoteInferenceConfig()?.contextSize ?: com.bit.models.ModelContextDefaults.resolve(modelId, ProviderType.API)
+        } else {
+            LlmModelWorker.lastLoadedGgufConfig?.let { cfg ->
+                runCatching {
+                    GgufEngineSchema.fromJson(cfg.modelLoadingParams, cfg.modelInferenceParams).loadingParams.ctxSize
+                }.getOrNull()
+            } ?: com.bit.models.ModelContextDefaults.resolve(modelId, ProviderType.GGUF)
+        }
+
+        val skillBudget = (modelContextBudget * 0.08).toInt().coerceIn(200, 1500)
+
         val skillsPrompt = if (hasTools && PluginManager.hasEnabledTools()) {
-            skillManager.getSkillCatalogPrompt(isWorkspaceAvailable = isWsAvailable)
+            skillManager.getSkillCatalogPrompt(
+                isWorkspaceAvailable = isWsAvailable,
+                maxBudgetTokens = skillBudget,
+                userQuery = userQuery
+            )
         } else ""
 
         if (skillsPrompt.isNotBlank()) {
@@ -3293,8 +3420,7 @@ class ChatViewModel @Inject constructor(
             }
         }
 
-        val isLocalGguf = ActiveModelSession.currentModelType.value == ProviderType.GGUF
-        val mcpPrompt = if (!isLocalGguf && hasTools && PluginManager.hasEnabledTools()) {
+        val mcpPrompt = if (hasTools && PluginManager.hasEnabledTools()) {
             mcpManager.getMcpCatalogPrompt()
         } else ""
 
@@ -3317,7 +3443,9 @@ class ChatViewModel @Inject constructor(
                 append("\n</user_memory>\n\n")
             }
             
-            if (hasTools && PluginManager.hasEnabledTools()) {
+            val isLocalGguf = ActiveModelSession.currentModelType.value == ProviderType.GGUF
+            // Only inject tool text schemas into prompt for local GGUF models (API models pass them natively via ProviderConfig.tools)
+            if (isLocalGguf && hasTools && PluginManager.hasEnabledTools()) {
                 val toolsJsonArray = org.json.JSONArray()
                 PluginManager.getEnabledToolDefinitions().forEach { toolDef ->
                     toolsJsonArray.put(toolDef.build().toOpenAIFormat())
@@ -3334,13 +3462,8 @@ class ChatViewModel @Inject constructor(
                 } else {
                     append("Tool Schema Injection:\n")
                     append("You have access to a UNION of the following tools. You MUST use them if they are relevant to the user's request. To call a tool, wrap a JSON object in <tool_call> tags like this: <tool_call>{\"name\": \"tool_name\", \"arguments\": {\"arg1\": \"value1\"}}</tool_call>\n")
-                    append("<temp_tool_neuron>\nCRITICAL INSTRUCTION: You must choose one tool from the union of available tools below if the user asks for real-time data, web searches, or specific actions.\n")
-                    append("PRIORITIZATION RULES:\n")
-                    append("1. When user requests MCP or asks for repository/git data (branches, commits, issues), ALWAYS prioritize MCP tools over generic web searches.\n")
-                    append("2. Do NOT repeatedly perform web searches for repository names. Use the direct tool or ask the user if ambiguous.\n")
-                    append("3. After tools execute, ALWAYS produce a complete final response to the user presenting the findings.\n</temp_tool_neuron>\n")
                     append("Available tools:\n")
-                    append(toolsJsonArray.toString(2))
+                    append(toolsJsonArray.toString())
                     append("\n\n")
                 }
             }
@@ -4324,6 +4447,7 @@ class ChatViewModel @Inject constructor(
         _agentSummary.value = null
         _currentRagContext.value = null
         _currentRagResults.value = emptyList()
+        com.bit.agent.harness.engine.ResearchSessionBus.clear()
     }
 
     // ==================== Generation Control ====================

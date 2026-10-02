@@ -90,3 +90,4 @@ node_modules/
 **/node_modules/
 /web-ui/
 /bit_website issue/
+screen_*.png

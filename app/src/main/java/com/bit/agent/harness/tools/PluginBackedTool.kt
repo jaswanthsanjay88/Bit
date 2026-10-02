@@ -13,7 +13,20 @@ class PluginBackedTool(
     private val bridge: AgentToolBridge
 ) : AgentTool {
 
+    override fun getSystemPrompt(): String {
+        val fn = definition.function
+        val desc = fn.description.takeIf { it.isNotBlank() } ?: "External plugin or MCP tool"
+        return "### Tool `${fn.name}`\n$desc"
+    }
+
     override suspend fun execute(argumentsJson: String): ToolObservation {
-        return bridge.execute(definition.function.name, argumentsJson)
+        return execute(argumentsJson, com.bit.agent.harness.model.ResearchEventSink.NoOp)
+    }
+
+    override suspend fun execute(
+        argumentsJson: String,
+        eventSink: com.bit.agent.harness.model.ResearchEventSink
+    ): ToolObservation {
+        return bridge.execute(definition.function.name, argumentsJson, eventSink)
     }
 }

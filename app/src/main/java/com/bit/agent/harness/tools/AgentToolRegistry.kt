@@ -11,6 +11,10 @@ import com.bit.mcp.McpManager
 import com.bit.plugins.PluginManager
 import com.bit.worker.GlobalRagOrchestrator
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -35,11 +39,20 @@ class AgentToolRegistry @Inject constructor(
     private val logger: HarnessLogger = NoOpHarnessLogger
 ) {
     private val json = Json { ignoreUnknownKeys = true }
+    private val registryScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     @Volatile
     private var cachedTools: List<AgentTool>? = null
 
     var subagentExecutor: SubagentExecutor? = null
+
+    init {
+        registryScope.launch {
+            mcpManager.servers.collect {
+                refresh()
+            }
+        }
+    }
 
     /** All currently available tools. */
     fun tools(): List<AgentTool> {
