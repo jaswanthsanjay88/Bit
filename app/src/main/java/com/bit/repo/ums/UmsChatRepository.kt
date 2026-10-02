@@ -227,6 +227,7 @@ class UmsChatRepository(private val ums: UnifiedMemorySystem) {
         if (toolChainSteps != null) b.putString(Tags.Message.TOOL_CHAIN_STEPS, json.encodeToString(toolChainSteps))
         if (agentPlan != null) b.putString(Tags.Message.AGENT_PLAN, agentPlan)
         if (agentSummary != null) b.putString(Tags.Message.AGENT_SUMMARY, agentSummary)
+        if (researchTrace != null) b.putString(Tags.Message.RESEARCH_TRACE, json.encodeToString(researchTrace))
         if (modelId != null) b.putString(Tags.Message.MODEL_ID, modelId)
         if (personaId != null) b.putString(Tags.Message.PERSONA_ID, personaId)
         if (content.pluginResultData != null) {
@@ -281,7 +282,10 @@ class UmsChatRepository(private val ums: UnifiedMemorySystem) {
                 runCatching { json.decodeFromString<List<ToolChainStepData>>(it) }.getOrNull()
             },
             agentPlan = getString(Tags.Message.AGENT_PLAN),
-            agentSummary = getString(Tags.Message.AGENT_SUMMARY)
+            agentSummary = getString(Tags.Message.AGENT_SUMMARY),
+            researchTrace = getString(Tags.Message.RESEARCH_TRACE)?.let {
+                runCatching { json.decodeFromString<com.bit.agent.harness.model.ResearchTrace>(it) }.getOrNull()
+            }
         )
     }
 }

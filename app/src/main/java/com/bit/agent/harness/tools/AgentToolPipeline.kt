@@ -38,7 +38,8 @@ class AgentToolPipeline @Inject constructor(
         tool: AgentTool,
         rawArgumentsJson: String,
         context: Context? = null,
-        toolCallId: String = ""
+        toolCallId: String = "",
+        eventSink: com.bit.agent.harness.model.ResearchEventSink = com.bit.agent.harness.model.ResearchEventSink.NoOp
     ): ToolObservation {
         val startTime = System.currentTimeMillis()
         var validatedArgs = rawArgumentsJson
@@ -59,7 +60,7 @@ class AgentToolPipeline @Inject constructor(
 
         // Phase 2: Execution
         var observation: ToolObservation = try {
-            tool.execute(validatedArgs)
+            tool.execute(validatedArgs, eventSink)
         } catch (e: Exception) {
             logger.e("AgentToolPipeline", "Execution failed for '${tool.definition.function.name}': ${e.message}", e)
             ToolObservation.error(

@@ -381,8 +381,15 @@ class SkillManager @Inject constructor(
      * Builds lightweight progressive disclosure catalog for tool-capable models.
      * Exposes ~15-20 tokens per skill in compact <available_skills> XML format.
      * Excludes executable skills requiring PRoot if the workspace is not active/available.
+     *
+     * Injects core built-in skills and query-matched domain skills first, strictly bounded
+     * within [maxBudgetTokens] to prevent KV-cache context exhaustion.
      */
-    fun getSkillCatalogPrompt(isWorkspaceAvailable: Boolean = isWorkspaceAvailable()): String {
+    fun getSkillCatalogPrompt(
+        isWorkspaceAvailable: Boolean = isWorkspaceAvailable(),
+        maxBudgetTokens: Int = 350,
+        userQuery: String = ""
+    ): String {
         val active = _skills.value.filter { skill ->
             skill.enabled &&
             (skill.instructions.isNotBlank() || skill.isExecutable) &&
@@ -390,14 +397,59 @@ class SkillManager @Inject constructor(
         }
         if (active.isEmpty()) return ""
 
+        val queryLower = userQuery.lowercase().trim()
+        val queryWords = queryLower.split(Regex("[^a-zA-Z0-9_-]+")).filter { it.length > 2 }
+
+        val coreSlugs = setOf(
+            "file-ops", "terminal-ops", "coding-standards",
+            "security-review", "research-ops", "git-workflow"
+        )
+
+        val coreSkills = mutableListOf<Skill>()
+        val matchedSkills = mutableListOf<Skill>()
+        val otherSkills = mutableListOf<Skill>()
+
+        for (skill in active) {
+            val slug = getSkillSlug(skill)
+            if (slug in coreSlugs || skill.isBuiltIn) {
+                coreSkills.add(skill)
+            } else if (queryWords.isNotEmpty() && queryWords.any { w ->
+                slug.contains(w) || skill.name.lowercase().contains(w) || skill.description.lowercase().contains(w)
+            }) {
+                matchedSkills.add(skill)
+            } else {
+                otherSkills.add(skill)
+            }
+        }
+
+        val prioritized = (coreSkills + matchedSkills + otherSkills).distinctBy { it.id }
+
+        // Progressive disclosure with budget capping (~20 tokens per entry)
+        val selected = mutableListOf<Skill>()
+        var approxTokens = 0
+        val tokensPerSkill = 20
+
+        for (skill in prioritized) {
+            if (approxTokens + tokensPerSkill > maxBudgetTokens && selected.size >= 4) {
+                break
+            }
+            selected.add(skill)
+            approxTokens += tokensPerSkill
+        }
+
+        val remainingCount = active.size - selected.size
+
         return buildString {
             appendLine("<available_skills>")
-            active.forEach { skill ->
+            selected.forEach { skill ->
                 val slug = getSkillSlug(skill)
                 val typeTag = if (skill.isExecutable) "executable" else "instructional"
                 val desc = skill.description.ifBlank { "Specialized agent routine" }
                     .trim().replace("\n", " ").replace("<", "").replace(">", "")
                 appendLine("  <skill name=\"$slug\" type=\"$typeTag\">$desc</skill>")
+            }
+            if (remainingCount > 0) {
+                appendLine("  <!-- $remainingCount additional domain skills available on-demand. To inspect or load, invoke `use_skill(name = \"...\")` -->")
             }
             appendLine("</available_skills>")
             appendLine("To load a skill's full instructions or capability, invoke `use_skill(name = \"...\")`.")

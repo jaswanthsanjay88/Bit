@@ -65,6 +65,7 @@ object LlmModelWorker {
     @Volatile private var lastLoadedModel: Model? = null
     @Volatile private var lastLoadedConfig: ModelConfig? = null
     val lastLoadedGgufModel: Model? get() = lastLoadedModel
+    val lastLoadedGgufConfig: ModelConfig? get() = lastLoadedConfig
 
     // GGUF state
     private val _isGgufModelLoaded = MutableStateFlow(false)

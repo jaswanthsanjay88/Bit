@@ -9,6 +9,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import me.rerere.workspace.ProotShellRunner
@@ -69,9 +71,9 @@ class WorkspaceRepository @Inject constructor(
         const val UBUNTU_24_04_ARM64_SHA256 = "04207713ece899c3740823d33690441ad3a7f0ded1101aca744e2b0f37ac7ff2"
         const val UBUNTU_24_04_AMD64_SHA256 = "c1e67ef7b17a6300e136118bd1dc04725009cb376c1aad10abcf8cd453628d58"
 
-        // Official published Alpine Linux 3.20.0 Minirootfs SHA256SUMS
-        const val ALPINE_3_20_AARCH64_SHA256 = "83a79199bf3112c65e62ddf1732b051daf62ed2ddf5a8413c440dc25956116f0"
-        const val ALPINE_3_20_X86_64_SHA256 = "602efda518516787c716320bd46a3f50e83a74bb749e55483c2f4a9c9f8b9a38"
+        // Official published Alpine Linux 3.21.0 Minirootfs SHA256SUMS
+        const val ALPINE_3_21_AARCH64_SHA256 = "f31202c4070c4ef7de9e157e1bd01cb4da3a2150035d74ea5372c5e86f1efac1"
+        const val ALPINE_3_21_X86_64_SHA256 = "64f169de534d0b641775796a58ab37953ea6ff0775d713c7c25c75bf69146197"
 
         fun getUbuntuUrl(): String {
             val isArm = android.os.Build.SUPPORTED_ABIS.firstOrNull()?.contains("arm") ?: true
@@ -87,14 +89,16 @@ class WorkspaceRepository @Inject constructor(
         fun getAlpineUrl(): String {
             val isArm = android.os.Build.SUPPORTED_ABIS.firstOrNull()?.contains("arm") ?: true
             val arch = if (isArm) "aarch64" else "x86_64"
-            return "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/$arch/alpine-minirootfs-3.20.0-$arch.tar.gz"
+            return "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/$arch/alpine-minirootfs-3.21.0-$arch.tar.gz"
         }
 
         fun getAlpineSha256(): String {
             val isArm = android.os.Build.SUPPORTED_ABIS.firstOrNull()?.contains("arm") ?: true
-            return if (isArm) ALPINE_3_20_AARCH64_SHA256 else ALPINE_3_20_X86_64_SHA256
+            return if (isArm) ALPINE_3_21_AARCH64_SHA256 else ALPINE_3_21_X86_64_SHA256
         }
     }
+
+    private val workspaceCommandMutexes = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
 
     val manager: WorkspaceManager by lazy {
         val baseDir = File(context.filesDir, "workspaces").apply { mkdirs() }
@@ -146,7 +150,7 @@ class WorkspaceRepository @Inject constructor(
             LinuxDistro(
                 id = "alpine",
                 name = "Alpine Linux",
-                version = "3.20",
+                version = "3.21",
                 description = "Ultra-lightweight, minimal memory footprint with apk package manager. Verified Alpine release.",
                 downloadUrl = alpineUrl,
                 sizeText = if (isAlpineCached) "Downloaded (${formatBytes(alpineCachedFile?.length() ?: 0)})" else "~4 MB",
@@ -424,23 +428,26 @@ print("Or ask AI to execute scripts in this workspace.")
             "which python3 || (which apk && apk add --no-cache python3) || (which apt-get && apt-get update && apt-get install -y python3)"
         }
 
-        try {
-            val result = manager.executeCommand(
-                root = workspace.root,
-                command = bootstrapCmd,
-                timeoutMillis = 120_000L
-            )
-            Log.i(TAG, "Python provision exitCode=${result.exitCode}: stdout=${result.stdout.takeLast(200)}, stderr=${result.stderr.takeLast(200)}")
-            // Verify if python3 is now working
-            val postCheck = manager.executeCommand(
-                root = workspace.root,
-                command = "python3 --version",
-                timeoutMillis = 5_000L
-            )
-            postCheck.exitCode == 0
-        } catch (e: Exception) {
-            Log.e(TAG, "Error installing Python 3", e)
-            false
+        val lock = workspaceCommandMutexes.computeIfAbsent(workspace.root) { Mutex() }
+        lock.withLock {
+            try {
+                val result = manager.executeCommand(
+                    root = workspace.root,
+                    command = bootstrapCmd,
+                    timeoutMillis = 120_000L
+                )
+                Log.i(TAG, "Python provision exitCode=${result.exitCode}: stdout=${result.stdout.takeLast(200)}, stderr=${result.stderr.takeLast(200)}")
+                // Verify if python3 is now working
+                val postCheck = manager.executeCommand(
+                    root = workspace.root,
+                    command = "python3 --version",
+                    timeoutMillis = 5_000L
+                )
+                postCheck.exitCode == 0
+            } catch (e: Exception) {
+                Log.e(TAG, "Error installing Python 3", e)
+                false
+            }
         }
     }
 
@@ -460,13 +467,15 @@ print("Or ask AI to execute scripts in this workspace.")
             stdout = "",
             stderr = "Workspace not found",
         )
-        manager.executeCommand(
-            root = workspace.root,
-            command = command,
-            cwd = cwd,
-            timeoutMillis = timeoutMillis,
-            stdin = stdin,
-        )
+        workspaceCommandMutexes.computeIfAbsent(workspace.root) { Mutex() }.withLock {
+            manager.executeCommand(
+                root = workspace.root,
+                command = command,
+                cwd = cwd,
+                timeoutMillis = timeoutMillis,
+                stdin = stdin,
+            )
+        }
     }
 
     suspend fun readText(

@@ -44,9 +44,16 @@ import com.dark.gguf_lib.toolcalling.ToolCall
 import com.dark.gguf_lib.toolcalling.ToolDefinitionBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.json.JSONObject
 
 import android.content.Context
+import com.bit.agent.harness.model.ResearchEvent
+import com.bit.agent.harness.model.ResearchEventSink
 import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 
@@ -112,10 +119,17 @@ class WebSearchPlugin(private val context: Context) : SuperPlugin {
     }
 
     override suspend fun executeTool(toolCall: ToolCall): Result<Any> {
+        return executeToolWithSink(toolCall, ResearchEventSink.NoOp)
+    }
+
+    override suspend fun executeToolWithSink(
+        toolCall: ToolCall,
+        eventSink: ResearchEventSink
+    ): Result<Any> {
         return try {
             when (toolCall.name) {
-                TOOL_WEB_SEARCH, TOOL_SEARCH_WEB_ALIAS -> executeSearch(toolCall)
-                TOOL_WEB_FETCH, TOOL_SCRAPE_WEB_ALIAS, TOOL_FETCH_PAGE_ALIAS -> executeFetch(toolCall)
+                TOOL_WEB_SEARCH, TOOL_SEARCH_WEB_ALIAS -> executeSearch(toolCall, eventSink)
+                TOOL_WEB_FETCH, TOOL_SCRAPE_WEB_ALIAS, TOOL_FETCH_PAGE_ALIAS -> executeFetch(toolCall, eventSink)
                 else -> Result.failure(IllegalArgumentException("Unknown tool: ${toolCall.name}"))
             }
         } catch (e: Exception) {
@@ -123,160 +137,224 @@ class WebSearchPlugin(private val context: Context) : SuperPlugin {
         }
     }
 
-    private suspend fun executeSearch(toolCall: ToolCall): Result<Any> = withContext(Dispatchers.IO) {
-        val query = toolCall.getString("query")
+    private suspend fun executeSearch(
+        toolCall: ToolCall,
+        eventSink: ResearchEventSink = ResearchEventSink.NoOp
+    ): Result<Any> = withContext(Dispatchers.IO) {
+        val rawQueries = mutableListOf<String>()
+        val queriesArray = toolCall.arguments.optJSONArray("queries")
+        if (queriesArray != null && queriesArray.length() > 0) {
+            for (i in 0 until queriesArray.length()) {
+                val q = queriesArray.optString(i).trim()
+                if (q.isNotBlank()) rawQueries.add(q)
+            }
+        }
+        val singleQuery = toolCall.getString("query").trim()
+        if (singleQuery.isNotBlank() && !rawQueries.contains(singleQuery)) {
+            rawQueries.add(0, singleQuery)
+        }
+        if (rawQueries.isEmpty()) {
+            rawQueries.add("information")
+        }
+
+        val queries = rawQueries.take(3)
+        val primaryQuery = queries.first()
         val numResults = toolCall.getInt("num_results", 5).coerceIn(1, 10)
+        val topFetchCount = toolCall.getInt("top_fetch_count", 3).coerceIn(1, 5)
         val startTime = System.currentTimeMillis()
+        val searchPhaseId = "phase_search_${System.currentTimeMillis()}"
 
-        Log.d(TAG, "Search: '$query' (max $numResults)")
+        Log.d(TAG, "Search: queries=$queries (numResults=$numResults, topFetch=$topFetchCount)")
 
-        val settings = com.bit.data.AppSettingsDataStore(context)
-        val provider = settings.webSearchProvider.first()
-        val apiKey = settings.webSearchApiKey.first()
-        val baseUrl = settings.webSearchBaseUrl.first()
+        eventSink.emit(ResearchEvent.PhaseStarted(searchPhaseId, "Searching the web"))
+        for (q in queries) {
+            eventSink.emit(ResearchEvent.Query(searchPhaseId, q))
+        }
 
         try {
-            if (provider == "duckduckgo") {
-                val scraper = DuckDuckGoScraper()
-                val r = scraper.search(query, numResults)
-                if (r is DuckDuckGoScraper.SearchResponse.Success && r.results.isNotEmpty()) {
-                    val rawResults = r.results.mapIndexed { index, webResult ->
+            val settings = com.bit.data.AppSettingsDataStore(context)
+            val provider = settings.webSearchProvider.first()
+            val apiKey = settings.webSearchApiKey.first()
+            val baseUrl = settings.webSearchBaseUrl.first()
+
+            val semaphore = Semaphore(3)
+            val allResults = coroutineScope {
+                queries.map { q ->
+                    async {
+                        semaphore.withPermit {
+                            executeSingleQuery(
+                                query = q,
+                                numResults = numResults,
+                                provider = provider,
+                                apiKey = apiKey,
+                                baseUrl = baseUrl,
+                                eventSink = eventSink,
+                                phaseId = searchPhaseId
+                            )
+                        }
+                    }
+                }.awaitAll().flatten()
+            }
+
+            val deduplicated = allResults.distinctBy { it.url }
+            val finalResults = autoScrapeTopResults(
+                rawResults = deduplicated,
+                limit = topFetchCount,
+                eventSink = eventSink,
+                searchPhaseId = searchPhaseId
+            )
+
+            val duration = System.currentTimeMillis() - startTime
+            val response = WebSearchResponse(
+                query = primaryQuery,
+                results = finalResults,
+                totalResults = finalResults.size,
+                searchTimeMs = duration,
+                status = if (finalResults.isEmpty()) "ERROR" else "SUCCESS",
+                error = if (finalResults.isEmpty()) "No results found across search engines" else null,
+                provider = provider
+            )
+            Result.success(response.copy(summary = response.generateSummary()))
+        } catch (e: Exception) {
+            Log.e(TAG, "Search execution error: ${e.message}", e)
+            val duration = System.currentTimeMillis() - startTime
+            Result.success(
+                WebSearchResponse(
+                    query = primaryQuery,
+                    results = emptyList(),
+                    totalResults = 0,
+                    searchTimeMs = duration,
+                    status = "ERROR",
+                    error = e.message ?: "Unknown search error",
+                    provider = "unknown"
+                ).let { it.copy(summary = it.generateSummary()) }
+            )
+        } finally {
+            val duration = System.currentTimeMillis() - startTime
+            eventSink.emit(ResearchEvent.Finished(duration))
+        }
+    }
+
+    private suspend fun executeSingleQuery(
+        query: String,
+        numResults: Int,
+        provider: String,
+        apiKey: String,
+        baseUrl: String,
+        eventSink: ResearchEventSink,
+        phaseId: String
+    ): List<WebSearchResult> = withContext(Dispatchers.IO) {
+        val resultsList = mutableListOf<WebSearchResult>()
+
+        if (provider == "duckduckgo") {
+            val scraper = DuckDuckGoScraper()
+            val r = scraper.search(query, numResults)
+            if (r is DuckDuckGoScraper.SearchResponse.Success && r.results.isNotEmpty()) {
+                r.results.forEachIndexed { index, webResult ->
+                    val domain = extractDomain(webResult.url)
+                    val isHttps = webResult.url.startsWith("https://", ignoreCase = true)
+                    eventSink.emit(ResearchEvent.Source(phaseId, webResult.title, domain, webResult.url, isHttps))
+                    resultsList.add(
                         WebSearchResult(
                             title = webResult.title,
                             url = webResult.url,
                             snippet = webResult.snippet,
                             content = "",
-                            domain = extractDomain(webResult.url),
+                            domain = domain,
                             scraped = false,
                             index = index
                         )
-                    }
-                    val results = autoScrapeTopResults(rawResults, limit = 1)
-                    val response = WebSearchResponse(
-                        query = query,
-                        results = results,
-                        totalResults = results.size,
-                        searchTimeMs = System.currentTimeMillis() - startTime,
-                        status = "SUCCESS",
-                        provider = "duckduckgo"
                     )
-                    return@withContext Result.success(response.copy(summary = response.generateSummary()))
                 }
+                return@withContext resultsList
+            }
 
-                // Cascade to Bing Web + RSS Fallback when DDG is rate-limited or returns empty
-                Log.i(TAG, "DDG returned 0 results or error for '$query'. Activating Bing fallback.")
-                val bingClient = com.bit.network.BingSearchFallbackClient()
-                val bingRes = bingClient.search(query, numResults)
-                if (bingRes.isSuccess && bingRes.getOrNull()?.isNotEmpty() == true) {
-                    val rawResults = bingRes.getOrNull().orEmpty().mapIndexed { index, bResult ->
+            Log.i(TAG, "DDG returned 0 results or error for '$query'. Activating Bing fallback.")
+            val bingClient = com.bit.network.BingSearchFallbackClient()
+            val bingRes = bingClient.search(query, numResults)
+            if (bingRes.isSuccess && bingRes.getOrNull()?.isNotEmpty() == true) {
+                bingRes.getOrNull().orEmpty().forEachIndexed { index, bResult ->
+                    val domain = extractDomain(bResult.url)
+                    val isHttps = bResult.url.startsWith("https://", ignoreCase = true)
+                    eventSink.emit(ResearchEvent.Source(phaseId, bResult.title, domain, bResult.url, isHttps))
+                    resultsList.add(
                         WebSearchResult(
                             title = bResult.title,
                             url = bResult.url,
                             snippet = bResult.snippet,
                             content = "",
-                            domain = extractDomain(bResult.url),
+                            domain = domain,
                             scraped = false,
                             index = index
                         )
-                    }
-                    val results = autoScrapeTopResults(rawResults, limit = 1)
-                    val response = WebSearchResponse(
-                        query = query,
-                        results = results,
-                        totalResults = results.size,
-                        searchTimeMs = System.currentTimeMillis() - startTime,
-                        status = "SUCCESS",
-                        provider = "bing_fallback"
-                    )
-                    return@withContext Result.success(response.copy(summary = response.generateSummary()))
-                }
-
-                // If both fail, return clean error response
-                val response = WebSearchResponse(
-                    query = query,
-                    results = emptyList(),
-                    totalResults = 0,
-                    searchTimeMs = System.currentTimeMillis() - startTime,
-                    status = "ERROR",
-                    error = if (r is DuckDuckGoScraper.SearchResponse.Error) r.message else "No results found across search engines",
-                    provider = "duckduckgo"
-                )
-                return@withContext Result.success(response.copy(summary = response.generateSummary()))
-            }
-
-            if (provider != "searxng" && apiKey.isBlank()) {
-                return@withContext Result.success(WebSearchResponse(
-                    query = query,
-                    results = emptyList(),
-                    totalResults = 0,
-                    searchTimeMs = System.currentTimeMillis() - startTime,
-                    status = "ERROR",
-                    error = "No API key configured for search provider: $provider",
-                    provider = provider
-                ).let { it.copy(summary = it.generateSummary()) })
-            }
-
-            val body = when (provider) {
-                "serper" -> HttpClient.post(
-                    "https://google.serper.dev/search",
-                    JSONObject().apply {
-                        put("q", query)
-                        put("num", numResults)
-                    }.toString(),
-                    mapOf("X-API-KEY" to apiKey)
-                )
-                "tavily" -> HttpClient.post(
-                    "https://api.tavily.com/search",
-                    JSONObject().apply {
-                        put("api_key", apiKey)
-                        put("query", query)
-                        put("max_results", numResults)
-                        put("search_depth", "advanced")
-                        put("include_answer", true)
-                    }.toString(),
-                    emptyMap()
-                )
-                "searxng" -> {
-                    val resolvedBase = baseUrl.ifBlank { "https://searx.be" }
-                    HttpClient.fetchModels(
-                        "$resolvedBase/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}&format=json&engines=google,brave"
                     )
                 }
-                else -> HttpClient.fetchModels( // brave
-                    "https://api.search.brave.com/res/v1/web/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}&count=$numResults",
-                    mapOf("Accept" to "application/json", "X-Subscription-Token" to apiKey)
+                return@withContext resultsList
+            }
+            return@withContext resultsList
+        }
+
+        if (provider != "searxng" && apiKey.isBlank()) {
+            return@withContext resultsList
+        }
+
+        val body = when (provider) {
+            "serper" -> HttpClient.post(
+                "https://google.serper.dev/search",
+                JSONObject().apply {
+                    put("q", query)
+                    put("num", numResults)
+                }.toString(),
+                mapOf("X-API-KEY" to apiKey)
+            )
+            "tavily" -> HttpClient.post(
+                "https://api.tavily.com/search",
+                JSONObject().apply {
+                    put("api_key", apiKey)
+                    put("query", query)
+                    put("max_results", numResults)
+                    put("search_depth", "advanced")
+                    put("include_answer", true)
+                }.toString(),
+                emptyMap()
+            )
+            "searxng" -> {
+                val resolvedBase = baseUrl.ifBlank { "https://searx.be" }
+                HttpClient.fetchModels(
+                    "$resolvedBase/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}&format=json&engines=google,brave"
                 )
             }
+            else -> HttpClient.fetchModels( // brave
+                "https://api.search.brave.com/res/v1/web/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}&count=$numResults",
+                mapOf("Accept" to "application/json", "X-Subscription-Token" to apiKey)
+            )
+        }
 
-            if (body == null) {
-                return@withContext Result.success(WebSearchResponse(
-                    query = query,
-                    results = emptyList(),
-                    totalResults = 0,
-                    searchTimeMs = System.currentTimeMillis() - startTime,
-                    status = "ERROR",
-                    error = "Search provider response was empty or failed.",
-                    provider = provider
-                ).let { it.copy(summary = it.generateSummary()) })
-            }
+        if (body.isNullOrBlank()) return@withContext resultsList
 
+        try {
             val json = JSONObject(body)
-            val resultsList = mutableListOf<WebSearchResult>()
-
             when (provider) {
                 "tavily" -> {
                     val resultsArray = json.optJSONArray("results")
                     if (resultsArray != null) {
                         for (i in 0 until resultsArray.length()) {
                             val obj = resultsArray.getJSONObject(i)
-                            resultsList.add(WebSearchResult(
-                                title = obj.optString("title"),
-                                url = obj.optString("url"),
-                                snippet = obj.optString("content"),
-                                content = "",
-                                domain = extractDomain(obj.optString("url")),
-                                index = i
-                            ))
+                            val u = obj.optString("url")
+                            val title = obj.optString("title")
+                            val domain = extractDomain(u)
+                            val isHttps = u.startsWith("https://", ignoreCase = true)
+                            eventSink.emit(ResearchEvent.Source(phaseId, title, domain, u, isHttps))
+                            resultsList.add(
+                                WebSearchResult(
+                                    title = title,
+                                    url = u,
+                                    snippet = obj.optString("content"),
+                                    content = "",
+                                    domain = domain,
+                                    index = i
+                                )
+                            )
                         }
                     }
                 }
@@ -285,14 +363,21 @@ class WebSearchPlugin(private val context: Context) : SuperPlugin {
                     if (organic != null) {
                         for (i in 0 until organic.length()) {
                             val obj = organic.getJSONObject(i)
-                            resultsList.add(WebSearchResult(
-                                title = obj.optString("title"),
-                                url = obj.optString("link"),
-                                snippet = obj.optString("snippet"),
-                                content = "",
-                                domain = extractDomain(obj.optString("link")),
-                                index = i
-                            ))
+                            val u = obj.optString("link")
+                            val title = obj.optString("title")
+                            val domain = extractDomain(u)
+                            val isHttps = u.startsWith("https://", ignoreCase = true)
+                            eventSink.emit(ResearchEvent.Source(phaseId, title, domain, u, isHttps))
+                            resultsList.add(
+                                WebSearchResult(
+                                    title = title,
+                                    url = u,
+                                    snippet = obj.optString("snippet"),
+                                    content = "",
+                                    domain = domain,
+                                    index = i
+                                )
+                            )
                         }
                     }
                 }
@@ -301,14 +386,21 @@ class WebSearchPlugin(private val context: Context) : SuperPlugin {
                     if (resultsArray != null) {
                         for (i in 0 until resultsArray.length()) {
                             val obj = resultsArray.getJSONObject(i)
-                            resultsList.add(WebSearchResult(
-                                title = obj.optString("title"),
-                                url = obj.optString("url"),
-                                snippet = obj.optString("content"),
-                                content = "",
-                                domain = extractDomain(obj.optString("url")),
-                                index = i
-                            ))
+                            val u = obj.optString("url")
+                            val title = obj.optString("title")
+                            val domain = extractDomain(u)
+                            val isHttps = u.startsWith("https://", ignoreCase = true)
+                            eventSink.emit(ResearchEvent.Source(phaseId, title, domain, u, isHttps))
+                            resultsList.add(
+                                WebSearchResult(
+                                    title = title,
+                                    url = u,
+                                    snippet = obj.optString("content"),
+                                    content = "",
+                                    domain = domain,
+                                    index = i
+                                )
+                            )
                         }
                     }
                 }
@@ -318,55 +410,55 @@ class WebSearchPlugin(private val context: Context) : SuperPlugin {
                     if (resultsArray != null) {
                         for (i in 0 until resultsArray.length()) {
                             val obj = resultsArray.getJSONObject(i)
-                            resultsList.add(WebSearchResult(
-                                title = obj.optString("title"),
-                                url = obj.optString("url"),
-                                snippet = obj.optString("description"),
-                                content = "",
-                                domain = extractDomain(obj.optString("url")),
-                                index = i
-                            ))
+                            val u = obj.optString("url")
+                            val title = obj.optString("title")
+                            val domain = extractDomain(u)
+                            val isHttps = u.startsWith("https://", ignoreCase = true)
+                            eventSink.emit(ResearchEvent.Source(phaseId, title, domain, u, isHttps))
+                            resultsList.add(
+                                WebSearchResult(
+                                    title = title,
+                                    url = u,
+                                    snippet = obj.optString("description"),
+                                    content = "",
+                                    domain = domain,
+                                    index = i
+                                )
+                            )
                         }
                     }
                 }
             }
-
-            val finalResults = autoScrapeTopResults(resultsList, limit = 1)
-            val response = WebSearchResponse(
-                query = query,
-                results = finalResults,
-                totalResults = finalResults.size,
-                searchTimeMs = System.currentTimeMillis() - startTime,
-                status = "SUCCESS",
-                provider = provider
-            )
-            Result.success(response.copy(summary = response.generateSummary()))
         } catch (e: Exception) {
-            Log.e(TAG, "Search execution error: ${e.message}", e)
-            Result.success(WebSearchResponse(
-                query = query,
-                results = emptyList(),
-                totalResults = 0,
-                searchTimeMs = System.currentTimeMillis() - startTime,
-                status = "ERROR",
-                error = e.message ?: "Unknown search error",
-                provider = provider
-            ).let { it.copy(summary = it.generateSummary()) })
+            Log.w(TAG, "Failed parsing provider response for '$query': ${e.message}")
         }
+
+        resultsList
     }
 
-    private suspend fun autoScrapeTopResults(rawResults: List<WebSearchResult>, limit: Int = 1): List<WebSearchResult> = withContext(Dispatchers.IO) {
-        if (rawResults.isEmpty()) return@withContext rawResults
+    private suspend fun autoScrapeTopResults(
+        rawResults: List<WebSearchResult>,
+        limit: Int = 3,
+        eventSink: ResearchEventSink = ResearchEventSink.NoOp,
+        searchPhaseId: String? = null
+    ): List<WebSearchResult> = withContext(Dispatchers.IO) {
+        if (rawResults.isEmpty() || limit <= 0) return@withContext rawResults
         val list = rawResults.toMutableList()
         val toScrape = list.take(limit)
+        val phaseId = searchPhaseId ?: "phase_search_${System.currentTimeMillis()}"
+
         for (item in toScrape) {
             val url = item.url
             if (url.isBlank() || url.startsWith("javascript:")) continue
+            eventSink.emit(ResearchEvent.Fetching(phaseId, url))
             try {
-                val html = HttpClient.fetchModels(url, mapOf(
-                    "User-Agent" to WEB_FETCH_USER_AGENT,
-                    "Accept" to "text/html,application/xhtml+xml,*/*"
-                ))
+                val html = HttpClient.fetchModels(
+                    url,
+                    mapOf(
+                        "User-Agent" to WEB_FETCH_USER_AGENT,
+                        "Accept" to "text/html,application/xhtml+xml,*/*"
+                    )
+                )
                 if (!html.isNullOrBlank()) {
                     val readable = htmlToReadableText(html).take(4000)
                     if (readable.isNotBlank()) {
@@ -381,49 +473,97 @@ class WebSearchPlugin(private val context: Context) : SuperPlugin {
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed auto-scraping top result for $url: ${e.message}")
+            } finally {
+                eventSink.emit(ResearchEvent.FetchDone(phaseId, url))
             }
         }
         list
     }
 
-    private suspend fun executeFetch(toolCall: ToolCall): Result<Any> = withContext(Dispatchers.IO) {
-        val url = toolCall.getString("url")
+    private suspend fun executeFetch(
+        toolCall: ToolCall,
+        eventSink: ResearchEventSink = ResearchEventSink.NoOp
+    ): Result<Any> = withContext(Dispatchers.IO) {
+        val url = toolCall.getString("url").trim()
         val maxChars = toolCall.getInt("maxChars", 8000).coerceIn(1, 100_000)
+        val startTime = System.currentTimeMillis()
+        val readingPhaseId = "phase_read_${System.currentTimeMillis()}"
+        val domain = extractDomain(url)
+        val isValidHttpUrl = url.isNotBlank() && (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true))
 
-        Log.d(TAG, "Fetch URL: '$url' (maxChars $maxChars)")
+        if (isValidHttpUrl) {
+            eventSink.emit(ResearchEvent.PhaseStarted(readingPhaseId, "Reading source: $domain"))
+            eventSink.emit(
+                ResearchEvent.Source(
+                    phaseId = readingPhaseId,
+                    title = domain.ifBlank { url.take(30) },
+                    domain = domain,
+                    url = url,
+                    isHttps = url.startsWith("https://", ignoreCase = true)
+                )
+            )
+            eventSink.emit(ResearchEvent.Fetching(readingPhaseId, url))
+        }
 
         try {
-            val html = HttpClient.fetchModels(url, mapOf(
-                "User-Agent" to WEB_FETCH_USER_AGENT,
-                "Accept" to "text/html,application/xhtml+xml,*/*"
-            ))
+            if (!isValidHttpUrl) {
+                return@withContext Result.success(
+                    WebFetchResponse(
+                        url = url,
+                        text = "Invalid or empty URL provided for web_fetch: '$url'",
+                        truncated = false,
+                        totalChars = 0,
+                        error = null
+                    )
+                )
+            }
+
+            Log.d(TAG, "Fetch URL: '$url' (maxChars $maxChars)")
+            val html = HttpClient.fetchModels(
+                url,
+                mapOf(
+                    "User-Agent" to WEB_FETCH_USER_AGENT,
+                    "Accept" to "text/html,application/xhtml+xml,*/*"
+                )
+            )
             if (html == null) {
-                return@withContext Result.success(WebFetchResponse(
-                    url = url,
-                    text = "",
-                    truncated = false,
-                    totalChars = 0,
-                    error = "No response from server or request failed."
-                ))
+                return@withContext Result.success(
+                    WebFetchResponse(
+                        url = url,
+                        text = "Unable to fetch content from $url (server returned no response or access restricted).",
+                        truncated = false,
+                        totalChars = 0,
+                        error = null
+                    )
+                )
             }
 
             val fullText = htmlToReadableText(html)
             val text = fullText.take(maxChars)
 
-            Result.success(WebFetchResponse(
-                url = url,
-                text = text,
-                truncated = fullText.length > text.length,
-                totalChars = fullText.length
-            ))
+            Result.success(
+                WebFetchResponse(
+                    url = url,
+                    text = text,
+                    truncated = fullText.length > text.length,
+                    totalChars = fullText.length
+                )
+            )
         } catch (e: Exception) {
-            Result.success(WebFetchResponse(
-                url = url,
-                text = "",
-                truncated = false,
-                totalChars = 0,
-                error = e.message ?: "Unknown fetch error"
-            ))
+            Result.success(
+                WebFetchResponse(
+                    url = url,
+                    text = "Error fetching $url: ${e.message}",
+                    truncated = false,
+                    totalChars = 0,
+                    error = null
+                )
+            )
+        } finally {
+            if (isValidHttpUrl) {
+                eventSink.emit(ResearchEvent.FetchDone(readingPhaseId, url))
+            }
+            eventSink.emit(ResearchEvent.Finished(System.currentTimeMillis() - startTime))
         }
     }
 

@@ -52,6 +52,16 @@ class AgentHarnessEngine @Inject constructor(
         const val DEFAULT_MAX_RETRIES_PER_STEP = 3
         private const val APPROVAL_TIMEOUT_MS = 5L * 60L * 1000L
         private const val MAX_SUBAGENT_CONTEXT_CHARS = 6000
+
+        private val WEB_RESEARCH_REGEX = Regex(
+            """\b(news|latest|recent|updates?|today|tonight|current|now|yesterday|tomorrow|this\s+(?:week|month|year)|weather|forecast|stock|stocks|price|prices|market|crypto|bitcoin|btc|eth|ethereum|election|score|scores|schedule|standing|standings|who\s+is|who\s+was|who\s+won|when\s+is|when\s+was|what\s+happened|what\s+is\s+happening|what's\s+happening|what\s+is\s+the\s+(?:price|weather|score|news|latest)|2024|2025|2026)\b""",
+            RegexOption.IGNORE_CASE
+        )
+
+        private val EXPLICIT_SEARCH_REGEX = Regex(
+            """\b(search|discoveries|trends|lookup|look\s+up|research|find\s+out|google|browse|browse\s+web)\b""",
+            RegexOption.IGNORE_CASE
+        )
     }
 
     val sessionLog: com.bit.agent.harness.model.HarnessSessionLog = com.bit.agent.harness.model.HarnessSessionLog()
@@ -128,7 +138,9 @@ class AgentHarnessEngine @Inject constructor(
     ): Flow<AgentHarnessState> = flow {
         val startTime = System.currentTimeMillis()
         val turnId = java.util.UUID.randomUUID().toString()
-        sessionLog.append(com.bit.agent.harness.model.HarnessSessionEvent.TurnStart(turnId = turnId, goal = goal))
+        ResearchSessionBus.startSession()
+        try {
+            sessionLog.append(com.bit.agent.harness.model.HarnessSessionEvent.TurnStart(turnId = turnId, goal = goal))
 
         val detectedDomain = when {
             Regex("""\b(python|script|code|build|compile|test|bug|fix|function|class|dag|sh|bash|git|file)\b""", RegexOption.IGNORE_CASE).containsMatchIn(goal) -> "coding"
@@ -278,6 +290,27 @@ class AgentHarnessEngine @Inject constructor(
                     }
                 }
 
+                // Dynamic DAG data pipelining: pipe candidate URL for web_fetch if missing or placeholder
+                if (index > 0 && step.toolName.equals("web_fetch", ignoreCase = true)) {
+                    try {
+                        val args = JSONObject(step.toolArguments)
+                        val currUrl = args.optString("url", "").trim()
+                        val isInvalidUrl = currUrl.isBlank() || !currUrl.startsWith("http", ignoreCase = true) || currUrl.contains("<")
+                        if (isInvalidUrl) {
+                            val candidateUrl = plan.steps.take(index).flatMap { prior ->
+                                prior.observation?.artifacts.orEmpty().filter {
+                                    it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true)
+                                }
+                            }.firstOrNull()
+                            if (candidateUrl != null) {
+                                args.put("url", candidateUrl)
+                                step.toolArguments = args.toString()
+                                logger.d(TAG, "Pipelined candidate URL '$candidateUrl' to web_fetch step '${step.id}'")
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
                 // Check tool approval requirement — genuinely suspend until the user decides.
                 val registeredTool = toolRegistry?.get(step.toolName)
                 val isUserQuestion = step.toolName.equals("ask_user", ignoreCase = true)
@@ -353,7 +386,7 @@ class AgentHarnessEngine @Inject constructor(
                             deferred.await()
                         } ?: false
                         when {
-                            approved -> registeredTool.execute(step.toolArguments).let { obs ->
+                            approved -> registeredTool.execute(step.toolArguments, eventSink = ResearchSessionBus).let { obs ->
                                 obs.copy(approvalState = ToolApprovalState.Approved)
                             }
                             else -> ToolObservation.error(
@@ -364,9 +397,9 @@ class AgentHarnessEngine @Inject constructor(
                         }
                     }
 
-                    registeredTool != null -> toolPipeline.execute(registeredTool, step.toolArguments, context, step.id)
+                    registeredTool != null -> toolPipeline.execute(registeredTool, step.toolArguments, context, step.id, eventSink = ResearchSessionBus)
 
-                    else -> toolBridge.execute(step.toolName, step.toolArguments)
+                    else -> toolBridge.execute(step.toolName, step.toolArguments, eventSink = ResearchSessionBus)
                 }
 
                 if (context != null && registeredTool == null) {
@@ -568,6 +601,11 @@ class AgentHarnessEngine @Inject constructor(
         )
         discoveryRecorder?.completeSession(success = true, outcomeSummary = finalResult.take(500))
         emitState(completedState)
+    } finally {
+        if (ResearchSessionBus.currentTrace.value.isRunning) {
+            ResearchSessionBus.finishSession(System.currentTimeMillis() - startTime)
+        }
+    }
     }.flowOn(Dispatchers.Default)
 
     private suspend fun FlowCollector<AgentHarnessState>.emitState(newState: AgentHarnessState) {
@@ -576,22 +614,57 @@ class AgentHarnessEngine @Inject constructor(
     }
 
     private suspend fun generatePlan(goal: String, maxSteps: Int): TaskPlan {
-        if (planGenerator != null) {
+        val rawPlan = if (planGenerator != null) {
             try {
                 val raw = planGenerator.generatePlanJson(goal)
                 if (!raw.isNullOrBlank()) {
                     val llmPlan = parsePlanJson(goal, raw)
                     if (llmPlan.steps.isNotEmpty()) {
                         logger.d(TAG, "LLM produced a ${llmPlan.steps.size}-step plan for goal: $goal")
-                        return llmPlan.copy(steps = llmPlan.steps.take(maxSteps).toMutableList())
-                    }
-                }
-                logger.w(TAG, "LLM planner returned an unusable plan; using heuristic decomposition.")
+                        llmPlan.copy(steps = llmPlan.steps.take(maxSteps).toMutableList())
+                    } else null
+                } else null
             } catch (e: Exception) {
                 logger.w(TAG, "LLM planning threw; using heuristic decomposition: ${e.message}")
+                null
+            }
+        } else null
+
+        val basePlan = rawPlan ?: decomposeGoal(goal, maxSteps)
+        return validateAndSanitizePlan(goal, basePlan, maxSteps)
+    }
+
+    private fun validateAndSanitizePlan(goal: String, plan: TaskPlan, maxSteps: Int): TaskPlan {
+        if (needsWebResearch(goal)) {
+            val hasSearchTool = plan.steps.any { step ->
+                step.toolName.contains("search", ignoreCase = true) ||
+                step.toolName.contains("fetch", ignoreCase = true)
+            }
+            if (!hasSearchTool) {
+                logger.w(TAG, "Goal requires web research but plan had no search tool; upgrading to web_search.")
+                val searchQueries = extractSearchQueries(goal)
+                val sanitizedSteps = mutableListOf(
+                    TaskStep(
+                        id = "step_1_search",
+                        description = "Search web for information",
+                        toolName = "web_search",
+                        toolArguments = JSONObject(mapOf(
+                            "query" to searchQueries.first(),
+                            "queries" to JSONArray(searchQueries),
+                            "max_results" to 5
+                        )).toString(),
+                        expectedOutcome = "Current information retrieved from web"
+                    )
+                )
+                val fileSteps = plan.steps.filter {
+                    it.toolName.contains("write_file", ignoreCase = true) ||
+                    it.toolName.contains("create_memory", ignoreCase = true)
+                }
+                sanitizedSteps.addAll(fileSteps)
+                return TaskPlan(goal = goal, steps = sanitizedSteps.take(maxSteps).toMutableList())
             }
         }
-        return decomposeGoal(goal, maxSteps)
+        return plan
     }
 
     fun parsePlanJson(goal: String, jsonString: String): TaskPlan {
@@ -683,7 +756,7 @@ class AgentHarnessEngine @Inject constructor(
         if (plan.steps.isEmpty()) return ""
         if (plan.steps.size == 1 && plan.steps[0].toolName.equals("direct_answer", ignoreCase = true)) return ""
         return buildString {
-            appendLine("### Execution Plan (DAG)")
+            appendLine("### Execution Plan")
             plan.steps.forEachIndexed { idx, step ->
                 val stepNum = idx + 1
                 val isCurrent = activeStepIndex == stepNum
@@ -699,26 +772,40 @@ class AgentHarnessEngine @Inject constructor(
         }.trimEnd()
     }
 
+    fun needsWebResearch(text: String): Boolean {
+        val clean = text.trim()
+        if (clean.isBlank()) return false
+        return WEB_RESEARCH_REGEX.containsMatchIn(clean) || EXPLICIT_SEARCH_REGEX.containsMatchIn(clean)
+    }
+
     private fun isDirectConversationalQuery(lower: String): Boolean {
         val clean = lower.trim()
+        if (clean.isBlank()) return false
+
+        // Rule 1: Factual, temporal, or research queries must never be treated as direct conversational
+        if (needsWebResearch(clean)) return false
+
+        // Rule 2: Pure greetings & conversational pleasantries
         val greetings = setOf(
-            "hi", "hello", "hey", "who are you", "what are you", "how are you",
-            "good morning", "good evening", "good afternoon", "thanks", "thank you"
+            "hi", "hello", "hey", "who are you", "what are you", "how are you", "how are you doing",
+            "good morning", "good evening", "good afternoon", "thanks", "thank you",
+            "who made you", "what can you do", "help"
         )
         if (clean in greetings) return true
 
+        // Rule 3: Coding, file operations, or workspace cues require tools
         val hasCodingOrWorkspaceCues = clean.contains("file") || clean.contains("write") || clean.contains("create") ||
                 clean.contains("run") || clean.contains("exec") || clean.contains("test") || clean.contains("build") ||
                 clean.contains("search") || clean.contains("find") || clean.contains("lookup") || clean.contains("workspace") ||
                 clean.contains("terminal") || clean.contains("bash") || clean.contains("shell") || clean.contains("script")
+        if (hasCodingOrWorkspaceCues) return false
 
-        if (!hasCodingOrWorkspaceCues) {
-            val questionPrefixes = listOf(
-                "what is", "what are", "how does", "how do", "explain", "describe",
-                "why is", "why do", "tell me about", "can you explain", "define"
-            )
-            if (questionPrefixes.any { clean.startsWith(it) }) return true
-        }
+        // Rule 4: Pure conceptual explanations only (e.g. "explain polymorphism") without temporal cues
+        val conceptualPrefixes = listOf(
+            "explain ", "describe ", "can you explain ", "define ", "tell me a joke", "write a poem", "write a song"
+        )
+        if (conceptualPrefixes.any { clean.startsWith(it) }) return true
+
         return false
     }
 
@@ -762,13 +849,17 @@ class AgentHarnessEngine @Inject constructor(
                 !lower.contains("file") && !lower.contains("write") && !lower.contains("create") && !lower.contains("workspace") && !lower.contains("make")
 
         if (isPureSearch) {
-            val searchQuery = extractSearchQuery(goal)
+            val searchQueries = extractSearchQueries(goal)
             steps.add(
                 TaskStep(
                     id = "step_1_search",
                     description = "Search web for information",
                     toolName = "web_search",
-                    toolArguments = JSONObject(mapOf("query" to searchQuery, "max_results" to 5)).toString(),
+                    toolArguments = JSONObject(mapOf(
+                        "query" to searchQueries.first(),
+                        "queries" to JSONArray(searchQueries),
+                        "max_results" to 5
+                    )).toString(),
                     expectedOutcome = "Search results returned"
                 )
             )
@@ -782,13 +873,17 @@ class AgentHarnessEngine @Inject constructor(
         val wantsSearchAndSave = (lower.contains("search") || lower.contains("find") || lower.contains("lookup")) &&
                 (lower.contains("save") || lower.contains("write") || lower.contains("file"))
         if (wantsSearchAndSave) {
-            val searchQuery = extractSearchQuery(goal)
+            val searchQueries = extractSearchQueries(goal)
             steps.add(
                 TaskStep(
                     id = "step_1_search",
                     description = "Search web for information",
                     toolName = "web_search",
-                    toolArguments = JSONObject(mapOf("query" to searchQuery, "max_results" to 5)).toString(),
+                    toolArguments = JSONObject(mapOf(
+                        "query" to searchQueries.first(),
+                        "queries" to JSONArray(searchQueries),
+                        "max_results" to 5
+                    )).toString(),
                     expectedOutcome = "Search results returned"
                 )
             )
@@ -808,13 +903,17 @@ class AgentHarnessEngine @Inject constructor(
         // 4. Autonomous Specialist or Shell Execution fallback:
         val needsWebResearch = Regex("""\b(search|discoveries|latest|recent|news|trends|lookup|research|find out)\b""", RegexOption.IGNORE_CASE).containsMatchIn(goal)
         if (needsWebResearch) {
-            val searchQuery = extractSearchQuery(goal)
+            val searchQueries = extractSearchQueries(goal)
             steps.add(
                 TaskStep(
                     id = "step_1_search",
                     description = "Search web for background information",
                     toolName = "web_search",
-                    toolArguments = JSONObject(mapOf("query" to searchQuery, "max_results" to 5)).toString(),
+                    toolArguments = JSONObject(mapOf(
+                        "query" to searchQueries.first(),
+                        "queries" to JSONArray(searchQueries),
+                        "max_results" to 5
+                    )).toString(),
                     expectedOutcome = "Background research gathered"
                 )
             )
@@ -864,15 +963,15 @@ class AgentHarnessEngine @Inject constructor(
                     )
                 }
             }
-        } else {
-            // General task fallback for non-coding/non-search/non-memory goal
+        } else if (!needsWebResearch) {
+            // Conversational or general conceptual query fallback
             steps.add(
                 TaskStep(
-                    id = if (needsWebResearch) "step_2_execute" else "step_1_execute",
-                    description = "Execute task",
-                    toolName = "workspace_shell",
-                    toolArguments = JSONObject(mapOf("command" to "echo '$goal'")).toString(),
-                    expectedOutcome = "Command executed"
+                    id = "step_1_direct",
+                    description = "Direct response: ${goal.take(50)}",
+                    toolName = "direct_answer",
+                    toolArguments = JSONObject(mapOf("query" to goal)).toString(),
+                    expectedOutcome = "Direct conversational answer"
                 )
             )
         }
@@ -930,12 +1029,49 @@ class AgentHarnessEngine @Inject constructor(
             ?: goal.trim()
         query = query.replace(
             Regex(
-                """^\s*(?:please\s+)?(?:research|search(?:\s+(?:for|about))?|find(?:\s+(?:info(?:rmation)?|details)?\s*(?:about|on|for))?|look\s+up|google|investigate)\s*[:\-]?\s*""",
+                """^\s*(?:please\s+)?(?:what\s+is\s+(?:the\s+)?|what\s+are\s+(?:the\s+)?|what's\s+(?:the\s+)?|who\s+is\s+(?:the\s+)?|who\s+was\s+(?:the\s+)?|tell\s+me\s+(?:about\s+)?|give\s+me\s+(?:the\s+)?|show\s+me\s+(?:the\s+)?|research(?:\s+(?:for|about))?|search(?:\s+(?:for|about))?|find(?:\s+(?:info(?:rmation)?|details)?\s*(?:about|on|for))?|look\s+up|google|investigate)\s*[:\-]?\s*""",
                 RegexOption.IGNORE_CASE
             ),
             ""
         ).trim()
         return query.take(120).ifBlank { goal.trim().take(120) }
+    }
+
+    /**
+     * Extracts 1 to 3 focused search queries from a potentially multi-clause research goal
+     * to support parallel multi-facet grounding.
+     */
+    private fun extractSearchQueries(goal: String): List<String> {
+        val primary = extractSearchQuery(goal)
+        val queries = mutableListOf<String>()
+        if (primary.isNotBlank()) {
+            queries.add(primary)
+        }
+
+        val conjunctionSplit = Regex(
+            """[;,]|\b(?:and\s+also|and\s+then|and|as\s+well\s+as|versus|vs\.?)\b""",
+            RegexOption.IGNORE_CASE
+        )
+        val parts = conjunctionSplit.split(goal)
+            .map { part ->
+                part.replace(
+                    Regex(
+                        """^\s*(?:please\s+)?(?:what\s+is\s+(?:the\s+)?|what\s+are\s+(?:the\s+)?|what's\s+(?:the\s+)?|who\s+is\s+(?:the\s+)?|who\s+was\s+(?:the\s+)?|tell\s+me\s+(?:about\s+)?|give\s+me\s+(?:the\s+)?|show\s+me\s+(?:the\s+)?|research(?:\s+(?:for|about))?|search(?:\s+(?:for|about))?|find(?:\s+(?:info(?:rmation)?|details)?\s*(?:about|on|for))?|look\s+up|google|investigate)\s*[:\-]?\s*""",
+                        RegexOption.IGNORE_CASE
+                    ),
+                    ""
+                ).trim().take(120)
+            }
+            .filter { it.isNotBlank() && it.length >= 4 && !it.equals(primary, ignoreCase = true) }
+
+        for (part in parts) {
+            if (queries.size >= 3) break
+            if (queries.none { it.equals(part, ignoreCase = true) }) {
+                queries.add(part)
+            }
+        }
+
+        return if (queries.isNotEmpty()) queries.take(3) else listOf(goal.trim().take(120))
     }
 
     private fun synthesizeResults(goal: String, plan: TaskPlan): String {

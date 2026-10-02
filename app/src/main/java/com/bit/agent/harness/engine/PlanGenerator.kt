@@ -154,12 +154,24 @@ class LlmGoalPlanner(
         return text.takeIf { it.isNotBlank() }
     }
 
+    private fun getFormattedCurrentDate(): String {
+        return try {
+            java.time.LocalDate.now().format(
+                java.time.format.DateTimeFormatter.ofPattern("MMMM d, yyyy", java.util.Locale.US)
+            )
+        } catch (_: Exception) {
+            "2026"
+        }
+    }
+
     private fun buildSlmPlanningPrompt(goal: String): String {
+        val currentDate = getFormattedCurrentDate()
         val toolNames = (toolRegistry?.names().orEmpty() + "direct_answer").distinct()
         val toolList = toolNames.joinToString(", ")
         return buildString {
             appendLine("Decompose this user task into actionable tool steps.")
             appendLine("Allowed tools: [$toolList]")
+            appendLine("CURRENT DATE: $currentDate")
             appendLine()
             appendLine("Respond ONLY with a JSON array:")
             appendLine("""[
@@ -174,8 +186,9 @@ class LlmGoalPlanner(
             appendLine("No markdown fences, no conversational prose, only the raw JSON array.")
             appendLine()
             appendLine("PLANNING RULES:")
-            appendLine("- If the user goal is a direct conversational question, concept explanation (e.g. 'explain recursion', 'what is an interface?'), or greeting requiring no tools, return a single step with 'toolName': 'direct_answer', arguments: {'query': '$goal'}, and expectedOutcome: 'Direct conversational answer'.")
-            appendLine("- For research, facts, or external info, use 'web_search'.")
+            appendLine("- CRITICAL: NEVER use 'direct_answer' for questions asking for latest news, current events, recent developments, live prices, weather, real-world facts, or anything requiring temporal context. You MUST use 'web_search'.")
+            appendLine("- If the user goal is a conceptual explanation (e.g. 'explain recursion'), greeting, or casual chat requiring no tools or real-world info, return a single step with 'toolName': 'direct_answer', arguments: {'query': '$goal'}, and expectedOutcome: 'Direct conversational answer'.")
+            appendLine("- For research, facts, or external info, use 'web_search'. You can pass 1 to 3 targeted queries in 'queries': [\"query 1\", \"query 2\"] (or a single 'query') to explore multiple facets in parallel. Web search automatically fetches and scrapes top sources, followed by report synthesis, so emit ONLY a 1-step plan with 'web_search' for pure research tasks.")
             appendLine("- For coding, building files, or multi-step execution, use 'workspace_write_file', 'workspace_shell', or 'invoke_subagent'.")
             appendLine()
             appendLine("User Goal: $goal")
@@ -217,11 +230,13 @@ class LlmGoalPlanner(
     }
 
     private fun buildPlanningPrompt(goal: String): String {
+        val currentDate = getFormattedCurrentDate()
         val toolNames = (toolRegistry?.names().orEmpty() + "direct_answer").distinct()
         val toolList = toolNames.joinToString(", ")
         return buildString {
             appendLine("You are an autonomous agent planner. Decompose the user goal into a DAG of actionable steps using the allowed tools.")
             appendLine("Allowed tools: [$toolList]")
+            appendLine("CURRENT DATE: $currentDate")
             appendLine()
             appendLine("Respond with ONLY a valid JSON array of step objects, no conversational prose, no markdown fences.")
             appendLine("""[
@@ -230,7 +245,8 @@ class LlmGoalPlanner(
     "description": "Short description of the step",
     "toolName": "<tool name from allowed tools>",
     "arguments": {
-      "query": "query string or question",
+      "query": "primary search query",
+      "queries": ["query facet 1", "query facet 2"],
       "path": "filename.html",
       "content": "concise initial content or template",
       "command": "sh command to run",
@@ -242,8 +258,9 @@ class LlmGoalPlanner(
 ]""")
             appendLine()
             appendLine("PLANNING GUIDELINES:")
-            appendLine("- If the user goal is a conceptual explanation, direct conversational question, general inquiry, or greeting that requires no file modifications, PRoot shell execution, or web search, emit a 1-step plan with 'toolName': 'direct_answer', arguments: {'query': '$goal'}, and expectedOutcome: 'Direct conversational answer'.")
-            appendLine("- For research, facts, discoveries, or current information, start with 'web_search'.")
+            appendLine("- CRITICAL: NEVER use 'direct_answer' for questions asking for latest news, current events, recent developments, live prices, weather, real-world facts, or anything requiring temporal context. You MUST use 'web_search'.")
+            appendLine("- If the user goal is a conceptual explanation, direct conversational question, or greeting that requires no file modifications, PRoot shell execution, or web search, emit a 1-step plan with 'toolName': 'direct_answer', arguments: {'query': '$goal'}, and expectedOutcome: 'Direct conversational answer'.")
+            appendLine("- For research, facts, discoveries, or current information, start with 'web_search'. Decompose multi-facet research topics into 1 to 3 parallel queries using 'queries': [\"query 1\", \"query 2\", \"query 3\"] (and primary in 'query'). For pure research tasks, emit ONLY a 1-step plan with 'web_search' because web_search automatically scrapes sources and is followed by report synthesis.")
             appendLine("- For coding, building web pages, writing software, or creative workspace tasks, delegate to 'invoke_subagent' with a descriptive 'role' and comprehensive 'goal', OR write directly with 'workspace_write_file'.")
             appendLine("- Subagents launched via 'invoke_subagent' operate autonomously in the workspace with access to all tools (read/write/edit/shell) and automatically receive prior research findings.")
             appendLine("- If the user requests fact-checking, verification, or review, add an 'invoke_subagent' step with role 'Verification Reviewer'.")

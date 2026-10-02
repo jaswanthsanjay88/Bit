@@ -13,6 +13,15 @@ interface SuperPlugin {
     //This Function is to execute the called Tool
     suspend fun executeTool(toolCall: ToolCall): Result<Any>
 
+    /**
+     * Executes the tool with an optional event sink for progressive streaming of research/tool events.
+     * Default implementation delegates to [executeTool] without streaming.
+     */
+    suspend fun executeToolWithSink(
+        toolCall: ToolCall,
+        eventSink: com.bit.agent.harness.model.ResearchEventSink = com.bit.agent.harness.model.ResearchEventSink.NoOp
+    ): Result<Any> = executeTool(toolCall)
+
     // Each plugin serializes its own result types to JSON
     fun serializeResult(data: Any): String
 

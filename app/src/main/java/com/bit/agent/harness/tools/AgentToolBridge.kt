@@ -28,6 +28,36 @@ open class AgentToolBridge @Inject constructor(
      * Open so tests can stub tool execution without touching Android runtime.
      */
     open suspend fun execute(toolName: String, argumentsJson: String): ToolObservation {
+        return executeInternal(toolName, argumentsJson, com.bit.agent.harness.model.ResearchEventSink.NoOp)
+    }
+
+    /**
+     * Executes a tool via PluginManager and returns a structured ToolObservation.
+     * Optionally streams research events through [eventSink].
+     * Open so tests can stub tool execution without touching Android runtime.
+     */
+    open suspend fun execute(
+        toolName: String,
+        argumentsJson: String,
+        eventSink: com.bit.agent.harness.model.ResearchEventSink
+    ): ToolObservation {
+        // If a subclass or test stub has overridden the 2-parameter execute(toolName, argumentsJson), delegate to it
+        val twoArgMethod = try {
+            this.javaClass.getMethod("execute", String::class.java, String::class.java, kotlin.coroutines.Continuation::class.java)
+        } catch (_: Exception) {
+            null
+        }
+        if (twoArgMethod != null && twoArgMethod.declaringClass != AgentToolBridge::class.java) {
+            return execute(toolName, argumentsJson)
+        }
+        return executeInternal(toolName, argumentsJson, eventSink)
+    }
+
+    private suspend fun executeInternal(
+        toolName: String,
+        argumentsJson: String,
+        eventSink: com.bit.agent.harness.model.ResearchEventSink
+    ): ToolObservation {
         val startTime = System.currentTimeMillis()
         return try {
             val argsObj = try {
@@ -36,7 +66,7 @@ open class AgentToolBridge @Inject constructor(
                 JSONObject()
             }
             val toolCall = ToolCall(name = toolName, arguments = argsObj)
-            val result = PluginManager.executeToolForMultiTurn(toolCall)
+            val result = PluginManager.executeToolForMultiTurn(toolCall, eventSink = eventSink)
             val duration = System.currentTimeMillis() - startTime
 
             val artifacts = extractArtifacts(toolName, argsObj.toString(), result.resultJson)

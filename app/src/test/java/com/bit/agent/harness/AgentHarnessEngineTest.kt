@@ -230,7 +230,7 @@ class AgentHarnessEngineTest {
         assertEquals("workspace_write_file", plan.steps[1].toolName)
 
         val markdown = engine.formatPlanToMarkdown(plan, activeStepIndex = 1)
-        assertTrue(markdown.contains("Execution Plan (DAG)"))
+        assertTrue(markdown.contains("Execution Plan"))
         assertTrue(markdown.contains("[RUNNING]"))
         assertTrue(markdown.contains("web_search"))
         assertTrue(markdown.contains("workspace_write_file"))
@@ -387,13 +387,13 @@ class AgentHarnessEngineTest {
     @Test
     fun testMalformedLlmPlanFallsBackToHeuristics() = runBlocking {
         val (engine, bridge) = buildEngine(
-            results = mutableListOf(ToolObservation.success(summary = "ran", payload = "out")),
+            results = mutableListOf(ToolObservation.success(summary = "search done", payload = "results")),
             planner = { _ -> "not valid json at all {" }
         )
-        val states = engine.executeGoal("hello world").toList()
+        val states = engine.executeGoal("search android").toList()
 
-        // Heuristic fallback for a non-search/memory goal is workspace_shell echo.
-        assertEquals(listOf("workspace_shell"), bridge.executedTools)
+        // Heuristic fallback for a search goal is web_search.
+        assertEquals(listOf("web_search"), bridge.executedTools)
         assertTrue(states.last() is AgentHarnessState.Completed)
     }
 
@@ -628,5 +628,73 @@ class AgentHarnessEngineTest {
         assertTrue(preExecuted)
         assertTrue(postExecuted)
         assertTrue(obs.summary.contains("[intercepted]"))
+    }
+
+    @Test
+    fun testNeedsWebResearchDetection() {
+        val (engine, _) = buildEngine(results = mutableListOf())
+        assertTrue(engine.needsWebResearch("what is latest news"))
+        assertTrue(engine.needsWebResearch("latest news"))
+        assertTrue(engine.needsWebResearch("today's weather"))
+        assertTrue(engine.needsWebResearch("bitcoin price today"))
+        assertTrue(engine.needsWebResearch("recent developments in AI"))
+        assertTrue(engine.needsWebResearch("what happened yesterday in tech"))
+        assertTrue(engine.needsWebResearch("who won the match"))
+        assertTrue(engine.needsWebResearch("who is the president of France"))
+        assertTrue(engine.needsWebResearch("current stock price of Google"))
+
+        assertFalse(engine.needsWebResearch("hi"))
+        assertFalse(engine.needsWebResearch("hello"))
+        assertFalse(engine.needsWebResearch("how are you"))
+        assertFalse(engine.needsWebResearch("explain polymorphism in Kotlin"))
+        assertFalse(engine.needsWebResearch("define recursion"))
+        assertFalse(engine.needsWebResearch("write a poem about trees"))
+    }
+
+    @Test
+    fun testDecomposeGoalRoutesNewsQueryToWebSearch() {
+        val (engine, _) = buildEngine(results = mutableListOf())
+        val plan = engine.decomposeGoal("what is latest news", 5)
+
+        assertEquals(1, plan.steps.size)
+        val step = plan.steps[0]
+        assertEquals("web_search", step.toolName)
+        val args = org.json.JSONObject(step.toolArguments)
+        assertEquals("latest news", args.getString("query"))
+    }
+
+    @Test
+    fun testDecomposeGoalRoutesGreetingToDirectAnswer() {
+        val (engine, _) = buildEngine(results = mutableListOf())
+        val plan = engine.decomposeGoal("hello how are you", 5)
+
+        assertEquals(1, plan.steps.size)
+        assertEquals("direct_answer", plan.steps[0].toolName)
+    }
+
+    @Test
+    fun testPlanSanitizationUpgradesDirectAnswerToWebSearch() = runBlocking {
+        val directPlanJson = """
+            [
+              {
+                "id": "step_1",
+                "description": "Direct response",
+                "toolName": "direct_answer",
+                "arguments": {"query": "what is latest news"},
+                "expectedOutcome": "Answer"
+              }
+            ]
+        """.trimIndent()
+        val (engine, bridge) = buildEngine(
+            results = mutableListOf(ToolObservation.success(summary = "search results", payload = "news")),
+            planner = { directPlanJson }
+        )
+        engine.autoApproveSession = true
+
+        val states = engine.executeGoal("what is latest news").toList()
+        val execState = states.filterIsInstance<AgentHarnessState.Executing>().firstOrNull()
+        assertNotNull(execState)
+        assertEquals("web_search", execState!!.toolName)
+        assertEquals(listOf("web_search"), bridge.executedTools)
     }
 }

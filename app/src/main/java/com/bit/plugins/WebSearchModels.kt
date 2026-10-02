@@ -53,17 +53,17 @@ data class WebSearchResponse(
     fun generateSummary(): String {
         if (results.isEmpty()) return "No results found for query: $query"
         return buildString {
-            append("Search Results for \"$query\": Found $totalResults results. ")
-            val findings = results.take(3).mapNotNull { r ->
-                val s = r.snippet.take(120).replace("\n", " ")
-                if (s.isNotBlank()) "${r.title}: $s" else null
+            appendLine("Search Results for \"$query\": Found $totalResults sources.")
+            results.forEachIndexed { idx, r ->
+                val num = idx + 1
+                appendLine("[$num] ${r.title} (${r.url})")
+                val s = r.snippet.trim().replace("\n", " ")
+                if (s.isNotBlank()) appendLine("    Snippet: $s")
+                if (r.scraped && r.content.isNotBlank()) {
+                    appendLine("    Excerpt: ${r.content.take(800).trim()}")
+                }
             }
-            if (findings.isNotEmpty()) append(findings.joinToString(" | "))
-            val topScraped = results.firstOrNull { it.scraped && it.content.isNotBlank() }
-            if (topScraped != null) {
-                append("\nTop result content (${topScraped.title}):\n${topScraped.content.take(800)}")
-            }
-        }
+        }.trim()
     }
 }
 

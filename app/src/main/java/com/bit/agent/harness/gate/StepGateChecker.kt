@@ -3,6 +3,7 @@ package com.bit.agent.harness.gate
 import com.bit.agent.harness.model.ObservationStatus
 import com.bit.agent.harness.model.ToolObservation
 import com.bit.agent.harness.state.TaskStep
+import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -30,9 +31,20 @@ class StepGateChecker @Inject constructor() {
         val payload = observation.payload ?: ""
         val summary = observation.summary
 
-        // Check for common error indicators in payload even if status was marked SUCCESS
-        val lowerPayload = payload.lowercase()
-        if (lowerPayload.contains("\"error\":") && !lowerPayload.contains("\"error\": null") && !lowerPayload.contains("\"error\":null")) {
+        // Check for explicit top-level error indicator in structured JSON payloads
+        val hasTopLevelError = try {
+            val trimmed = payload.trim()
+            if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+                val obj = JSONObject(trimmed)
+                obj.has("error") && !obj.isNull("error") && obj.optString("error").isNotBlank() && !obj.optString("error").equals("null", ignoreCase = true)
+            } else {
+                false
+            }
+        } catch (_: Exception) {
+            false
+        }
+
+        if (hasTopLevelError) {
             return GateResult(
                 passed = false,
                 reason = "Observation payload contains error signature.",

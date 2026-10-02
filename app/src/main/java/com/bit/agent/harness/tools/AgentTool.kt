@@ -16,5 +16,9 @@ interface AgentTool {
     fun needsApproval(argumentsJson: String): Boolean = requiresApproval
     fun getSystemPrompt(): String = ""
     suspend fun execute(argumentsJson: String): ToolObservation
+    suspend fun execute(
+        argumentsJson: String,
+        eventSink: com.bit.agent.harness.model.ResearchEventSink = com.bit.agent.harness.model.ResearchEventSink.NoOp
+    ): ToolObservation = execute(argumentsJson)
 }
 

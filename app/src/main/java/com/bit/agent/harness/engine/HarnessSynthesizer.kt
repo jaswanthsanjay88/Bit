@@ -73,9 +73,21 @@ class HarnessSynthesizer(
         }
     }
 
+    private fun getFormattedCurrentDate(): String {
+        return try {
+            java.time.LocalDate.now().format(
+                java.time.format.DateTimeFormatter.ofPattern("MMMM d, yyyy", java.util.Locale.US)
+            )
+        } catch (_: Exception) {
+            "2026"
+        }
+    }
+
     private fun buildDirectAnswerPrompt(): String {
+        val currentDate = getFormattedCurrentDate()
         return buildString {
             appendLine("You are an expert, direct, and helpful AI assistant.")
+            appendLine("CURRENT DATE: $currentDate.")
             appendLine("Provide a thorough, comprehensive, and clear response to the user's question in clean markdown.")
             appendLine("Do NOT mention any steps, plans, tools, subagents, or execution machinery. Speak directly to the user.")
         }
@@ -93,31 +105,19 @@ class HarnessSynthesizer(
     }
 
     private fun buildSynthesisPrompt(): String {
+        val currentDate = getFormattedCurrentDate()
         return buildString {
-            appendLine("You are writing the FINAL REPORT for a completed autonomous research task.")
-            appendLine("You receive the user's goal and the raw outputs of every executed step (search results, verification reports, corrections). The user never sees those raw logs — your report IS the product.")
+            appendLine("You are an expert AI assistant providing a clear, direct, and authoritative response to the user.")
+            appendLine("CURRENT DATE: $currentDate.")
+            appendLine("You receive the user's goal and the executed step outputs (search results, fetched pages, calculations). Synthesize the findings into an insightful, natural, and comprehensive response.")
             appendLine()
-            appendLine("Write a polished markdown report with EXACTLY this structure:")
-            appendLine()
-            appendLine("# <Descriptive Title>")
-            appendLine()
-            appendLine("## Key Findings")
-            appendLine("Synthesized prose + bullets of what the research established. Rewrite everything in your own words — never paste raw tool output.")
-            appendLine()
-            appendLine("## Verification Audit")
-            appendLine("(ONLY if reviewer/verification outputs are present) Per-reviewer summary with a claims table: | Claim | Status | Sources |. Statuses: VERIFIED / CONTRADICTED / UNCERTAIN. List any corrections that were applied.")
-            appendLine()
-            appendLine("## Convergence Matrix")
-            appendLine("(ONLY if two or more reviewers ran) A table: | Dimension | Reviewer 1 | Reviewer 2 | Final Status | — then one line stating the final verdict (PASS / PASS_WITH_CONDITIONS / FAIL).")
-            appendLine()
-            appendLine("## Conclusion")
-            appendLine("Short synthesis paragraph. Surface remaining uncertainties honestly.")
-            appendLine()
-            appendLine("RULES:")
-            appendLine("- End-user tone: direct, knowledgeable, ZERO jargon about tools/steps/agents/subagents.")
-            appendLine("- Markdown headers, bold, tables. LaTeX only where it earns its place.")
-            appendLine("- If verification found contradictions or corrected claims, state them plainly.")
-            appendLine("- 400-900 words unless the material demands more.")
+            appendLine("CRITICAL GUIDELINES:")
+            appendLine("- Directly answer the user's question. Use natural, topic-appropriate markdown headings, concise paragraphs, and bullet points.")
+            appendLine("- When stating facts from research, cite sources using inline bracketed numbers [1], [2] corresponding to the search results.")
+            appendLine("- DO NOT output a separate 'Sources', 'References', or 'Bibliography' section with raw URLs at the end. Sources and citations are rendered in the application's dedicated activity panel.")
+            appendLine("- DO NOT hallucinate fake reviewer tables, 'Verification Audit', 'Convergence Matrix', 'Reviewer 1 / Reviewer 2', or 'Final Verdict: PASS'. Never invent verification personas or review committees.")
+            appendLine("- DO NOT force rigid corporate templates (like mandatory 'Key Findings' or 'Conclusion') for simple queries. Structure the answer naturally to fit the topic.")
+            appendLine("- Never mention execution machinery, steps, plans, tool names, subagents, or internal logs. Speak directly to the user in a natural, confident tone.")
         }.trimEnd()
     }
 
@@ -231,14 +231,19 @@ class HarnessSynthesizer(
         }
     }
 
-    /** Strips think-tags and stray code fences the model may wrap the report in. */
+    /** Strips think-tags, stray code fences, and any trailing raw URL source lists. */
     private fun clean(raw: String): String {
         val stripped = raw
             .replace(Regex("<think>[\\s\\S]*?</think>", RegexOption.IGNORE_CASE), "")
             .replace(Regex("</?think>", RegexOption.IGNORE_CASE), "")
             .trim()
         // Unwrap a single outer code fence if the model fenced the whole report
-        val fenced = Regex("^```(?:markdown|md)?\\s*\\n([\\s\\S]*?)\\n```\\s*$").find(stripped)
-        return (fenced?.groupValues?.get(1) ?: stripped).ifBlank { "" }
+        val unfenced = Regex("^```(?:markdown|md)?\\s*\\n([\\s\\S]*?)\\n```\\s*$").find(stripped)?.groupValues?.get(1) ?: stripped
+        // Strip trailing Sources / References / Bibliography block if model still outputs raw URLs at the end
+        val withoutSources = unfenced.replace(
+            Regex("(?i)\\n#{1,4}\\s*(?:Sources|References|Bibliography)[\\s\\S]*$"),
+            ""
+        ).trim()
+        return withoutSources.ifBlank { "" }
     }
 }

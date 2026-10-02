@@ -416,7 +416,8 @@ object PluginManager {
     suspend fun executeToolForMultiTurn(
         toolCall: ToolCall,
         context: android.content.Context? = null,
-        callId: String = ""
+        callId: String = "",
+        eventSink: com.bit.agent.harness.model.ResearchEventSink = com.bit.agent.harness.model.ResearchEventSink.NoOp
     ): MultiTurnToolResult {
         val startTime = System.currentTimeMillis()
         Log.d(TAG, "Multi-turn tool call: ${toolCall.name} with args: ${toolCall.arguments}")
@@ -463,7 +464,7 @@ object PluginManager {
         }
 
         return try {
-            val result = plugin.executeTool(toolCall)
+            val result = plugin.executeToolWithSink(toolCall, eventSink)
             val executionTime = System.currentTimeMillis() - startTime
 
             if (result.isSuccess) {

@@ -25,7 +25,8 @@ data class Messages(
     val pluginMetrics: PluginExecutionMetrics? = null,
     val toolChainSteps: List<ToolChainStepData>? = null,
     val agentPlan: String? = null,
-    val agentSummary: String? = null
+    val agentSummary: String? = null,
+    val researchTrace: com.bit.agent.harness.model.ResearchTrace? = null
 )
 
 @Serializable

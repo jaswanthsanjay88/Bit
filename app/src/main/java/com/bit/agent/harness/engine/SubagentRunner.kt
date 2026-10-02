@@ -181,7 +181,8 @@ class SubagentRunner(
                     val result = PluginManager.executeToolForMultiTurn(
                         com.dark.gguf_lib.toolcalling.ToolCall(name = name, arguments = safeArgs),
                         context = null,
-                        callId = callId ?: UUID.randomUUID().toString()
+                        callId = callId ?: UUID.randomUUID().toString(),
+                        eventSink = ResearchSessionBus
                     )
                     extractArtifacts(safeArgs, result.resultJson).forEach { artifact ->
                         if (artifact !in artifacts) artifacts.add(artifact)

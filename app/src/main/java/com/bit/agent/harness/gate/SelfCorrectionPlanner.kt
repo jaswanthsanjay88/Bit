@@ -43,6 +43,14 @@ class SelfCorrectionPlanner @Inject constructor() {
                     obj.put("replace_all", false)
                     obj.toString()
                 }
+                "web_fetch", "scrape_web" -> {
+                    val currUrl = obj.optString("url", "")
+                    val altUrl = observation.artifacts.firstOrNull { it != currUrl && (it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true)) }
+                    if (altUrl != null) {
+                        obj.put("url", altUrl)
+                    }
+                    obj.toString()
+                }
                 else -> step.toolArguments
             }
         } catch (_: Exception) {
