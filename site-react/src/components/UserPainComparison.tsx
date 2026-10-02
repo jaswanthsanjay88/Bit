@@ -40,18 +40,15 @@ export const UserPainComparison: React.FC = () => {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   return (
-    <section id="comparison" className="w-full bg-white section-spacing border-t border-[var(--line)]">
-      <div className="section-container">
+    <section id="comparison" className="w-full bg-white section-rhythm border-t border-[var(--line)]">
+      <div className="container">
         
-        {/* Section Header */}
-        <div className="text-center max-w-2xl mx-auto mb-16 sm:mb-20">
-          <div className="text-xs uppercase tracking-widest text-[#a3a3a3] font-medium mb-3">
-            Comparison
-          </div>
+        {/* Section Header: Centered title and content */}
+        <div className="text-center max-w-2xl mx-auto mb-16">
           <RevealText
             text="Cloud vs. On-Device"
             as="h2"
-            className="text-3xl sm:text-4xl lg:text-[46px] font-semibold text-[#0a0a0a] tracking-[-0.035em] leading-[1.08] mb-4 text-balance"
+            className="section-title text-[#0a0a0a] mb-6 text-balance text-center"
           />
           <Reveal delay={0.1}>
             <p className="text-[17px] text-[#6b6b6b] leading-relaxed mx-auto text-pretty">
@@ -60,22 +57,22 @@ export const UserPainComparison: React.FC = () => {
           </Reveal>
         </div>
 
-        {/* Two-Column Comparison Table with Hairline Rows */}
-        <div className="w-full overflow-hidden">
+        {/* Two-Column Comparison Table with Hairline Rows spanning full container */}
+        <div className="w-full overflow-hidden border-t border-[var(--line)]">
           
           {/* Table Header */}
-          <div className="grid grid-cols-1 md:grid-cols-2 pb-4 border-b border-[var(--line)]">
-            <div className="px-5 sm:px-8 py-2 text-xs uppercase tracking-wider text-[#a3a3a3] font-medium">
+          <div className="grid grid-cols-1 md:grid-cols-2 pb-4 pt-2 border-b border-[var(--line)]">
+            <div className="px-5 sm:px-8 py-2 text-xs uppercase tracking-wider text-[#6b6b6b] font-medium font-mono">
               Centralized Cloud
             </div>
-            <div className="px-5 sm:px-8 py-2 text-xs uppercase tracking-wider text-[#0a0a0a] font-semibold flex items-center justify-between">
+            <div className="px-5 sm:px-8 py-2 text-xs uppercase tracking-wider text-[#0a0a0a] font-semibold flex items-center justify-between font-mono">
               <span>Sovereign Local (BIT)</span>
-              <span className="text-[11px] font-mono text-[#a3a3a3]">100% Offline</span>
+              <span className="text-[12px] text-[#6b6b6b]">100% Offline</span>
             </div>
           </div>
 
-          {/* Hairline Rows */}
-          <div className="divide-y divide-[var(--line)]">
+          {/* Hairline Rows with equal row heights */}
+          <div className="divide-y divide-[var(--line)] border-b border-[var(--line)]">
             {COMPARISON_ROWS.map((row, idx) => {
               const isHovered = hoveredIdx === idx;
 
@@ -88,15 +85,15 @@ export const UserPainComparison: React.FC = () => {
                   transition={{ duration: 0.5, delay: idx * 0.09, ease }}
                   onMouseEnter={() => setHoveredIdx(idx)}
                   onMouseLeave={() => setHoveredIdx(null)}
-                  className="grid grid-cols-1 md:grid-cols-2 relative group"
+                  className="grid grid-cols-1 md:grid-cols-2 relative group items-stretch"
                 >
-                  {/* Left Column: Cloud (Muted, Faded '✕') */}
+                  {/* Left Column: Cloud (text color >= #6b6b6b, no mono meta line) */}
                   <div className="p-5 sm:p-8 flex flex-col justify-start text-left">
-                    <div className="text-xs uppercase tracking-wider text-[#a3a3a3] font-medium mb-1.5">
+                    <div className="text-xs uppercase tracking-wider text-[#6b6b6b] font-medium mb-2">
                       {row.dimension}
                     </div>
                     <div className="flex items-start gap-3">
-                      <span className="text-[#a3a3a3] text-sm font-mono mt-0.5 shrink-0 opacity-45 group-hover:opacity-60 transition-opacity">
+                      <span className="text-[#6b6b6b] text-sm font-mono mt-0.5 shrink-0 opacity-80">
                         ✕
                       </span>
                       <div className="text-[16px] text-[#6b6b6b] leading-relaxed">
@@ -109,7 +106,7 @@ export const UserPainComparison: React.FC = () => {
                               viewport={{ once: true }}
                               transition={{ duration: 0.6, delay: 0.4, ease }}
                               style={{ transformOrigin: '0% 50%' }}
-                              className="absolute left-0 right-0 top-1/2 h-[1px] bg-[#a3a3a3]"
+                              className="absolute left-0 right-0 top-1/2 h-[1px] bg-[#6b6b6b]"
                             />
                           </span>
                         ) : (
@@ -119,9 +116,9 @@ export const UserPainComparison: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Right Column: BIT on Android (Full Contrast, 1px border around right column, checkmark draw) */}
+                  {/* Right Column: BIT on Android (no mono meta line, shared row height) */}
                   <div
-                    className={`p-5 sm:p-8 flex flex-col justify-start text-left border-l border-[var(--line)] relative transition-colors duration-200 ${
+                    className={`p-5 sm:p-8 flex flex-col justify-start text-left md:border-l border-[var(--line)] relative transition-colors duration-200 ${
                       isHovered ? 'bg-[#fafafa]' : 'bg-transparent'
                     }`}
                   >
@@ -130,16 +127,16 @@ export const UserPainComparison: React.FC = () => {
                       animate={{ scaleY: isHovered ? 1 : 0 }}
                       transition={spring}
                       style={{ transformOrigin: 'top center' }}
-                      className="absolute left-[-1px] top-0 bottom-0 w-[2px] bg-[#0a0a0a]"
+                      className="hidden md:block absolute left-[-1px] top-0 bottom-0 w-[2px] bg-[#0a0a0a]"
                       aria-hidden="true"
                     />
 
-                    <div className="text-xs uppercase tracking-wider text-[#0a0a0a] font-medium mb-1.5">
+                    <div className="text-xs uppercase tracking-wider text-[#0a0a0a] font-semibold mb-2">
                       {row.dimension}
                     </div>
 
                     <div className="flex items-start gap-3">
-                      {/* Checkmark SVG with pathLength animation */}
+                      {/* Checkmark SVG */}
                       <svg
                         className="w-4 h-4 text-[#0a0a0a] mt-1 shrink-0"
                         viewBox="0 0 16 16"

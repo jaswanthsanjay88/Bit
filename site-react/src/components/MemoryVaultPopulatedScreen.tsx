@@ -97,10 +97,10 @@ export const MemoryVaultPopulatedScreen: React.FC = () => {
           <motion.div
             key={idx}
             initial={shouldReduceMotion ? false : { opacity: 0, x: -10 }}
-            animate={isInView ? { opacity: 1, x: 0 } : {}}
+            animate={{ opacity: 1, x: 0 }}
             transition={{
               duration: 0.35,
-              delay: shouldReduceMotion ? 0 : 0.2 + idx * 0.06,
+              delay: shouldReduceMotion ? 0 : 0.1 + idx * 0.05,
               ease,
             }}
             className="p-2 rounded-xl bg-white/[0.03] border border-white/5 flex items-center justify-between text-xs"

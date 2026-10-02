@@ -25,15 +25,15 @@ const STATS: StatItem[] = [
     detail: 'ARM64 Neon SIMD and Qualcomm Hexagon NPU accelerated.'
   },
   {
-    value: '2.1k+',
-    label: 'GitHub Stars',
-    detail: 'Apache 2.0 open-source code auditable by everyone.'
+    value: 'Apache 2.0',
+    label: 'Open Source',
+    detail: 'Fully transparent code auditable and inspectable by everyone.'
   }
 ];
 
 export const StatsStrip: React.FC = () => {
   return (
-    <section className="border-y border-white/[0.08] bg-[#0B0D12] py-16 relative">
+    <section className="border-y border-white/[0.08] bg-[#07080A] py-16 relative">
       <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-10">
           {STATS.map((stat, idx) => (
@@ -55,8 +55,8 @@ export const StatsStrip: React.FC = () => {
                 {stat.label}
               </div>
 
-              {/* Supporting Detail */}
-              <p className="text-sm text-[#A1A1AA] leading-relaxed font-normal">
+              {/* Supporting Detail (min 15px) */}
+              <p className="text-[15px] sm:text-base text-[#A1A1AA] leading-relaxed font-normal">
                 {stat.detail}
               </p>
             </motion.div>

@@ -48,26 +48,23 @@ export const FaqSection: React.FC = () => {
   };
 
   return (
-    <section id="faq" className="w-full bg-white section-spacing border-t border-[var(--line)]">
-      <div className="section-container">
-        <div className="max-w-[820px] mx-auto">
-          
-          {/* Header */}
-          <div className="mb-14 sm:mb-16">
-            <div className="text-xs uppercase tracking-widest text-[#a3a3a3] font-medium mb-3">
-              FAQ
-            </div>
-            <RevealText
-              text="Frequently asked questions"
-              as="h2"
-              className="text-3xl sm:text-4xl lg:text-[44px] font-semibold text-[#0a0a0a] tracking-[-0.035em] mb-4 text-balance"
-            />
-            <Reveal delay={0.1}>
-              <p className="text-[17px] text-[#6b6b6b] leading-relaxed">
-                Architecture details on local inference, hardware bounds, and privacy guarantees.
-              </p>
-            </Reveal>
-          </div>
+    <section id="faq" className="w-full bg-white section-rhythm border-t border-[var(--line)]">
+      <div className="container--narrow text-left">
+        
+        {/* Header: at most 2 lines, clamp(3rem, 7vw, 5.5rem), mb-6 (24px) */}
+        <div className="mb-6 w-full">
+          <RevealText
+            text="Frequently asked questions"
+            as="h2"
+            className="section-title text-[#0a0a0a] block w-full"
+            style={{ fontSize: 'clamp(3rem, 7vw, 5.5rem)', lineHeight: 0.92 }}
+          />
+        </div>
+        <Reveal delay={0.1}>
+          <p className="text-[17px] text-[#6b6b6b] leading-relaxed mb-8">
+            Architecture details on local inference, hardware bounds, and privacy guarantees.
+          </p>
+        </Reveal>
 
           {/* Clean Hairline Accordion List */}
           <div className="border-t border-[var(--line)]">
@@ -147,7 +144,6 @@ export const FaqSection: React.FC = () => {
           </div>
 
         </div>
-      </div>
     </section>
   );
 };

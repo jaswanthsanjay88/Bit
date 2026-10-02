@@ -48,7 +48,7 @@ export const AgentToolChatScreen: React.FC = () => {
         {/* User Prompt */}
         <motion.div
           initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
-          animate={isInView ? { opacity: 1, y: 0 } : {}}
+          animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, ease }}
           className="flex justify-end"
         >
@@ -60,8 +60,8 @@ export const AgentToolChatScreen: React.FC = () => {
         {/* Step 1 Tool Call */}
         <motion.div
           initial={shouldReduceMotion ? false : { opacity: 0, x: -8 }}
-          animate={isInView ? { opacity: 1, x: 0 } : {}}
-          transition={{ duration: 0.35, delay: shouldReduceMotion ? 0 : 0.3, ease }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.35, delay: shouldReduceMotion ? 0 : 0.2, ease }}
           className="flex items-center gap-1.5 text-xs text-zinc-300 px-1 font-mono whitespace-nowrap"
         >
           <Cpu className="w-3.5 h-3.5 text-white shrink-0" />
@@ -73,8 +73,8 @@ export const AgentToolChatScreen: React.FC = () => {
         {/* Step 2 Tool Call */}
         <motion.div
           initial={shouldReduceMotion ? false : { opacity: 0, x: -8 }}
-          animate={isInView ? { opacity: 1, x: 0 } : {}}
-          transition={{ duration: 0.35, delay: shouldReduceMotion ? 0 : 0.6, ease }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.35, delay: shouldReduceMotion ? 0 : 0.4, ease }}
           className="flex items-center gap-1.5 text-xs text-zinc-300 px-1 font-mono whitespace-nowrap"
         >
           <HardDrive className="w-3.5 h-3.5 text-white shrink-0" />
@@ -86,8 +86,8 @@ export const AgentToolChatScreen: React.FC = () => {
         {/* Formatted Assistant Result Card */}
         <motion.div
           initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
-          animate={isInView ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.45, delay: shouldReduceMotion ? 0 : 0.9, ease }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, delay: shouldReduceMotion ? 0 : 0.6, ease }}
           className="rounded-2xl rounded-tl-sm bg-[#14161C] border border-white/10 p-3 text-xs leading-relaxed space-y-2 text-zinc-200 shadow-md"
         >
           <div className="font-medium text-white text-[13px]">

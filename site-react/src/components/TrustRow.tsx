@@ -6,31 +6,30 @@ import { ease } from '../lib/motion';
 interface StatItem {
   value: string;
   label: string;
-  sublabel?: string;
-  roll?: boolean;
+  fromValue?: number;
 }
 
 const STATS: StatItem[] = [
   { value: '100%', label: 'Offline on device' },
-  { value: '0B', label: 'Leaves your phone', roll: true },
-  { value: '$0', label: 'Free and open source', roll: true },
-  { value: '2.1k', label: 'GitHub stars' },
+  { value: '0B', label: 'Leaves your phone', fromValue: 9 },
+  { value: '$0', label: 'Free and open source', fromValue: 99 },
+  { value: '0', label: 'Telemetry sent', fromValue: 50 },
 ];
 
 export const TrustRow: React.FC = () => {
   const shouldReduceMotion = useReducedMotion();
 
   return (
-    <section className="relative w-full bg-white border-y border-[var(--line)] py-16 sm:py-20 lg:py-24">
-      <div className="section-container">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-y-10 md:gap-y-0 relative">
+    <section className="relative w-full bg-white border-y border-[var(--line)] section-rhythm">
+      <div className="container">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-y-12 lg:gap-y-0 relative">
           
           {STATS.map((stat, idx) => (
             <div
               key={idx}
-              className="relative flex flex-col items-center md:items-start text-center md:text-left px-4 sm:px-6 lg:px-8"
+              className="relative flex flex-col items-start text-left px-3 sm:px-6 lg:px-8 min-w-0"
             >
-              {/* Vertical Hairline Divider between columns (draws from top to bottom) */}
+              {/* Vertical Hairline Divider between columns */}
               {idx > 0 && (
                 <motion.div
                   initial={shouldReduceMotion ? { opacity: 1 } : { scaleY: 0 }}
@@ -38,18 +37,20 @@ export const TrustRow: React.FC = () => {
                   viewport={{ once: true, amount: 0.6 }}
                   transition={{ duration: 0.7, delay: idx * 0.1, ease }}
                   style={{ transformOrigin: 'top center' }}
-                  className="hidden md:block absolute left-0 top-1 bottom-1 w-[1px] bg-[var(--line)]"
+                  className={`absolute left-0 top-1 bottom-1 w-[1px] bg-[var(--line)] ${
+                    idx % 2 === 1 ? 'block' : 'hidden lg:block'
+                  }`}
                   aria-hidden="true"
                 />
               )}
 
-              {/* Stat Number */}
-              <div className="text-5xl sm:text-6xl lg:text-[72px] font-medium tracking-tight text-[#0a0a0a] leading-none mb-3 tabular-nums">
-                <CountUp value={stat.value} duration={1.2} />
+              {/* Display Size Ticker Number in Condensed Archivo */}
+              <div className="stat-number text-[#0a0a0a] mb-3 select-none">
+                <CountUp value={stat.value} duration={1.2} fromValue={stat.fromValue} />
               </div>
 
-              {/* Label */}
-              <div className="text-xs uppercase tracking-wider text-[#a3a3a3] font-medium leading-relaxed">
+              {/* Quiet Label (>= 12px, >= #6b6b6b) */}
+              <div className="text-[13px] sm:text-[14px] uppercase tracking-wider text-[#6b6b6b] font-medium leading-relaxed">
                 {stat.label}
               </div>
             </div>

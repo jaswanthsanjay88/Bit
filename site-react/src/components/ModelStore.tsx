@@ -1,119 +1,130 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Download, Copy, Check, Database, ChevronDown, ChevronUp } from 'lucide-react';
+import { Download, Search, Check, Copy, ChevronDown, ChevronUp } from 'lucide-react';
 import { springs } from '../lib/motion';
 
-export interface ModelItem {
+interface ModelItem {
   id: string;
   name: string;
-  description: string;
-  type: string;
-  url: string;
+  type: 'LLM' | 'VLM' | 'AUDIO' | 'EMBEDDING';
   size: string;
+  description: string;
+  url: string;
+  format: string;
   minRamGb: number;
   tags: string[];
 }
 
 const VERIFIED_MODELS: ModelItem[] = [
   {
-    id: "qwen3.5-0.8b-q4km",
+    id: "qwen-35-08b",
     name: "Qwen 3.5 0.8B",
-    description: "Ultra-lightweight chat model with native GBNF tool calling. Ideal for entry-level 4GB RAM phones.",
-    type: "GGUF",
-    url: "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf",
-    size: "600 MB",
+    type: "LLM",
+    size: "0.8 GB",
+    description: "Ultra-fast chat and tool routing on 4GB+ RAM devices.",
+    url: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+    format: "GGUF Q4_K_M",
     minRamGb: 4,
-    tags: ["Chat", "Tool Calling", "Tested"]
+    tags: ["Fast", "Chat", "Tools"]
   },
   {
-    id: "qwen3.5-4b-q4km",
-    name: "Qwen 3.5 4B",
-    description: "Balanced reasoning engine with high-throughput coding and planning. Recommended for mid-range devices.",
-    type: "GGUF",
-    url: "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf",
-    size: "2.7 GB",
-    minRamGb: 6,
-    tags: ["Chat", "Tool Calling", "High Quality"]
-  },
-  {
-    id: "lfm2-350m-q8",
+    id: "lfm2-350m",
     name: "LFM2 350M",
-    description: "Ultra-fast liquid foundation model from Liquid AI. Instant responses delivering 60+ tokens/sec on Cortex-A78.",
-    type: "GGUF",
-    url: "https://huggingface.co/LiquidAI/LFM2-350M-GGUF/resolve/main/LFM2-350M-Q8_0.gguf",
-    size: "400 MB",
-    minRamGb: 3,
-    tags: ["Chat", "Ultra Fast", "Tested"]
+    type: "LLM",
+    size: "350 MB",
+    description: "Hybrid architecture for near-zero latency offline dialogue.",
+    url: "https://huggingface.co/LiquidAI/LFM-350M-GGUF",
+    format: "GGUF Q4_0",
+    minRamGb: 4,
+    tags: ["Low Memory", "Sub-100ms"]
   },
   {
-    id: "qwen3.5-9b-q4km",
+    id: "moondream2-vlm",
+    name: "Moondream 2",
+    type: "VLM",
+    size: "1.6 GB",
+    description: "On-device vision model for image QA and document inspection.",
+    url: "https://huggingface.co/vikhyatk/moondream2",
+    format: "GGUF Q4_K_S",
+    minRamGb: 6,
+    tags: ["Vision", "Multimodal"]
+  },
+  {
+    id: "kokoro-tts",
+    name: "Kokoro 82M",
+    type: "AUDIO",
+    size: "86 MB",
+    description: "Studio-grade neural voice synthesis in an 86MB footprint.",
+    url: "https://huggingface.co/hexgrad/Kokoro-82M",
+    format: "ONNX FP16",
+    minRamGb: 4,
+    tags: ["TTS", "Voice", "24kHz"]
+  },
+  {
+    id: "qwen-35-4b",
+    name: "Qwen 3.5 4B",
+    type: "LLM",
+    size: "2.8 GB",
+    description: "Full coding and multi-turn agent planning on mid-range devices.",
+    url: "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF",
+    format: "GGUF Q4_K_M",
+    minRamGb: 6,
+    tags: ["Balanced", "Coding", "Reasoning"]
+  },
+  {
+    id: "qwen-35-9b",
     name: "Qwen 3.5 9B",
-    description: "Heavyweight reasoning and agent synthesis. Recommended for flagships with 8GB to 12GB RAM.",
-    type: "GGUF",
-    url: "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf",
-    size: "5.5 GB",
+    type: "LLM",
+    size: "5.4 GB",
+    description: "Deep multi-step reasoning and synthesis for flagship phones.",
+    url: "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF",
+    format: "GGUF Q4_K_M",
     minRamGb: 8,
-    tags: ["Chat", "Tool Calling", "Flagship"]
+    tags: ["Flagship", "Complex Tasks"]
   },
   {
-    id: "lfm2-vl-450m-q8",
-    name: "LFM2-VL 450M Multimodal",
-    description: "On-device Vision-Language Model. Analyzes images, camera captures, and screenshots with local mmproj.",
+    id: "lfm2-vl-450m",
+    name: "LFM2-VL 450M",
     type: "VLM",
-    url: "https://huggingface.co/LiquidAI/LFM2-VL-450M-GGUF/resolve/main/LFM2-VL-450M-Q8_0.gguf",
-    size: "550 MB",
+    size: "520 MB",
+    description: "Lightweight visual reasoning optimized for mobile memory.",
+    url: "https://huggingface.co/LiquidAI/LFM-VL-450M-GGUF",
+    format: "GGUF Q4_K_M",
     minRamGb: 4,
-    tags: ["Vision", "VLM", "Multimodal"]
+    tags: ["Vision", "Mobile Optimized"]
   },
   {
-    id: "moondream2-q4km",
-    name: "Moondream 2 VLM",
-    description: "Efficient small vision model for visual question answering, OCR, and document layout scanning.",
-    type: "VLM",
-    url: "https://huggingface.co/vikhyatk/moondream2/resolve/main/moondream2-text-model-q4_k.gguf",
-    size: "1.1 GB",
+    id: "nomic-embed-text",
+    name: "Nomic Embed v1.5",
+    type: "EMBEDDING",
+    size: "82 MB",
+    description: "Dense vector embeddings for on-device document RAG.",
+    url: "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF",
+    format: "GGUF Q4_K_M",
     minRamGb: 4,
-    tags: ["Vision", "OCR", "Tested"]
+    tags: ["Embeddings", "RAG", "Vault"]
   },
   {
-    id: "sherpa-whisper-tiny",
-    name: "Sherpa-ONNX Whisper Tiny",
-    description: "Streaming automatic speech recognition model for real-time offline voice mode.",
-    type: "STT",
-    url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.en.tar.bz2",
-    size: "75 MB",
-    minRamGb: 2,
-    tags: ["Audio", "STT", "Streaming"]
-  },
-  {
-    id: "piper-voice-en",
-    name: "Piper ONNX Neural Voice",
-    description: "Fast local text-to-speech engine producing natural 22kHz speech synthesis with zero GPU requirement.",
-    type: "TTS",
-    url: "https://github.com/rhasspy/piper/releases/download/v0.0.2/voice-en-us-lessac-medium.tar.gz",
-    size: "62 MB",
-    minRamGb: 2,
-    tags: ["Audio", "TTS", "Neural Voice"]
-  },
-  {
-    id: "bge-small-en-v1.5",
-    name: "BGE-Small-EN-v1.5 Embeddings",
-    description: "384-dimensional dense semantic embedding model powering the local SQLite Memory Vault RAG.",
-    type: "Embeddings",
-    url: "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/model.safetensors",
-    size: "133 MB",
-    minRamGb: 2,
-    tags: ["Embeddings", "RAG", "Vectors"]
-  },
-  {
-    id: "qwen3.5-0.8b-q8",
-    name: "Qwen 3.5 0.8B (Q8_0)",
-    description: "Full 8-bit precision variant. Zero quantization perplexity degradation for critical tool parsing.",
-    type: "GGUF",
-    url: "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q8_0.gguf",
-    size: "900 MB",
+    id: "piper-voice-us",
+    name: "Piper US Amy",
+    type: "AUDIO",
+    size: "28 MB",
+    description: "Ultra-light streaming voice synthesis on local CPU.",
+    url: "https://huggingface.co/rhasspy/piper-voices",
+    format: "ONNX",
     minRamGb: 4,
-    tags: ["Chat", "High Precision"]
+    tags: ["TTS", "Real-Time"]
+  },
+  {
+    id: "whisper-base-onnx",
+    name: "Whisper Base",
+    type: "AUDIO",
+    size: "145 MB",
+    description: "High-accuracy multilingual speech-to-text recognition.",
+    url: "https://huggingface.co/ggerganov/whisper.cpp",
+    format: "Sherpa-ONNX",
+    minRamGb: 4,
+    tags: ["STT", "Speech", "Offline"]
   }
 ];
 
@@ -138,9 +149,9 @@ export const ModelStore: React.FC = () => {
 
       const matchesType =
         selectedType === 'ALL' ||
-        (selectedType === 'CHAT' && m.type === 'GGUF') ||
+        (selectedType === 'CHAT' && m.type === 'LLM') ||
         (selectedType === 'VISION' && m.type === 'VLM') ||
-        (selectedType === 'AUDIO' && (m.type === 'STT' || m.type === 'TTS'));
+        (selectedType === 'AUDIO' && m.type === 'AUDIO');
 
       return matchesSearch && matchesType;
     });
@@ -149,35 +160,20 @@ export const ModelStore: React.FC = () => {
   const displayedModels = isExpanded ? filteredModels : models.slice(0, 3);
 
   return (
-    <section id="models" className="py-24 md:py-32 bg-[#0D0F14] border-t border-white/[0.08] relative">
+    <section id="models" className="py-28 md:py-36 bg-[#07080A] relative">
       <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-6">
-          <div className="max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.04] border border-white/10 text-xs font-mono text-[#B6FF3B] mb-4">
-              <Database className="w-3.5 h-3.5" />
-              <span>Offline Model Store</span>
-            </div>
-            <h2 className="text-4xl sm:text-5xl font-extrabold tracking-[-0.04em] text-white mb-3">
-              Verified Open Weights
-            </h2>
-            <p className="text-lg text-[#A1A1AA]">
-              Pre-quantized GGUF, VLM, and ONNX weights validated for mobile ARM processors. Direct HuggingFace downloads.
-            </p>
-          </div>
-
-          {/* Expand / Collapse Button */}
-          <button
-            type="button"
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#141720] hover:bg-[#1C202C] border border-white/15 text-sm font-semibold text-white transition-all tactile-button self-start md:self-auto"
-          >
-            <span>{isExpanded ? 'Collapse Catalog' : 'Explore All 10 Models'}</span>
-            {isExpanded ? <ChevronUp className="w-4 h-4 text-[#B6FF3B]" /> : <ChevronDown className="w-4 h-4 text-[#B6FF3B]" />}
-          </button>
+        
+        {/* Header without eyebrow */}
+        <div className="text-center max-w-2xl mx-auto mb-16">
+          <h2 className="text-4xl sm:text-5xl font-extrabold tracking-[-0.04em] text-white mb-4">
+            Verified Open Weights
+          </h2>
+          <p className="text-base sm:text-lg text-[#A1A1AA] leading-relaxed">
+            Pre-quantized GGUF, VLM, and ONNX weights validated for mobile ARM processors. Direct HuggingFace downloads.
+          </p>
         </div>
 
-        {/* Filter Bar (Only when expanded) */}
+        {/* Filter Bar (Visible when expanded) */}
         <AnimatePresence>
           {isExpanded && (
             <motion.div
@@ -225,39 +221,41 @@ export const ModelStore: React.FC = () => {
           )}
         </AnimatePresence>
 
-        {/* Cleaner Grid with Bigger Text */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Larger Model Cards with Big Size Numbers */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch">
           {displayedModels.map((m) => {
             const isCopied = copiedId === m.id;
 
             return (
               <div
                 key={m.id}
-                className="rounded-2xl surface-2 p-6 flex flex-col justify-between border border-white/10 hover:border-white/20 transition-all group"
+                className="rounded-2xl surface-2 p-8 flex flex-col justify-between border border-white/10 hover:border-white/20 transition-all group shadow-xl"
               >
                 <div>
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <span className="text-xs font-mono px-2.5 py-1 rounded bg-[#07080A] text-[#B6FF3B] border border-white/10 uppercase">
+                  {/* Top Row: Type Tag & Big Size Number */}
+                  <div className="flex items-center justify-between mb-6">
+                    <span className="text-xs px-2.5 py-1 rounded bg-[#07080A] text-[#B6FF3B] border border-white/10 font-medium">
                       {m.type}
                     </span>
-                    <span className="text-sm font-mono font-bold text-white tabular-nums">
+                    <div className="text-3xl sm:text-4xl font-extrabold text-[#B6FF3B] tracking-tight tabular-nums">
                       {m.size}
-                    </span>
+                    </div>
                   </div>
 
-                  <h3 className="text-xl font-bold text-white mb-2 group-hover:text-[#B6FF3B] transition-colors">
+                  <h3 className="text-2xl font-bold text-white mb-3 group-hover:text-[#B6FF3B] transition-colors">
                     {m.name}
                   </h3>
 
-                  <p className="text-sm text-[#A1A1AA] leading-relaxed mb-6 font-normal">
+                  {/* Short 1-line description, min 15px */}
+                  <p className="text-[15px] sm:text-base text-[#A1A1AA] leading-relaxed mb-6 font-normal">
                     {m.description}
                   </p>
                 </div>
 
-                <div className="space-y-4 pt-4 border-t border-white/5">
-                  <div className="flex items-center justify-between text-xs font-mono text-zinc-400">
-                    <span>RAM Requirement</span>
-                    <span className="text-white font-semibold">Min {m.minRamGb}GB RAM</span>
+                <div className="space-y-4 pt-6 border-t border-white/5">
+                  <div className="flex items-center justify-between text-xs text-zinc-400">
+                    <span className="font-mono text-zinc-500">{m.format}</span>
+                    <span className="text-white font-medium">Min {m.minRamGb}GB RAM</span>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -265,16 +263,17 @@ export const ModelStore: React.FC = () => {
                       href={m.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-white/[0.08] hover:bg-[#B6FF3B] text-white hover:text-[#07080A] text-xs font-bold transition-all"
+                      className="flex-1 inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-white/[0.08] hover:bg-[#B6FF3B] text-white hover:text-[#07080A] text-sm font-bold transition-all"
                     >
-                      <Download className="w-3.5 h-3.5" />
+                      <Download className="w-4 h-4" />
                       <span>Download GGUF</span>
                     </a>
                     <button
                       type="button"
                       onClick={() => handleCopyLink(m.url, m.id)}
-                      className="p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.1] border border-white/10 text-zinc-400 hover:text-white transition-colors"
+                      className="p-3 rounded-xl bg-white/[0.04] hover:bg-white/[0.1] border border-white/10 text-zinc-400 hover:text-white transition-colors"
                       title="Copy Link"
+                      aria-label="Copy Download Link"
                     >
                       {isCopied ? <Check className="w-4 h-4 text-[#B6FF3B]" /> : <Copy className="w-4 h-4" />}
                     </button>
@@ -284,6 +283,23 @@ export const ModelStore: React.FC = () => {
             );
           })}
         </div>
+
+        {/* Full-Width "Explore All 10 Models" Button under the cards */}
+        <div className="mt-10">
+          <button
+            type="button"
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="w-full py-4.5 rounded-2xl bg-[#0D0F12] border border-white/10 hover:border-[#B6FF3B]/50 hover:bg-[#141720] text-base font-semibold text-white transition-all flex items-center justify-center gap-2.5 shadow-lg group cursor-pointer"
+          >
+            <span>{isExpanded ? 'Collapse Model Catalog' : 'Explore All 10 Verified Models'}</span>
+            {isExpanded ? (
+              <ChevronUp className="w-5 h-5 text-[#B6FF3B] group-hover:-translate-y-0.5 transition-transform" />
+            ) : (
+              <ChevronDown className="w-5 h-5 text-[#B6FF3B] group-hover:translate-y-0.5 transition-transform" />
+            )}
+          </button>
+        </div>
+
       </div>
     </section>
   );

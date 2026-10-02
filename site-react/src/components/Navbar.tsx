@@ -10,7 +10,7 @@ import { spring, ease } from '../lib/motion';
 export const Navbar: React.FC = () => {
   const shouldReduceMotion = useReducedMotion();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<string>('Features');
+  const [activeTab, setActiveTab] = useState<string | null>(null);
   const [isScrolled, setIsScrolled] = useState(false);
   const [isVisible, setIsVisible] = useState(true);
   const [showPlaneEasterEgg, setShowPlaneEasterEgg] = useState(false);
@@ -19,7 +19,7 @@ export const Navbar: React.FC = () => {
   const lastScrollY = useRef(0);
   const keyPressTimestamps = useRef<number[]>([]);
 
-  // Track scroll direction for hide/show and >24px border darkening
+  // Track scroll direction for hide/show, >24px border darkening, and active section
   useEffect(() => {
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
@@ -33,6 +33,30 @@ export const Navbar: React.FC = () => {
         }
       } else {
         setIsVisible(true);
+      }
+
+      // Active nav section tracking (null at top of page)
+      if (currentScrollY < 300) {
+        setActiveTab(null);
+      } else {
+        const sections = [
+          { id: 'features', name: 'Features' },
+          { id: 'comparison', name: 'Why BIT' },
+          { id: 'faq', name: 'FAQ' },
+        ];
+        let currentSection: string | null = null;
+        for (const sec of sections) {
+          const el = document.getElementById(sec.id);
+          if (el) {
+            const rect = el.getBoundingClientRect();
+            if (rect.top <= window.innerHeight * 0.45 && rect.bottom >= window.innerHeight * 0.2) {
+              currentSection = sec.name;
+            }
+          }
+        }
+        if (currentSection) {
+          setActiveTab(currentSection);
+        }
       }
 
       lastScrollY.current = currentScrollY;
@@ -201,9 +225,6 @@ export const Navbar: React.FC = () => {
                 <GithubIcon className="w-4 h-4 text-[#6b6b6b]" />
                 <span>GitHub</span>
               </div>
-              <span className="text-xs bg-[#fafafa] border border-[var(--line)] text-[#6b6b6b] px-2 py-0.5 rounded-full font-mono">
-                2.1k
-              </span>
             </a>
             <div className="pt-2 border-t border-[var(--line)]">
               <Button

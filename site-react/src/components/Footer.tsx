@@ -16,7 +16,7 @@ export const Footer: React.FC = () => {
 
   return (
     <footer className="w-full border-t border-[var(--line)] bg-white py-12 sm:py-14">
-      <div className="section-container flex flex-col sm:flex-row items-center justify-between gap-6 text-[14.5px] text-[#a3a3a3]">
+      <div className="container flex flex-col sm:flex-row items-center justify-between gap-6 text-[14.5px] text-[#a3a3a3]">
         
         {/* Brand signature */}
         <div className="flex items-center gap-2.5 text-[#6b6b6b]">

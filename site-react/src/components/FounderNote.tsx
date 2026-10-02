@@ -17,21 +17,18 @@ export const FounderNote: React.FC = () => {
   ];
 
   return (
-    <section id="founder" className="w-full bg-white section-spacing border-t border-[var(--line)]">
-      <div className="section-container">
-        <div className="max-w-[640px] mx-auto text-left">
-          
-          {/* Eyebrow */}
-          <div className="text-xs uppercase tracking-widest text-[#a3a3a3] font-medium mb-3">
-            Founder Note
-          </div>
-
-          {/* Heading */}
+    <section id="founder" className="w-full bg-white section-rhythm border-t border-[var(--line)]">
+      <div className="container--narrow text-left">
+        
+        {/* Heading: single line, clamp(3rem, 7vw, 5.5rem), mb-6 (24px) */}
+        <div className="mb-6 w-full">
           <RevealText
             text="Why I built BIT"
             as="h2"
-            className="text-3xl sm:text-4xl font-semibold text-[#0a0a0a] tracking-[-0.035em] mb-8 leading-tight"
+            className="section-title text-[#0a0a0a] whitespace-nowrap block w-full"
+            style={{ fontSize: 'clamp(3rem, 7vw, 5.5rem)', lineHeight: 0.92 }}
           />
+        </div>
 
           {/* Body Paragraphs revealing sequentially */}
           <div className="space-y-6 text-[17px] sm:text-[18px] text-[#44403C] leading-relaxed font-normal">
@@ -127,7 +124,6 @@ export const FounderNote: React.FC = () => {
           </div>
 
         </div>
-      </div>
     </section>
   );
 };

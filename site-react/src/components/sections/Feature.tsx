@@ -52,7 +52,7 @@ export const Feature: React.FC<FeatureProps> = ({
               <RevealText
                 text={title}
                 as="h2"
-                className="text-3xl sm:text-4xl lg:text-[44px] font-semibold text-[#0a0a0a] tracking-[-0.035em] leading-[1.08] mb-5 text-balance"
+                className="section-title text-[#0a0a0a] mb-5 text-balance"
               />
 
               <Reveal delay={0.08}>

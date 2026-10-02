@@ -14,12 +14,12 @@ export const VoiceActiveScreen: React.FC = () => {
   const [revealedWordCount, setRevealedWordCount] = useState(words.length);
 
   useEffect(() => {
-    if (!isInView || shouldReduceMotion) {
+    if (shouldReduceMotion) {
       setRevealedWordCount(words.length);
       return;
     }
 
-    setRevealedWordCount(0);
+    setRevealedWordCount(1);
     const interval = setInterval(() => {
       setRevealedWordCount((prev) => {
         if (prev < words.length) {
@@ -28,10 +28,10 @@ export const VoiceActiveScreen: React.FC = () => {
         clearInterval(interval);
         return prev;
       });
-    }, 110);
+    }, 90);
 
     return () => clearInterval(interval);
-  }, [isInView, shouldReduceMotion]);
+  }, [shouldReduceMotion]);
 
   // Dynamic waveform bars with staggered negative delays
   const waveformDelays = ['-0.2s', '-0.5s', '-0.1s', '-0.7s', '-0.3s', '-0.6s', '-0.4s', '-0.8s'];

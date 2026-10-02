@@ -71,10 +71,13 @@ export const LocalRagChatScreen: React.FC = () => {
       typeNextChar();
     };
 
-    startCycle();
+    const initialDelay = setTimeout(() => {
+      startCycle();
+    }, 4000);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility);
+      clearTimeout(initialDelay);
       clearTimeout(typingTimeout);
       clearTimeout(toolTimeout);
       clearTimeout(cardTimeout);

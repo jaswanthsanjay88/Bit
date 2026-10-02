@@ -73,16 +73,12 @@ export const TerminalBlock: React.FC = () => {
   return (
     <section id="terminal" className="py-28 md:py-36 bg-[#07080A] relative">
       <div className="max-w-[1100px] mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
+        {/* Header without eyebrow */}
         <div className="text-center max-w-2xl mx-auto mb-16">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.04] border border-white/10 text-xs font-mono text-[#B6FF3B] mb-4">
-            <Terminal className="w-3.5 h-3.5" />
-            <span>Developer Deployment</span>
-          </div>
           <h2 className="text-4xl sm:text-5xl font-extrabold tracking-[-0.04em] text-white mb-4">
             One command to install.
           </h2>
-          <p className="text-lg text-[#A1A1AA]">
+          <p className="text-base sm:text-lg text-[#A1A1AA] leading-relaxed">
             Deploy directly to your connected Android phone via ADB or copy the GBNF tool grammar.
           </p>
         </div>
