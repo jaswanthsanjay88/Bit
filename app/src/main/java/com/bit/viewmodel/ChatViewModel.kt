@@ -2124,17 +2124,33 @@ class ChatViewModel @Inject constructor(
             result.add(JSONObject().put("role", "system").put("content", systemPrompt))
         }
 
-        // Add history up to now
+        // Add history up to now with dynamic context projection
         if (chatMemoryEnabled.value) {
-            val historyMessages = if (isRegeneration && _messages.lastOrNull()?.role == Role.User) {
+            val historyPool = if (isRegeneration && _messages.lastOrNull()?.role == Role.User) {
                 _messages.dropLast(1)
             } else {
                 _messages
             }
-            val lastUserMsg = historyMessages.lastOrNull { it.role == Role.User }
-            historyMessages.forEach { msg ->
+            val projectedMessages = extractProjectedContextMessages(historyPool)
+            val firstMsg = projectedMessages.firstOrNull()
+            val startsWithSummary = firstMsg != null && (
+                firstMsg.content.content.contains(CONTEXT_SUMMARY_TAG_OPEN) ||
+                firstMsg.content.content.startsWith(CONTEXT_SUMMARY_LEGACY_PREFIX)
+            )
+
+            if (startsWithSummary) {
+                val summaryMsg = firstMsg
+                // Anchor context summary with clean user-assistant alternation to comply with
+                // Anthropic, OpenAI, and llama.cpp chat templates
+                result.add(JSONObject().put("role", "user").put("content", summaryMsg.content.content))
+                result.add(JSONObject().put("role", "assistant").put("content", "Understood. I have integrated the conversation summary and context."))
+            }
+
+            val lastUserMsg = projectedMessages.lastOrNull { it.role == Role.User }
+            projectedMessages.forEachIndexed { idx, msg ->
+                if (startsWithSummary && idx == 0) return@forEachIndexed
                 // Avoid duplicating the current active prompt if it was already added to _messages
-                if (msg === lastUserMsg && msg.content.content == userPrompt) return@forEach
+                if (msg === lastUserMsg && msg.content.content == userPrompt) return@forEachIndexed
                 when (msg.role) {
                     Role.User -> result.add(JSONObject().put("role", "user").put("content", msg.content.content))
                     Role.Assistant -> {
@@ -2530,19 +2546,6 @@ class ChatViewModel @Inject constructor(
         return GenerationResult(text = text, toolCalls = finalToolCalls, metrics = currentMetrics)
     }
 
-    private fun sanitizeLoadedMessages(messages: List<Messages>): List<Messages> {
-        if (messages.size <= 1) return messages
-        val result = mutableListOf<Messages>()
-        for (msg in messages) {
-            val last = result.lastOrNull()
-            if (last != null && last.role == Role.User && msg.role == Role.User && last.content.content == msg.content.content) {
-                // Skip duplicate consecutive identical user messages
-                continue
-            }
-            result.add(msg)
-        }
-        return result
-    }
 
     private fun captureActiveResearchTrace(): com.bit.agent.harness.model.ResearchTrace? {
         val trace = com.bit.agent.harness.engine.ResearchSessionBus.currentTrace.value
@@ -3337,8 +3340,15 @@ class ChatViewModel @Inject constructor(
         }
         
         val basePrompt = modelSpecificPrompt ?: appSettings.globalSystemPrompt.first()
+        val isLocalGguf = ActiveModelSession.currentModelType.value == ProviderType.GGUF
         val currentDateTime = java.util.Date()
-        val sdf = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+        // For local GGUF models running in llama.cpp, pin the time string to hourly/session granularity
+        // so second-level clock ticks do not invalidate the KV-cache prefix on every consecutive turn!
+        val sdf = if (isLocalGguf) {
+            java.text.SimpleDateFormat("yyyy-MM-dd HH:00", java.util.Locale.getDefault())
+        } else {
+            java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+        }
         val dateSdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
 
         // ── TTFT optimization: use cached vault notes instead of re-walking filesystem ──
@@ -3408,7 +3418,7 @@ class ChatViewModel @Inject constructor(
             skillManager.getSkillCatalogPrompt(
                 isWorkspaceAvailable = isWsAvailable,
                 maxBudgetTokens = skillBudget,
-                userQuery = userQuery
+                userQuery = if (isLocalGguf) "" else userQuery
             )
         } else ""
 
@@ -3490,8 +3500,26 @@ class ChatViewModel @Inject constructor(
                 _messages.lastOrNull { it.role == Role.User }?.msgId
             } else null
 
-            _messages.forEach { msg ->
-                if (excludeMsgId != null && msg.msgId == excludeMsgId) return@forEach
+            val historyPool = if (excludeMsgId != null) {
+                _messages.filter { it.msgId != excludeMsgId }
+            } else {
+                _messages
+            }
+            val projectedMessages = extractProjectedContextMessages(historyPool)
+            val firstMsg = projectedMessages.firstOrNull()
+            val startsWithSummary = firstMsg != null && (
+                firstMsg.content.content.contains(CONTEXT_SUMMARY_TAG_OPEN) ||
+                firstMsg.content.content.startsWith(CONTEXT_SUMMARY_LEGACY_PREFIX)
+            )
+
+            if (startsWithSummary) {
+                val summaryMsg = firstMsg
+                result.add(JSONObject().put("role", "user").put("content", summaryMsg.content.content))
+                result.add(JSONObject().put("role", "assistant").put("content", "Understood. I have integrated the conversation summary and context."))
+            }
+
+            projectedMessages.forEachIndexed { idx, msg ->
+                if (startsWithSummary && idx == 0) return@forEachIndexed
                 when (msg.role) {
                     Role.User -> result.add(
                         JSONObject().put("role", "user").put("content", msg.content.content)
@@ -4800,19 +4828,15 @@ class ChatViewModel @Inject constructor(
                     role = Role.Assistant,
                     content = MessageContent(
                         contentType = ContentType.Text,
-                        content = "[Conversation Summary of earlier messages]:\n$summary"
-                    )
+                        content = "<context_summary>\n[Conversation Summary of earlier messages]:\n$summary\n</context_summary>"
+                    ),
+                    timestamp = toFold.lastOrNull()?.timestamp?.plus(1L) ?: System.currentTimeMillis()
                 )
 
-                for (msg in toFold) {
-                    chatManager.deleteMessage(msg.msgId)
-                }
-
+                // Non-destructive DAG compaction: preserve all user messages in history!
+                // Add the milestone summary message to database and insert in-memory between toFold and remaining
                 chatManager.addMessage(chatId, summaryMessage)
-
-                _messages.clear()
-                _messages.add(summaryMessage)
-                _messages.addAll(remaining)
+                _messages.add(foldCount, summaryMessage)
 
                 _streamingAssistantMessage.value = ""
             } catch (e: Exception) {
@@ -4973,5 +4997,78 @@ class ChatViewModel @Inject constructor(
         private const val REPETITION_MIN_PATTERN_LEN = 30
         private const val REPETITION_MIN_REPEATS = 4
         private const val REPETITION_MAX_CHECK_LEN = 800
+
+        const val CONTEXT_SUMMARY_TAG_OPEN = "<context_summary>"
+        const val CONTEXT_SUMMARY_TAG_CLOSE = "</context_summary>"
+        const val CONTEXT_SUMMARY_LEGACY_PREFIX = "[Conversation Summary"
+
+        /**
+         * Dynamic context projection:
+         * Walks backwards from the latest message to find the most recent context summary milestone.
+         * Only messages from the milestone forward are projected to the LLM, preserving ~90% tokens
+         * while keeping 100% of historical user messages visible in the UI and persistent in SQLite.
+         */
+        fun extractProjectedContextMessages(messages: List<Messages>): List<Messages> {
+            if (messages.isEmpty()) return emptyList()
+            val summaryIndex = messages.indexOfLast { msg ->
+                msg.content.content.contains(CONTEXT_SUMMARY_TAG_OPEN) ||
+                msg.content.content.startsWith(CONTEXT_SUMMARY_LEGACY_PREFIX)
+            }
+            return if (summaryIndex >= 0) {
+                messages.subList(summaryIndex, messages.size)
+            } else {
+                messages
+            }
+        }
+
+        /**
+         * Sanitizes loaded messages from database or session:
+         * 1. Eliminates consecutive identical user prompts.
+         * 2. Neutralizes unclosed or orphan <tool_call> tags in assistant messages that lack results,
+         *    preventing API 400 Bad Request errors and local model confusion.
+         */
+        fun sanitizeLoadedMessages(messages: List<Messages>): List<Messages> {
+            if (messages.isEmpty()) return emptyList()
+            val result = mutableListOf<Messages>()
+            for (i in messages.indices) {
+                val msg = messages[i]
+                val last = result.lastOrNull()
+                if (last != null && last.role == Role.User && msg.role == Role.User && last.content.content == msg.content.content) {
+                    // Skip duplicate consecutive identical user messages
+                    continue
+                }
+
+                if (msg.role == Role.Assistant) {
+                    var contentStr = msg.content.content
+                    val openTag = "<tool_call>"
+                    val closeTag = "</tool_call>"
+
+                    // 1. Interrupted streaming / unclosed tool call tags
+                    if (contentStr.contains(openTag) && !contentStr.contains(closeTag)) {
+                        val idx = contentStr.lastIndexOf(openTag)
+                        contentStr = contentStr.substring(0, idx).trim()
+                    }
+
+                    // 2. Orphan tool call tags without recorded tool steps or subsequent results
+                    if (contentStr.contains(openTag) && contentStr.contains(closeTag)) {
+                        val hasRecordedSteps = !msg.toolChainSteps.isNullOrEmpty()
+                        val nextIsResult = (i + 1 < messages.size) && (messages[i + 1].content.contentType == ContentType.PluginResult)
+                        if (!hasRecordedSteps && !nextIsResult) {
+                            contentStr = contentStr.replace(Regex("<tool_call>\\s*\\{.*?\\}\\s*</tool_call>", RegexOption.DOT_MATCHES_ALL), "").trim()
+                        }
+                    }
+
+                    val cleanedMsg = if (contentStr != msg.content.content) {
+                        msg.copy(content = msg.content.copy(content = contentStr))
+                    } else {
+                        msg
+                    }
+                    result.add(cleanedMsg)
+                } else {
+                    result.add(msg)
+                }
+            }
+            return result
+        }
     }
 }

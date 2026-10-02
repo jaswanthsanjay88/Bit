@@ -377,10 +377,18 @@ fun BodyContent(
                                     }
                                     
                                     if (parsedMessage.actualContent.isNotEmpty()) {
+                                        val displayContent = if (parsedMessage.actualContent.contains("<context_summary>")) {
+                                            parsedMessage.actualContent
+                                                .replace("<context_summary>", "")
+                                                .replace("</context_summary>", "")
+                                                .trim()
+                                        } else {
+                                            parsedMessage.actualContent
+                                        }
                                         Box(modifier = Modifier.fillMaxWidth().padding(horizontal = Standards.SpacingMd)) {
                                             androidx.compose.foundation.text.selection.SelectionContainer {
                                                 MarkdownText(
-                                                    text = parsedMessage.actualContent,
+                                                    text = displayContent,
                                                     modifier = Modifier.fillMaxWidth()
                                                 )
                                             }
