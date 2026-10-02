@@ -112,21 +112,33 @@ class ModelConfigEditorViewModel @Inject constructor() : ViewModel() {
                     }
 
                     ProviderType.API -> {
-                        _apiConfig.value = if (config != null && !config.modelLoadingParams.isNullOrBlank()) {
-                            try {
-                                val json = JSONObject(config.modelLoadingParams)
-                                ApiModelConfig(
-                                    endpoint = json.optString("endpoint", ""),
-                                    model = json.optString("model", ""),
-                                    stream = json.optBoolean("stream", false),
-                                    authHeader = json.optString("authHeader", "")
-                                )
-                            } catch (_: Exception) {
-                                ApiModelConfig()
-                            }
-                        } else {
-                            ApiModelConfig()
+                        val loadingJson = config?.modelLoadingParams?.takeIf { it.isNotBlank() }?.let {
+                            try { JSONObject(it) } catch (_: Exception) { null }
                         }
+                        val infJson = config?.modelInferenceParams?.takeIf { it.isNotBlank() }?.let {
+                            try { JSONObject(it) } catch (_: Exception) { null }
+                        }
+
+                        val resolvedDefaultContext = com.bit.models.ModelContextDefaults.resolve(
+                            modelIdOrName = loadingJson?.optString("model")?.takeIf { it.isNotBlank() } ?: model.modelName,
+                            providerType = ProviderType.API
+                        )
+
+                        val loadedCtx = loadingJson?.optInt("contextSize", 0)?.takeIf { it > 0 } ?: resolvedDefaultContext
+
+                        _apiConfig.value = ApiModelConfig(
+                            endpoint = loadingJson?.optString("endpoint", "") ?: "",
+                            model = loadingJson?.optString("model", "") ?: "",
+                            stream = loadingJson?.optBoolean("stream", false) ?: false,
+                            authHeader = loadingJson?.optString("authHeader", "") ?: "",
+                            contextSize = loadedCtx,
+                            maxTokens = infJson?.optInt("maxTokens", 4096)?.takeIf { it > 0 } ?: 4096,
+                            temperature = infJson?.optDouble("temperature", 0.7)?.toFloat() ?: 0.7f,
+                            topP = infJson?.optDouble("topP", 0.95)?.toFloat() ?: 0.95f,
+                            systemPrompt = infJson?.optString("systemPrompt", "") ?: "",
+                            thinkingEnabled = infJson?.optBoolean("thinkingEnabled", false) ?: false,
+                            thinkingBudget = infJson?.optInt("thinkingBudget", 4096) ?: 4096
+                        )
                     }
                 }
             } catch (_: Exception) {
@@ -214,12 +226,21 @@ class ModelConfigEditorViewModel @Inject constructor() : ViewModel() {
                             put("model", _apiConfig.value.model.trim())
                             put("stream", _apiConfig.value.stream)
                             put("authHeader", _apiConfig.value.authHeader.trim())
+                            put("contextSize", _apiConfig.value.contextSize)
+                        }.toString()
+                        val inferenceJson = JSONObject().apply {
+                            put("maxTokens", _apiConfig.value.maxTokens)
+                            put("temperature", _apiConfig.value.temperature)
+                            put("topP", _apiConfig.value.topP)
+                            put("systemPrompt", _apiConfig.value.systemPrompt.trim())
+                            put("thinkingEnabled", _apiConfig.value.thinkingEnabled)
+                            put("thinkingBudget", _apiConfig.value.thinkingBudget)
                         }.toString()
                         ModelConfig(
                             id = existingConfig?.id ?: "",
                             modelId = model.id,
                             modelLoadingParams = loadingJson,
-                            modelInferenceParams = existingConfig?.modelInferenceParams
+                            modelInferenceParams = inferenceJson
                         )
                     }
                 }
@@ -464,11 +485,56 @@ class ModelConfigEditorViewModel @Inject constructor() : ViewModel() {
     fun updateApiAuthHeader(authHeader: String) {
         _apiConfig.update { it.copy(authHeader = authHeader) }
     }
+
+    fun updateApiContextSize(value: Int) {
+        _apiConfig.update { it.copy(contextSize = value) }
+    }
+
+    fun updateApiMaxTokens(value: Int) {
+        _apiConfig.update { it.copy(maxTokens = value) }
+    }
+
+    fun updateApiTemperature(value: Float) {
+        _apiConfig.update { it.copy(temperature = value) }
+    }
+
+    fun updateApiTopP(value: Float) {
+        _apiConfig.update { it.copy(topP = value) }
+    }
+
+    fun updateApiSystemPrompt(prompt: String) {
+        _apiConfig.update { it.copy(systemPrompt = prompt) }
+    }
+
+    fun updateApiThinkingEnabled(enabled: Boolean) {
+        _apiConfig.update { it.copy(thinkingEnabled = enabled) }
+    }
+
+    fun updateApiThinkingBudget(budget: Int) {
+        _apiConfig.update { it.copy(thinkingBudget = budget) }
+    }
+
+    fun autoDetectApiContext(modelName: String) {
+        val detected = com.bit.models.ModelContextDefaults.resolve(modelName, ProviderType.API)
+        _apiConfig.update { it.copy(contextSize = detected) }
+    }
+
+    fun autoDetectGgufContext(modelName: String) {
+        val detected = com.bit.models.ModelContextDefaults.resolve(modelName, ProviderType.GGUF)
+        updateGgufContextSize(detected)
+    }
 }
 
 data class ApiModelConfig(
     val endpoint: String = "",
     val model: String = "",
     val stream: Boolean = false,
-    val authHeader: String = ""
+    val authHeader: String = "",
+    val contextSize: Int = com.bit.models.ModelContextDefaults.DEFAULT_API_CONTEXT,
+    val maxTokens: Int = 4096,
+    val temperature: Float = 0.7f,
+    val topP: Float = 0.95f,
+    val systemPrompt: String = "",
+    val thinkingEnabled: Boolean = false,
+    val thinkingBudget: Int = 4096
 )

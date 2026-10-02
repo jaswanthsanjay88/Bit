@@ -41,6 +41,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.bit.tts.TTSDataStore
 import com.bit.tts.TTSSettings
 import com.bit.util.VlmPaths
+import com.bit.models.ModelContextDefaults
+import com.bit.ui.components.ContextBudget
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -623,12 +625,21 @@ internal fun GgufConfigEditor(viewModel: ModelConfigEditorViewModel, model: Mode
                 enabled = !loadingLocked
             )
 
+            ContextPresetsRow(
+                currentValue = ggufConfig.loadingParams.ctxSize,
+                presets = intArrayOf(2048, 4096, 8192, 16384, 32768),
+                onPresetSelect = { viewModel.updateGgufContextSize(it) },
+                onAutoDetect = { viewModel.autoDetectGgufContext(model.modelName) },
+                enabled = !loadingLocked
+            )
+
             IntField(
                 label = "Context Size",
                 value = ggufConfig.loadingParams.ctxSize,
                 onValueChange = { viewModel.updateGgufContextSize(it) },
                 range = 512..32768,
                 step = 512,
+                description = "Allocated KV cache: ${ContextBudget.compactLabel(ggufConfig.loadingParams.ctxSize)} (${String.format("%,d", ggufConfig.loadingParams.ctxSize)} tokens)",
                 enabled = !loadingLocked
             )
 
@@ -1054,7 +1065,7 @@ internal fun ApiConfigEditor(viewModel: ModelConfigEditorViewModel, model: Model
             ReadOnlyField(label = "Type", value = "Remote REST Endpoint")
         }
 
-        ConfigSection("Endpoint Parameters") {
+        ConfigSection("Endpoint & Authentication") {
             TextField(
                 label = "Endpoint URL",
                 value = apiConfig.endpoint,
@@ -1068,7 +1079,7 @@ internal fun ApiConfigEditor(viewModel: ModelConfigEditorViewModel, model: Model
             )
 
             TextField(
-                label = "Authorization Token",
+                label = "Authorization Token / API Key",
                 value = apiConfig.authHeader,
                 onValueChange = { viewModel.updateApiAuthHeader(it) }
             )
@@ -1079,6 +1090,194 @@ internal fun ApiConfigEditor(viewModel: ModelConfigEditorViewModel, model: Model
                 onCheckedChange = { viewModel.updateApiStream(it) },
                 description = "Stream response tokens as they are generated"
             )
+        }
+
+        ConfigSection("Context Window & Token Budget (Agora)") {
+            ContextPresetsRow(
+                currentValue = apiConfig.contextSize,
+                presets = ModelContextDefaults.PRESETS,
+                onPresetSelect = { viewModel.updateApiContextSize(it) },
+                onAutoDetect = {
+                    val targetName = apiConfig.model.ifBlank { model.modelName }
+                    viewModel.autoDetectApiContext(targetName)
+                }
+            )
+
+            IntField(
+                label = "Context Window (Tokens)",
+                value = apiConfig.contextSize,
+                onValueChange = { viewModel.updateApiContextSize(it) },
+                range = 4096..1048576,
+                step = 4096,
+                description = "Provider-visible conversation context budget: ${ContextBudget.compactLabel(apiConfig.contextSize)} (${String.format("%,d", apiConfig.contextSize)} tokens)"
+            )
+        }
+
+        ConfigSection("Generation & Inference Parameters") {
+            IntField(
+                label = "Max Output Tokens",
+                value = apiConfig.maxTokens,
+                onValueChange = { viewModel.updateApiMaxTokens(it) },
+                range = 256..16384,
+                step = 256,
+                description = "Maximum token limit for single generation turn"
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                val maxTokenPresets = listOf(1024, 2048, 4096, 8192, 16384)
+                maxTokenPresets.forEach { preset ->
+                    val isSelected = apiConfig.maxTokens == preset
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { viewModel.updateApiMaxTokens(preset) },
+                        label = {
+                            Text(
+                                text = "${preset / 1024}K",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
+                        shape = RoundedCornerShape(Standards.RadiusMd),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    )
+                }
+            }
+
+            FloatField(
+                label = "Temperature",
+                value = apiConfig.temperature,
+                onValueChange = { viewModel.updateApiTemperature(it) },
+                range = 0.0f..2.0f,
+                step = 0.05f,
+                description = "Controls randomness (0.2 = focused & deterministic, 0.7 = balanced, 1.0 = creative)"
+            )
+
+            FloatField(
+                label = "Top-P (Nucleus Sampling)",
+                value = apiConfig.topP,
+                onValueChange = { viewModel.updateApiTopP(it) },
+                range = 0.05f..1.0f,
+                step = 0.05f,
+                description = "Cumulative probability threshold for candidate tokens"
+            )
+
+            SwitchField(
+                label = "Reasoning / Thinking Mode",
+                checked = apiConfig.thinkingEnabled,
+                onCheckedChange = { viewModel.updateApiThinkingEnabled(it) },
+                description = "Enable chain-of-thought thinking for reasoning models (Claude 3.7, DeepSeek R1, QwQ)"
+            )
+
+            if (apiConfig.thinkingEnabled) {
+                IntField(
+                    label = "Thinking Budget (Tokens)",
+                    value = apiConfig.thinkingBudget,
+                    onValueChange = { viewModel.updateApiThinkingBudget(it) },
+                    range = 1024..32768,
+                    step = 1024,
+                    description = "Token allotment for intermediate reasoning thoughts"
+                )
+            }
+        }
+
+        ConfigSection("Custom System Prompt Override") {
+            TextField(
+                label = "Model System Prompt (Optional)",
+                value = apiConfig.systemPrompt,
+                onValueChange = { viewModel.updateApiSystemPrompt(it) },
+                multiline = true,
+                minLines = 3
+            )
+            Text(
+                text = "Override the default system prompt for this specific model. Supports runtime variables: {TIME}, {DATE}, {SENT_TIME}, {ACTIVE_MEMORY}.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun ContextPresetsRow(
+    currentValue: Int,
+    presets: IntArray,
+    onPresetSelect: (Int) -> Unit,
+    onAutoDetect: () -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    val alpha = if (enabled) 1f else 0.5f
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .alpha(alpha),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Context Presets (Agora)",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            TextButton(
+                onClick = { if (enabled) onAutoDetect() },
+                enabled = enabled,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Icon(
+                    imageVector = TnIcons.Sparkles,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Auto-Detect Default",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            presets.forEach { preset ->
+                val isSelected = currentValue == preset
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { if (enabled) onPresetSelect(preset) },
+                    enabled = enabled,
+                    label = {
+                        Text(
+                            text = ContextBudget.compactLabel(preset),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    shape = RoundedCornerShape(Standards.RadiusMd),
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                )
+            }
         }
     }
 }

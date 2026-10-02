@@ -2,6 +2,7 @@ package com.bit.ui.components.markdown
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -160,23 +161,35 @@ fun IncrementalStreamingMarkdownView(
         onDispose { state.close() }
     }
 
-    LaunchedEffect(snapshot.stableBlocks.size, snapshot.liveBlock) {
-        alphaAnim.snapTo(0.7f)
-        alphaAnim.animateTo(1.0f, animationSpec = tween(90))
+    LaunchedEffect(snapshot.liveBlock, snapshot.isStreaming) {
+        if (snapshot.isStreaming && snapshot.liveBlock.isNotEmpty()) {
+            alphaAnim.snapTo(0.85f)
+            alphaAnim.animateTo(1.0f, animationSpec = tween(60))
+        } else {
+            alphaAnim.snapTo(1.0f)
+        }
     }
 
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .graphicsLayer { alpha = alphaAnim.value }
+        modifier = modifier.fillMaxWidth()
     ) {
-        snapshot.stableBlocks.forEach { block ->
-            renderBlock(block)
-            Spacer(Modifier.height(8.dp))
+        snapshot.stableBlocks.forEachIndexed { index, block ->
+            androidx.compose.runtime.key(index, block.hashCode()) {
+                renderBlock(block)
+                Spacer(Modifier.height(8.dp))
+            }
         }
 
         if (snapshot.liveBlock.isNotEmpty()) {
-            renderBlock(snapshot.liveBlock)
+            androidx.compose.runtime.key("live-tail") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer { alpha = alphaAnim.value }
+                ) {
+                    renderBlock(snapshot.liveBlock)
+                }
+            }
         }
     }
 }

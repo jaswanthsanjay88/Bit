@@ -24,8 +24,8 @@ import com.bit.models.messages.ContentType
 import com.bit.models.messages.Messages
 import com.bit.models.ui.ActionIcon
 import com.bit.models.ui.ActionItem
-import com.bit.ui.components.ReasoningTraceCard
-import com.bit.ui.components.toTraceStep
+import com.bit.ui.components.ActivityBlock
+import com.bit.ui.components.buildTraceStepsFromMessage
 import com.bit.ui.components.MultiActionButton
 import com.bit.ui.icons.TnIcons
 import com.bit.viewmodel.AgentPhase
@@ -34,14 +34,11 @@ import com.bit.global.Standards
 
 // ── AssistantMessageHeader ──
 
-/** Header part of assistant message: RAG results, tool chain, thinking block, non-text content. */
+/** Header part of assistant message: RAG results, activity block, non-text content. */
 @Composable
-internal fun AssistantMessageHeader(message: Messages, imageBlurEnabled: Boolean = false, onTraceStepClick: ((com.bit.ui.components.TraceStep) -> Unit)? = null) {
+internal fun AssistantMessageHeader(message: Messages, imageBlurEnabled: Boolean = false) {
     val hasRagResults = remember(message.ragResults) {
         message.ragResults?.isNotEmpty() == true
-    }
-    val hasToolChainSteps = remember(message.toolChainSteps) {
-        message.toolChainSteps?.isNotEmpty() == true
     }
 
     Column(
@@ -54,38 +51,23 @@ internal fun AssistantMessageHeader(message: Messages, imageBlurEnabled: Boolean
             }
         }
 
-        val hasReasoningTrace = message.agentPlan != null || hasToolChainSteps
-        if (hasReasoningTrace) {
-            val traceSteps = (message.toolChainSteps ?: emptyList()).map { it.toTraceStep() }
-            ReasoningTraceCard(
-                steps = traceSteps,
-                plan = message.agentPlan,
-                summary = message.agentSummary,
-                isLive = false,
-                onStepClick = onTraceStepClick
+        val activitySteps = remember(message) {
+            buildTraceStepsFromMessage(message)
+        }
+        if (activitySteps.isNotEmpty()) {
+            val durationMs = message.researchTrace?.durationMs ?: (message.toolChainSteps?.sumOf { it.executionTimeMs } ?: 0L)
+            ActivityBlock(
+                steps = activitySteps,
+                elapsedMs = durationMs,
+                isRunning = false,
+                isStreamingAnswer = false
             )
         }
-
-        // Tiny Token Cost Pill
-
 
         // Non-text content types
         when (message.content.contentType) {
             ContentType.Image -> ImageMessageBubble(message, imageBlurEnabled)
-            ContentType.PluginResult -> {
-                if (!hasReasoningTrace) {
-                    message.toTraceStep()?.let { step ->
-                        ReasoningTraceCard(
-                            steps = listOf(step),
-                            isLive = false,
-                            onStepClick = onTraceStepClick
-                        )
-                    }
-                }
-            }
-            else -> {
-                // Thinking block is handled in BodyContent to prevent duplicate cards
-            }
+            else -> {}
         }
     }
 }

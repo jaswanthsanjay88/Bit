@@ -1045,7 +1045,7 @@ internal fun BottomBar(
                                         if (value.isEmpty()) {
                                             val expandedPlaceholder = when {
                                                 attachedSkill != null -> "Enter instructions for ${attachedSkill!!.name}..."
-                                                isAgentMode -> "Instruct autonomous agent or enter / for skills..."
+                                                isAgentMode -> "Instruct agent or enter / for skills..."
                                                 else -> "Ask me anything or enter / for skills..."
                                             }
                                             Text(
@@ -1183,7 +1183,7 @@ internal fun BottomBar(
                                                 attachedSkill != null -> "Enter instructions for ${attachedSkill!!.name}..."
                                                 isImageModelLoaded && !isTextModelLoaded -> "Describe the image to generate..."
                                                 isImageModelLoaded && chatState.generationType == ModelType.IMAGE_GENERATION -> "Describe the image to generate..."
-                                                isAgentMode -> "Instruct agent (autonomous DAG execution)..."
+                                                isAgentMode -> "Instruct agent..."
                                                 else -> "Ask me anything..."
                                             }
                                             Text(

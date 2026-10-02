@@ -15,8 +15,8 @@ import com.bit.models.messages.ContentType
 import com.bit.models.messages.MessageContent
 import com.bit.models.messages.Messages
 import com.bit.models.messages.Role
-import com.bit.ui.components.ReasoningTraceCard
-import com.bit.ui.components.toTraceStep
+import com.bit.ui.components.ActivityBlock
+import com.bit.ui.components.buildLiveTraceSteps
 import com.bit.ui.icons.TnIcons
 import com.bit.viewmodel.AgentPhase
 import kotlinx.coroutines.FlowPreview
@@ -105,27 +105,21 @@ internal fun StreamingView(
             RagResultsDisplay(results = ragResults)
         }
 
-        // Show unified reasoning trace or plugin results
-        val hasReasoningTrace = toolChainSteps.isNotEmpty() || agentPlan != null || agentSummary != null
-        val pluginMsgs = remember(messages) {
-            messages.filter { it.content.contentType == ContentType.PluginResult }
+        // Show live activity block (merges research trace, search queries, sources, and tool calls into ONE block)
+        val liveResearchTrace by com.bit.agent.harness.engine.ResearchSessionBus.currentTrace.collectAsState()
+        val liveSteps = remember(liveResearchTrace, toolChainSteps) {
+            buildLiveTraceSteps(liveResearchTrace, toolChainSteps)
         }
+        val isAgentRunning = agentPhase != AgentPhase.Complete && agentPhase != AgentPhase.Idle
+        val isAgentBusy = liveResearchTrace.isRunning || (isAgentRunning && assistantMessage.isEmpty())
 
-        if (hasReasoningTrace) {
-            val traceSteps = toolChainSteps.map { it.toTraceStep() }
-            ReasoningTraceCard(
-                steps = traceSteps,
-                plan = agentPlan,
-                summary = agentSummary,
-                isLive = agentPhase != AgentPhase.Complete && agentPhase != AgentPhase.Idle,
-                currentRound = currentToolChainRound,
-                maxRounds = 5
-            )
-        } else if (pluginMsgs.isNotEmpty()) {
-            val traceSteps = pluginMsgs.mapNotNull { it.toTraceStep() }
-            ReasoningTraceCard(
-                steps = traceSteps,
-                isLive = false
+        if (liveSteps.isNotEmpty() || liveResearchTrace.isRunning) {
+            ActivityBlock(
+                steps = liveSteps,
+                elapsedMs = maxOf(liveResearchTrace.durationMs, toolChainSteps.sumOf { it.executionTimeMs }),
+                isRunning = isAgentBusy,
+                runningPhase = liveResearchTrace.phases.lastOrNull()?.title,
+                isStreamingAnswer = assistantMessage.isNotEmpty()
             )
         }
 
@@ -137,11 +131,8 @@ internal fun StreamingView(
                     step = imageStep
                 )
             }
-            // Show streaming text when in simple flow or during plan/summary generation
-            agentPhase == AgentPhase.Idle || agentPhase == AgentPhase.Complete -> {
-                if (assistantMessage.isNotEmpty()) {
-                    AssistantStreamingBubble(text = assistantMessage, thinkingEnabled = thinkingEnabled)
-                }
+            assistantMessage.isNotEmpty() -> {
+                AssistantStreamingBubble(text = assistantMessage, thinkingEnabled = thinkingEnabled)
             }
         }
 

@@ -184,7 +184,8 @@ fun HomeScreen(
                             onStoreButtonClicked = onStoreButtonClicked,
                             onMenuClick = { drawerState.toggle() },
                             showDynamicWindow = { chatViewModel.showDynamicWindow() },
-                            onMemoryClick = onVaultManagerClick
+                            onMemoryClick = onVaultManagerClick,
+                            chatViewModel = chatViewModel
                         )
                     },
                     bottomBar = {

@@ -29,6 +29,7 @@ import com.bit.models.messages.Messages
 import com.bit.ui.components.ExpandCollapseIcon
 import com.bit.ui.components.GlassCard
 import com.bit.ui.components.MarkdownText
+import com.bit.ui.components.UserBubbleShape
 import com.bit.ui.icons.TnIcons
 import com.bit.ui.theme.Glass
 import com.bit.ui.theme.Motion
@@ -79,7 +80,7 @@ internal fun UserMessageBubble(
                 .padding(horizontal = Standards.SpacingSm, vertical = 2.dp)
         ) {
             val interactionSource = remember { MutableInteractionSource() }
-            val bubbleShape = RoundedCornerShape(20.dp)
+            val bubbleShape = remember { UserBubbleShape(cornerRadius = 22.dp, tailRadius = 6.dp) }
             val bubbleColor = MaterialTheme.colorScheme.surfaceContainerHigh
             
             Box(
@@ -97,7 +98,7 @@ internal fun UserMessageBubble(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(max = 200.dp)
-                                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
+                                .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)),
                             contentScale = ContentScale.Crop
                         )
                     }

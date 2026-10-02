@@ -35,7 +35,7 @@ import com.bit.ui.icons.TnIcons
 import com.bit.ui.theme.Glass
 import org.json.JSONObject
 
-data class TraceStep(
+data class LegacyTraceStep(
     val toolName: String,
     val pluginName: String,
     val result: String,
@@ -54,7 +54,7 @@ data class CleanToolResult(
     val raw: String = ""
 )
 
-fun ToolChainStepData.toTraceStep() = TraceStep(
+fun ToolChainStepData.toLegacyTraceStep() = LegacyTraceStep(
     toolName = toolName,
     pluginName = pluginName,
     result = result,
@@ -63,9 +63,9 @@ fun ToolChainStepData.toTraceStep() = TraceStep(
     inputParams = args
 )
 
-fun Messages.toTraceStep(): TraceStep? {
+fun Messages.toLegacyTraceStep(): LegacyTraceStep? {
     val data = content.pluginResultData ?: return null
-    return TraceStep(
+    return LegacyTraceStep(
         toolName = data.toolName,
         pluginName = data.pluginName,
         result = data.resultData,
@@ -127,16 +127,26 @@ fun filterInternalProotNoise(stderr: String): String {
 
 @Composable
 fun ReasoningTraceCard(
-    steps: List<TraceStep>,
+    steps: List<LegacyTraceStep>,
     plan: String? = null,
     summary: String? = null,
     isLive: Boolean = false,
     currentRound: Int = 0,
     maxRounds: Int = 5,
-    onStepClick: ((TraceStep) -> Unit)? = null,
+    onStepClick: ((LegacyTraceStep) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    if (steps.isEmpty() && plan == null && summary == null && !isLive) return
+    val visibleSteps = remember(steps) {
+        steps.filterNot {
+            it.toolName.equals("direct_answer", ignoreCase = true) ||
+            it.toolName.equals("direct_response", ignoreCase = true)
+        }
+    }
+    val hasVisiblePlan = remember(plan) {
+        !plan.isNullOrBlank() && !plan.contains("direct_answer", ignoreCase = true)
+    }
+
+    if (visibleSteps.isEmpty() && !hasVisiblePlan && summary == null && !isLive) return
 
     var isExpanded by remember { mutableStateOf(false) }
     val haptics = com.bit.ui.theme.LocalBitHaptics.current
@@ -147,10 +157,10 @@ fun ReasoningTraceCard(
         label = "chevronRotation"
     )
 
-    val totalTimeMs = steps.sumOf { it.executionTimeMs }
+    val totalTimeMs = visibleSteps.sumOf { it.executionTimeMs }
     val timeStr = if (totalTimeMs > 0) " (${String.format(java.util.Locale.US, "%.1f", totalTimeMs / 1000f)}s)" else ""
 
-    val totalSteps = steps.size
+    val totalSteps = visibleSteps.size
     val label = if (totalSteps > 0) {
         "Executed $totalSteps tool${if (totalSteps != 1) "s" else ""}$timeStr"
     } else {
@@ -213,11 +223,11 @@ fun ReasoningTraceCard(
                     .padding(top = 4.dp, bottom = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (plan != null) {
+                if (hasVisiblePlan && plan != null) {
                     PlanDagTodoListSection(planText = plan)
                 }
 
-                steps.forEachIndexed { idx, step ->
+                visibleSteps.forEachIndexed { idx, step ->
                     ReasoningStepCard(step = step, index = idx + 1)
                 }
 
@@ -230,7 +240,7 @@ fun ReasoningTraceCard(
 }
 
 @Composable
-private fun ReasoningStepCard(step: TraceStep, index: Int) {
+private fun ReasoningStepCard(step: LegacyTraceStep, index: Int) {
     var stepExpanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val haptics = com.bit.ui.theme.LocalBitHaptics.current
@@ -261,6 +271,22 @@ private fun ReasoningStepCard(step: TraceStep, index: Int) {
     }
 
     val parsedResult = remember(step.result) { parseToolResult(step.result) }
+
+    val isShell = step.toolName.contains("shell", ignoreCase = true) ||
+            step.toolName.contains("bash", ignoreCase = true) ||
+            step.toolName.contains("terminal", ignoreCase = true) ||
+            step.toolName.contains("cmd", ignoreCase = true)
+    val isSearch = step.toolName.contains("search", ignoreCase = true)
+    val isFetch = step.toolName.contains("fetch", ignoreCase = true) || step.toolName.contains("url", ignoreCase = true)
+    val isFile = step.toolName.contains("file", ignoreCase = true)
+
+    val inputLabel = when {
+        isShell -> "COMMAND"
+        isSearch -> "SEARCH QUERY"
+        isFetch -> "TARGET URL"
+        isFile -> "FILE / PATH"
+        else -> "PARAMETERS"
+    }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -348,7 +374,7 @@ private fun ReasoningStepCard(step: TraceStep, index: Int) {
                 // Input Parameters / Command
                 if (cmdOrQuery.isNotBlank() || step.inputParams.isNotBlank()) {
                     Text(
-                        text = "INPUT / COMMAND",
+                        text = inputLabel,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
@@ -362,7 +388,7 @@ private fun ReasoningStepCard(step: TraceStep, index: Int) {
                     ) {
                         SelectionContainer {
                             Text(
-                                text = if (cmdOrQuery.isNotBlank()) "$ $cmdOrQuery" else rawArgsDisplay,
+                                text = if (isShell && cmdOrQuery.isNotBlank()) "$ $cmdOrQuery" else if (cmdOrQuery.isNotBlank()) cmdOrQuery else rawArgsDisplay,
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 12.sp,
@@ -401,7 +427,13 @@ private fun ReasoningStepCard(step: TraceStep, index: Int) {
                         append("File path: ").append(parsedResult.path)
                     }
                     if (isEmpty()) {
-                        append(if (step.success) "(Command completed with exit code 0 and no output)" else "(Command failed with no output)")
+                        append(
+                            if (isShell) {
+                                if (step.success) "(Command completed with exit code 0 and no output)" else "(Command failed with no output)"
+                            } else {
+                                if (step.success) "(Completed successfully with no output)" else "(Failed with no output)"
+                            }
+                        )
                     }
                 }
 
@@ -618,7 +650,7 @@ fun PlanDagTodoListSection(planText: String, modifier: Modifier = Modifier) {
                 modifier = Modifier.size(13.dp)
             )
             Text(
-                text = "Task Execution Plan (DAG)",
+                text = "Task Execution Plan",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary

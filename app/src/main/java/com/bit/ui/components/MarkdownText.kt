@@ -509,10 +509,11 @@ internal fun buildInlineFormatted(text: String, colors: InlineColors): Annotated
                     i = end + 1
                 } else { append(chars[i]); i++ }
             }
-            // Citation `[id]`
-            chars[i] == '[' && i + 5 < chars.size && chars[i + 5] == ']' -> {
-                val citation = text.substring(i + 1, i + 5)
-                if (citation.all { it.isLetterOrDigit() }) {
+            // Citation `[1]`, `[2]`, `[id]`
+            chars[i] == '[' && text.indexOf(']', i + 1).let { it in (i + 2)..(i + 6) } -> {
+                val closeIdx = text.indexOf(']', i + 1)
+                val citation = text.substring(i + 1, closeIdx)
+                if (citation.all { it.isDigit() }) {
                     withStyle(SpanStyle(
                         fontSize = 10.sp,
                         color = colors.mathColor,
@@ -522,7 +523,7 @@ internal fun buildInlineFormatted(text: String, colors: InlineColors): Annotated
                     )) {
                         append("[$citation]")
                     }
-                    i += 6
+                    i = closeIdx + 1
                 } else {
                     append(chars[i])
                     i++
@@ -548,7 +549,7 @@ private fun cachedInlineFormatting(text: String, colors: InlineColors): Annotate
 @Composable
 private fun MarkdownElementView(element: MarkdownElement, colors: InlineColors) {
     when (element) {
-        is MarkdownElement.Heading1 -> HeadingText(element.text, colors, 24.sp, FontWeight.Bold, 4.dp)
+        is MarkdownElement.Heading1 -> HeadingText(element.text, colors, 22.sp, FontWeight.Bold, 4.dp)
         is MarkdownElement.Heading2 -> HeadingText(element.text, colors, 20.sp, FontWeight.SemiBold, 3.dp)
         is MarkdownElement.Heading3 -> HeadingText(element.text, colors, 17.sp, FontWeight.SemiBold, 2.dp)
         is MarkdownElement.Heading4 -> HeadingText(element.text, colors, 15.sp, FontWeight.Medium, 2.dp)
@@ -590,9 +591,9 @@ private fun HeadingText(
 private fun BodyText(text: String, colors: InlineColors) {
     Text(
         text = cachedInlineFormatting(text, colors),
-        style = MaterialTheme.typography.bodyMedium,
+        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 23.5.sp),
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
-        lineHeight = 22.sp,
+        lineHeight = 23.5.sp,
         letterSpacing = 0.15.sp
     )
 }
@@ -605,15 +606,15 @@ private fun BulletPointView(text: String, level: Int, colors: InlineColors) {
     ) {
         Text(
             text = "\u2022",
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(top = 1.dp)
         )
         Text(
             text = cachedInlineFormatting(text, colors),
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 23.5.sp),
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
-            lineHeight = 22.sp,
+            lineHeight = 23.5.sp,
             letterSpacing = 0.15.sp,
             modifier = Modifier.weight(1f)
         )
@@ -628,16 +629,16 @@ private fun NumberedPointView(text: String, number: String, colors: InlineColors
     ) {
         Text(
             text = "$number.",
-            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
             modifier = Modifier.padding(top = 1.dp)
         )
         Text(
             text = cachedInlineFormatting(text, colors),
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 23.5.sp),
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
-            lineHeight = 22.sp,
+            lineHeight = 23.5.sp,
             letterSpacing = 0.15.sp,
             modifier = Modifier.weight(1f)
         )
@@ -663,9 +664,9 @@ private fun BlockQuoteView(text: String, level: Int, colors: InlineColors) {
         )
         Text(
             text = cachedInlineFormatting(text, colors),
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 23.5.sp),
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
-            lineHeight = 20.sp,
+            lineHeight = 23.5.sp,
             modifier = Modifier.weight(1f)
         )
     }

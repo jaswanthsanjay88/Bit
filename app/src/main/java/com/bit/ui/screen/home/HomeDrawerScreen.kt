@@ -141,7 +141,7 @@ fun HomeDrawerScreen(
                             },
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.primary,
-                            contentColor = androidx.compose.ui.graphics.Color.White,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
                             shadowElevation = 2.dp,
                             modifier = Modifier.padding(end = 12.dp)
                         ) {
@@ -154,13 +154,13 @@ fun HomeDrawerScreen(
                                     imageVector = TnIcons.Plus,
                                     contentDescription = "New Chat",
                                     modifier = Modifier.size(16.dp),
-                                    tint = androidx.compose.ui.graphics.Color.White
+                                    tint = MaterialTheme.colorScheme.onPrimary
                                 )
                                 Text(
                                     text = "New Chat",
                                     style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = androidx.compose.ui.graphics.Color.White
+                                    color = MaterialTheme.colorScheme.onPrimary
                                 )
                             }
                         }
@@ -180,62 +180,56 @@ fun HomeDrawerScreen(
                     .background(MaterialTheme.colorScheme.surface)
                     .padding(Standards.SpacingSm)
             ) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 1.dp)
-                Spacer(modifier = Modifier.height(Standards.SpacingXs))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f), thickness = 1.dp)
+                Spacer(modifier = Modifier.height(8.dp))
 
-                // Settings Navigation Item (Pinned at bottom of sidebar)
-                Surface(
-                    onClick = {
-                        haptics.pop()
-                        onSettingsClick()
-                    },
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.45f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(42.dp)
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    // Settings Navigation Item (Bubble shaped, not extended)
+                    Surface(
+                        onClick = {
+                            haptics.pop()
+                            onSettingsClick()
+                        },
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                        tonalElevation = 2.dp,
+                        shadowElevation = 1.dp
                     ) {
                         Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
                                 imageVector = TnIcons.Settings,
-                                contentDescription = null,
+                                contentDescription = "Settings",
                                 modifier = Modifier.size(18.dp),
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = "Settings",
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                         }
-                        Icon(
-                            imageVector = TnIcons.ChevronRight,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                        )
                     }
-                }
 
+                    Text(
+                        text = "BIT · Local Agent",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                    )
+                }
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "BIT · Local Agentic Harness",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                )
             }
         }
     ) { paddingValues ->

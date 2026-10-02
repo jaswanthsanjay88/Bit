@@ -33,8 +33,9 @@ import com.bit.models.messages.Messages
 import com.bit.models.messages.Role
 import com.bit.models.table_schema.Model
 import com.bit.ui.components.lazyMarkdownItems
-import com.bit.ui.components.ReasoningTraceCard
-import com.bit.ui.components.toTraceStep
+import com.bit.ui.components.ActivityBlock
+import com.bit.ui.components.buildLiveTraceSteps
+import com.bit.ui.components.buildTraceStepsFromMessage
 import com.bit.ui.components.CustomTextToolbar
 import com.bit.ui.icons.TnIcons
 import com.bit.ui.components.TextToolbarState
@@ -249,6 +250,7 @@ fun BodyContent(
     val agent by chatViewModel.agentState.collectAsStateWithLifecycle()
     val pendingApproval by chatViewModel.pendingApproval.collectAsStateWithLifecycle()
     val subagentSessions by com.bit.agent.harness.engine.SubagentSessionBus.sessions.collectAsStateWithLifecycle()
+    val liveResearchTrace by com.bit.agent.harness.engine.ResearchSessionBus.currentTrace.collectAsStateWithLifecycle()
     val runningSubagents = remember(subagentSessions) {
         subagentSessions.values.filter { it.isRunning }.sortedBy { it.startedAtMs }
     }
@@ -268,7 +270,6 @@ fun BodyContent(
     val listState = rememberLazyListState()
     val haptics = com.bit.ui.theme.LocalBitHaptics.current
     var wasGenerating by remember { mutableStateOf(chatState.isGenerating) }
-    var selectedTraceStep by remember { mutableStateOf<com.bit.ui.components.TraceStep?>(null) }
 
     LaunchedEffect(chatState.isGenerating) {
         if (wasGenerating && !chatState.isGenerating) {
@@ -362,11 +363,13 @@ fun BodyContent(
                                 ) {
                                     com.bit.ui.screen.home.AssistantMessageHeader(
                                         message = msg,
-                                        imageBlurEnabled = imageBlurEnabled,
-                                        onTraceStepClick = { selectedTraceStep = it }
+                                        imageBlurEnabled = imageBlurEnabled
                                     )
                                     
-                                    if (parsedMessage.thinkingContent != null) {
+                                    val hasActivity = remember(msg) {
+                                        buildTraceStepsFromMessage(msg).isNotEmpty()
+                                    }
+                                    if (!hasActivity && parsedMessage.thinkingContent != null) {
                                         ThinkingBlock(
                                             thinkingText = parsedMessage.thinkingContent,
                                             isStreaming = false
@@ -463,16 +466,19 @@ fun BodyContent(
                                 }
                             }
                         }
-                        // Live agent harness trace (plan + executed tool rounds)
-                        if (!isImageGen && (agent.plan != null || agent.toolChainSteps.isNotEmpty())) {
-                            item(key = "live-agent-trace") {
-                                ReasoningTraceCard(
-                                    steps = agent.toolChainSteps.map { it.toTraceStep() },
-                                    plan = agent.plan,
-                                    summary = null,
-                                    isLive = true,
-                                    currentRound = agent.currentRound,
-                                    maxRounds = 256
+                        // Live activity block (merges research trace, search queries, sources, and tool calls into ONE collapsible block)
+                        if (!isImageGen && (liveResearchTrace.phases.isNotEmpty() || liveResearchTrace.isRunning || agent.toolChainSteps.isNotEmpty())) {
+                            item(key = "live-activity-block") {
+                                val liveSteps = remember(liveResearchTrace, agent.toolChainSteps) {
+                                    buildLiveTraceSteps(liveResearchTrace, agent.toolChainSteps)
+                                }
+                                val isAgentBusy = liveResearchTrace.isRunning || (agent.plan != null && chatState.isGenerating && streaming.assistantMessage.isEmpty())
+                                ActivityBlock(
+                                    steps = liveSteps,
+                                    elapsedMs = maxOf(liveResearchTrace.durationMs, agent.toolChainSteps.sumOf { it.executionTimeMs }),
+                                    isRunning = isAgentBusy,
+                                    runningPhase = liveResearchTrace.phases.lastOrNull()?.title,
+                                    isStreamingAnswer = streaming.assistantMessage.isNotEmpty()
                                 )
                             }
                         }
@@ -617,50 +623,7 @@ fun BodyContent(
             }
         }
 
-        // Trace Step Details Bottom Sheet
-        if (selectedTraceStep != null) {
-            ModalBottomSheet(
-                onDismissRequest = { selectedTraceStep = null },
-                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                dragHandle = { BottomSheetDefaults.DragHandle() }
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = Standards.SpacingMd)
-                        .padding(bottom = Standards.SpacingLg),
-                    verticalArrangement = Arrangement.spacedBy(Standards.SpacingMd)
-                ) {
-                    Text(
-                        text = selectedTraceStep!!.toolName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    
-                    val resultText = selectedTraceStep!!.result.ifEmpty { "No output returned." }
-                    
-                    Surface(
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(Standards.RadiusMd),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                    ) {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxWidth().padding(Standards.SpacingSm)
-                        ) {
-                            item {
-                                Text(
-                                    text = resultText,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+
 
         promptEditState?.let { state ->
             EditMessageDialog(

@@ -42,10 +42,7 @@ fun ContextStackIndicator(
     modifier: Modifier = Modifier
 ) {
     val ragCount = message.ragResults?.size ?: 0
-    val toolCount = message.toolChainSteps?.size ?: 0
-    val hasContext = ragCount > 0 || toolCount > 0
-
-    if (!hasContext) return
+    if (ragCount <= 0) return
 
     val haptics = LocalBitHaptics.current
     var showSheet by remember { mutableStateOf(false) }
@@ -61,57 +58,28 @@ fun ContextStackIndicator(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        if (ragCount > 0) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Glass.SurfaceMedium,
-                border = BorderStroke(0.8.dp, Glass.BorderSubtle)
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = Glass.SurfaceMedium,
+            border = BorderStroke(0.8.dp, Glass.BorderSubtle)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.MenuBook,
-                        contentDescription = null,
-                        tint = Glass.AccentTertiary,
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Text(
-                        text = "$ragCount RAG ${if (ragCount == 1) "source" else "sources"}",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                        fontWeight = FontWeight.Medium,
-                        color = Glass.TextSecondary
-                    )
-                }
-            }
-        }
-
-        if (toolCount > 0) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Glass.SurfaceMedium,
-                border = BorderStroke(0.8.dp, Glass.BorderSubtle)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Build,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Text(
-                        text = "$toolCount ${if (toolCount == 1) "tool" else "tools"} executed",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                        fontWeight = FontWeight.Medium,
-                        color = Glass.TextSecondary
-                    )
-                }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.MenuBook,
+                    contentDescription = null,
+                    tint = Glass.AccentTertiary,
+                    modifier = Modifier.size(13.dp)
+                )
+                Text(
+                    text = "$ragCount RAG ${if (ragCount == 1) "source" else "sources"}",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                    fontWeight = FontWeight.Medium,
+                    color = Glass.TextSecondary
+                )
             }
         }
     }
@@ -137,7 +105,12 @@ private fun ContextSourcesSheet(
     onClose: () -> Unit
 ) {
     val ragResults = message.ragResults ?: emptyList()
-    val toolSteps = message.toolChainSteps ?: emptyList()
+    val toolSteps = remember(message.toolChainSteps) {
+        message.toolChainSteps?.filterNot {
+            it.toolName.equals("direct_answer", ignoreCase = true) ||
+            it.toolName.equals("direct_response", ignoreCase = true)
+        } ?: emptyList()
+    }
 
     Column(
         modifier = Modifier

@@ -65,6 +65,7 @@ fun AnimatedTitle(
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
     modifier: Modifier = Modifier,
+    contextUsageState: ContextUsageState? = null,
     onShowDynamicWindow: () -> Unit = {}
 ) {
     val appState by AppStateManager.appState.collectAsStateWithLifecycle()
@@ -107,9 +108,10 @@ fun AnimatedTitle(
             icon = state.getIcon(),
             state = state,
             activeDownload = activeDownload,
+            contextUsageState = contextUsageState,
+            onShowDynamicWindow = onShowDynamicWindow,
             modifier = modifier
                 .then(borderModifier)
-                .clickable { onShowDynamicWindow() }
         )
     }
 }
@@ -149,7 +151,9 @@ fun TitleRow(
     text: String,
     icon: ImageVector,
     state: AppState,
-    activeDownload: com.bit.service.ModelDownloadService.DownloadState? = null
+    activeDownload: com.bit.service.ModelDownloadService.DownloadState? = null,
+    contextUsageState: ContextUsageState? = null,
+    onShowDynamicWindow: () -> Unit = {}
 ) {
     val iconColor = state.getColor()
     val contentColor = MaterialTheme.colorScheme.onSurface
@@ -181,41 +185,59 @@ fun TitleRow(
                 modifier = Modifier.height(Standards.ActionIconSize)
             ) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = Standards.SpacingLg)
+                    modifier = Modifier.padding(start = Standards.SpacingLg, end = if (contextUsageState != null && activeDownload == null) 8.dp else Standards.SpacingLg)
                 ) {
-                    if (isLoading) {
-                        androidx.compose.material3.CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            color = iconColor,
-                            strokeWidth = 2.dp,
-                            trackColor = iconColor.copy(alpha = 0.15f)
+                    // Left clickable section for model switching dynamic window
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clickable(
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                indication = null
+                            ) { onShowDynamicWindow() }
+                    ) {
+                        if (isLoading) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = iconColor,
+                                strokeWidth = 2.dp,
+                                trackColor = iconColor.copy(alpha = 0.15f)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = iconColor,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Text(
+                            text = collapsedText,
+                            color = contentColor,
+                            maxLines = 1,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            overflow = TextOverflow.Ellipsis
                         )
-                    } else {
+
                         Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = iconColor,
-                            modifier = Modifier.size(20.dp)
+                            imageVector = TnIcons.ChevronDown,
+                            contentDescription = "Show details",
+                            tint = contentColor.copy(alpha = 0.6f),
+                            modifier = Modifier.size(14.dp)
                         )
                     }
 
-                    Text(
-                        text = collapsedText,
-                        color = contentColor,
-                        maxLines = 1,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    Icon(
-                        imageVector = TnIcons.ChevronDown,
-                        contentDescription = "Show details",
-                        tint = contentColor.copy(alpha = 0.6f),
-                        modifier = Modifier.size(14.dp)
-                    )
+                    // Agora-style Context Window circle indicator + composition popup
+                    if (contextUsageState != null && activeDownload == null) {
+                        TopContextIndicator(
+                            contextUsageState = contextUsageState
+                        )
+                    }
                 }
             }
         }

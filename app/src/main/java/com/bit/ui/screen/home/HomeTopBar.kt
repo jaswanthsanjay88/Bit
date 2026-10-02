@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.bit.ui.components.AnimatedTitle
 import com.bit.ui.icons.TnIcons
 import com.bit.ui.theme.LocalBitHaptics
+import com.bit.viewmodel.ChatViewModel
 
 // ── TopBar ──────────────────────────────────────────────────────────────────────
 
@@ -36,9 +38,11 @@ internal fun TopBar(
     onMenuClick: () -> Unit,
     showDynamicWindow: () -> Unit,
     onStoreButtonClicked: (String?) -> Unit,
-    onMemoryClick: () -> Unit = {}
+    onMemoryClick: () -> Unit = {},
+    chatViewModel: ChatViewModel? = null
 ) {
     val haptics = LocalBitHaptics.current
+    val contextUsageState = chatViewModel?.contextUsageState?.collectAsStateWithLifecycle()?.value
 
     CenterAlignedTopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(
@@ -59,7 +63,7 @@ internal fun TopBar(
                     ),
                     modifier = Modifier
                         .wrapContentSize()
-                        .widthIn(max = 240.dp)
+                        .widthIn(max = 280.dp)
                         .sharedBounds(
                             sharedTransitionScope.rememberSharedContentState(key = "chat_header"),
                             animatedVisibilityScope = animatedVisibilityScope
@@ -70,6 +74,7 @@ internal fun TopBar(
                         AnimatedTitle(
                             sharedTransitionScope = sharedTransitionScope,
                             animatedVisibilityScope = animatedVisibilityScope,
+                            contextUsageState = contextUsageState,
                             onShowDynamicWindow = {
                                 haptics.pop()
                                 showDynamicWindow()
