@@ -134,14 +134,8 @@ class DiscoveryReplayWorld(val tree: DiscoveryTree) {
         if (exactMatch != null) return exactMatch
 
         // Next try matching branch index alone
-        val indexMatch = tree.nodes.values.firstOrNull { node ->
-            node.branchIndex == variantIndex && node.nodeId !in visitedNodeIds
-        }
-        if (indexMatch != null) return indexMatch
-
-        // Fallback to any unvisited root node
         return tree.nodes.values.firstOrNull { node ->
-            (node.parentId == null || node.parentId == tree.rootNodeId) && node.nodeId !in visitedNodeIds
+            node.branchIndex == variantIndex && node.nodeId !in visitedNodeIds
         }
     }
 }

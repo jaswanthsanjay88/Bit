@@ -64,6 +64,7 @@ class OptimizeExplorationPolicyTool(
                 appendLine("- Pass Rate: ${"%.1f%%".format(result.bestReport.successRate * 100)}")
                 appendLine("- Average Turns: ${"%.1f".format(result.bestReport.meanTurns)}")
                 appendLine("- Efficiency Ratio: ${"%.2f".format(result.bestReport.efficiencyRatio)}")
+                appendLine("- OOD Rate: ${"%.1f%%".format(result.bestReport.oodRate * 100)}")
                 appendLine()
                 appendLine("Active Hyperparameters: Width=${result.initialWidth}, Depth=${result.maxRepairDepth}, Threshold=${String.format("%.2f", result.successThreshold)}")
             }

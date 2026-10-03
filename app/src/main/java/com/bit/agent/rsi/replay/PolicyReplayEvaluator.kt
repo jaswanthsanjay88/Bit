@@ -15,7 +15,8 @@ data class PolicyEvaluationReport(
     val meanTurns: Double,
     val meanRegret: Double,
     val cacheHitRate: Double,
-    val efficiencyRatio: Double // Higher score with fewer turns yields higher efficiency
+    val efficiencyRatio: Double, // Higher score with fewer turns yields higher efficiency, bounded in [0.0, 1.0]
+    val oodRate: Double = 0.0    // Fraction of episodes that fell outside empirical support
 )
 
 /**
@@ -41,7 +42,8 @@ class PolicyReplayEvaluator {
                 meanTurns = 0.0,
                 meanRegret = 0.0,
                 cacheHitRate = 0.0,
-                efficiencyRatio = 0.0
+                efficiencyRatio = 0.0,
+                oodRate = 0.0
             )
         }
 
@@ -51,6 +53,7 @@ class PolicyReplayEvaluator {
         var totalRegret = 0.0
         var totalTransitions = 0
         var totalCacheHits = 0
+        var totalOodEpisodes = 0
 
         for (tree in trees) {
             val replayWorld = DiscoveryReplayWorld(tree)
@@ -63,6 +66,8 @@ class PolicyReplayEvaluator {
             var isFinished = false
             var finalReward = 0.0
             var episodeTurns = 0
+            var episodeHitOod = false
+            var finalNodeStatus: com.bit.agent.rsi.model.NodeStatus? = null
 
             while (!isFinished && episodeTurns < maxTurnsPerEpisode) {
                 episodeTurns++
@@ -71,10 +76,15 @@ class PolicyReplayEvaluator {
                 val decision = policy.decideNextAction(virtualTree, maxAttempts = maxTurnsPerEpisode)
                 val transition = replayWorld.step(decision)
 
-                if (transition.isCacheHit) totalCacheHits++
+                if (transition.isCacheHit) {
+                    totalCacheHits++
+                } else {
+                    episodeHitOod = true
+                }
 
                 if (transition.node != null) {
                     virtualTree.addNode(transition.node)
+                    finalNodeStatus = transition.node.status
                 }
 
                 if (transition.isTerminal || decision is ExplorationDecision.Accept || decision is ExplorationDecision.Terminate) {
@@ -85,11 +95,17 @@ class PolicyReplayEvaluator {
 
             if (!isFinished) {
                 // If turn limit reached without explicit terminal action, use best virtual node
-                finalReward = virtualTree.getBestNode()?.score ?: 0.0
+                val bestVirtual = virtualTree.getBestNode()
+                finalReward = bestVirtual?.score ?: 0.0
+                finalNodeStatus = bestVirtual?.status
             }
 
+            if (episodeHitOod) totalOodEpisodes++
             totalScore += finalReward
-            if (finalReward >= 0.9) {
+
+            // True success requires achieving SUCCESS status or clean full score (e.g. >= 0.999)
+            val isCleanSuccess = finalNodeStatus == com.bit.agent.rsi.model.NodeStatus.SUCCESS || finalReward >= 0.999
+            if (isCleanSuccess) {
                 successfulEpisodes++
             }
             totalTurns += episodeTurns
@@ -101,7 +117,8 @@ class PolicyReplayEvaluator {
         val meanTurns = totalTurns / n
         val meanRegret = totalRegret / n
         val cacheHitRate = if (totalTransitions > 0) totalCacheHits.toDouble() / totalTransitions else 0.0
-        val efficiencyRatio = if (meanTurns > 0.0) meanScore / meanTurns else 0.0
+        val oodRate = totalOodEpisodes.toDouble() / n
+        val efficiencyRatio = if (meanTurns > 0.0) (meanScore / meanTurns).coerceIn(0.0, 1.0) else 0.0
 
         return PolicyEvaluationReport(
             policyName = policy.policyName,
@@ -111,7 +128,8 @@ class PolicyReplayEvaluator {
             meanTurns = meanTurns,
             meanRegret = meanRegret,
             cacheHitRate = cacheHitRate,
-            efficiencyRatio = efficiencyRatio
+            efficiencyRatio = efficiencyRatio,
+            oodRate = oodRate
         )
     }
 }

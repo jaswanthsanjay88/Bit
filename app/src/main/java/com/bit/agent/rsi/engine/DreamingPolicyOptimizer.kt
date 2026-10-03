@@ -118,12 +118,13 @@ class DreamingPolicyOptimizer @Inject constructor(
         val allPolicies: List<ExplorationPolicy> = candidatePolicies + fixedBaselines
         for (policy in allPolicies) {
             val report = evaluator.evaluate(policy, domainTrees)
-            // Objective fitness function: reward high success & efficiency, penalize regret and turns
+            // Objective fitness function: reward high success & efficiency, penalize regret, turns, and OOD extrapolation
             val fitness = (report.meanScore * 1.5) +
                     (report.successRate * 1.0) +
                     (report.efficiencyRatio * 0.8) -
                     (report.meanRegret * 1.2) -
-                    (report.meanTurns * 0.05)
+                    (report.meanTurns * 0.05) -
+                    (report.oodRate * 0.8)
 
             if (fitness > bestFitness) {
                 bestFitness = fitness
@@ -143,9 +144,9 @@ class DreamingPolicyOptimizer @Inject constructor(
         val currentThresh = getParamFloat(effectiveDomainKey, KEY_SUCCESS_THRESH, 0.92f).toDouble()
         val currentD = getParamInt(effectiveDomainKey, KEY_MAX_REPAIR_DEPTH, 3)
 
-        // Read recent fitness history for plateau gating
+        // Read recent fitness history for plateau gating with sign-safe, windowed check
         val historyList = getScoreHistory(effectiveDomainKey)
-        val stillImproving = historyList.size >= 2 && historyList.zipWithNext().any { (a, b) -> b > a * 1.02 }
+        val stillImproving = isTrendImproving(historyList, windowSize = 3, threshold = 0.02)
 
         val finalW: Int
         val finalD: Int
@@ -278,5 +279,18 @@ class DreamingPolicyOptimizer @Inject constructor(
         private const val KEY_PRIORITIZE_REFINE = "prioritize_refinement"
         private const val KEY_WINNING_POLICY_NAME = "winning_policy_name"
         private const val KEY_LAST_OPTIMIZATION = "last_optimization"
+
+        /**
+         * Evaluates whether the recent optimization trajectory is still showing significant positive gains (> threshold relative gain).
+         * Correctly bounds relative distance to avoid negative-sign inversion bugs and restricts analysis
+         * to the recent [windowSize] cycles to prevent ancient improvements from permanently locking the gate.
+         */
+        fun isTrendImproving(history: List<Double>, windowSize: Int = 3, threshold: Double = 0.02): Boolean {
+            if (history.size < 2) return false
+            val recent = history.takeLast(windowSize)
+            return recent.zipWithNext().any { (a, b) ->
+                (b - a) > threshold * maxOf(Math.abs(a), 1e-6)
+            }
+        }
     }
 }
