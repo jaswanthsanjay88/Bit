@@ -1,5 +1,6 @@
 package com.bit.agent.harness.tools
 
+import android.content.Context
 import com.bit.agent.harness.model.ToolObservation
 import com.bit.api.ToolDefinition
 import com.bit.api.ToolFunction
@@ -11,6 +12,7 @@ import com.bit.di.AppContainer
 import com.bit.models.table_schema.MemoryCategory
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 /**
  * Tools for creating, updating, querying, and deleting user memory notes in BIT's UMS Memory Vault.
@@ -31,6 +33,9 @@ class CreateMemoryTool(private val aiMemoryWriter: AiMemoryWriter) : AgentTool {
             )
         )
     )
+
+    override fun getSystemPrompt(): String =
+        "Use `create_memory` to store important user facts, preferences, or permanent notes into the on-device Memory Vault."
 
     override suspend fun execute(argumentsJson: String): ToolObservation {
         val startTime = System.currentTimeMillis()
@@ -89,6 +94,9 @@ class UpdateMemoryTool(private val aiMemoryWriter: AiMemoryWriter) : AgentTool {
             )
         )
     )
+
+    override fun getSystemPrompt(): String =
+        "Use `update_memory` to update or correct an existing fact or preference in the Memory Vault."
 
     override suspend fun execute(argumentsJson: String): ToolObservation {
         val startTime = System.currentTimeMillis()
@@ -152,6 +160,9 @@ class DeleteMemoryTool(private val aiMemoryWriter: AiMemoryWriter) : AgentTool {
         )
     )
 
+    override fun getSystemPrompt(): String =
+        "Use `delete_memory` to remove or forget an unwanted or outdated fact from the Memory Vault."
+
     override suspend fun execute(argumentsJson: String): ToolObservation {
         val startTime = System.currentTimeMillis()
         return try {
@@ -205,6 +216,9 @@ class QueryMemoryTool(private val memoryNoteDao: MemoryNoteDao? = null) : AgentT
         )
     )
 
+    override fun getSystemPrompt(): String =
+        "Use `query_memory` to search or recall stored user facts, personal preferences, or notes from the Memory Vault."
+
     override suspend fun execute(argumentsJson: String): ToolObservation {
         val startTime = System.currentTimeMillis()
         return try {
@@ -251,15 +265,192 @@ class QueryMemoryTool(private val memoryNoteDao: MemoryNoteDao? = null) : AgentT
                 }
             }
 
+            val payloadText = if (array.length() == 0) {
+                if (query.isBlank()) {
+                    "No memories currently saved in the Memory Vault. The vault is empty."
+                } else {
+                    "No memories found matching query '$query' in the Memory Vault."
+                }
+            } else {
+                val sb = StringBuilder()
+                sb.appendLine("Found ${array.length()} memory entries in Memory Vault:")
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    val cat = obj.optString("category", "General")
+                    val fact = obj.optString("fact", "")
+                    sb.appendLine("- [$cat] $fact")
+                }
+                sb.toString().trim()
+            }
+
             ToolObservation.success(
                 summary = "Found ${array.length()} matching memories for query '$query'",
-                payload = array.toString(),
+                payload = payloadText,
                 executionTimeMs = System.currentTimeMillis() - startTime
             )
         } catch (e: Exception) {
             ToolObservation.error(
                 summary = "Failed to query memories: ${e.message}",
                 recoveryHint = "Try searching with different keywords.",
+                executionTimeMs = System.currentTimeMillis() - startTime
+            )
+        }
+    }
+}
+
+/**
+ * List files and documents stored in the user's local on-device Memory Vault.
+ */
+class ListMemoryFilesTool(private val context: Context? = null) : AgentTool {
+    override val definition: ToolDefinition = ToolDefinition(
+        type = "function",
+        function = ToolFunction(
+            name = "list_memory_files",
+            description = "List all documents, notes, and memory files stored in the user's local Memory Vault.",
+            parameters = ToolParameters(
+                properties = mapOf(
+                    "folder" to ToolProperty(type = "string", description = "Optional subfolder to list: 'notes', 'documents', 'tasks', or 'ai_memory'")
+                ),
+                required = emptyList()
+            )
+        )
+    )
+
+    override fun getSystemPrompt(): String =
+        "Use `list_memory_files` to inspect available markdown files, notes, and documents in the local Memory Vault."
+
+    override suspend fun execute(argumentsJson: String): ToolObservation {
+        val startTime = System.currentTimeMillis()
+        return try {
+            val ctx = context ?: AppContainer.getContext()
+            if (ctx == null) {
+                return ToolObservation.error(
+                    summary = "Context unavailable to access memory files",
+                    recoveryHint = "Ensure application context is initialized."
+                )
+            }
+            val vaultRoot = com.bit.global.AppPaths.vaultRoot(ctx)
+            val args = if (argumentsJson.isBlank()) JSONObject() else JSONObject(argumentsJson)
+            val subfolder = args.optString("folder", "").trim()
+            val targetDir = if (subfolder.isNotBlank()) File(vaultRoot, subfolder) else vaultRoot
+
+            val files = if (targetDir.exists()) {
+                targetDir.walkTopDown()
+                    .filter { it.isFile }
+                    .take(50)
+                    .map { it.relativeTo(vaultRoot).path }
+                    .toList()
+            } else emptyList()
+
+            val memoryRepo = runCatching { AppContainer.getMemoryRepo() }.getOrNull()
+            val umsCount = memoryRepo?.count() ?: 0
+
+            val resultText = buildString {
+                appendLine("Memory Vault Contents:")
+                if (files.isEmpty()) {
+                    appendLine("- No document files found in ${targetDir.name}")
+                } else {
+                    appendLine("Files (${files.size}):")
+                    files.forEach { appendLine("  - $it") }
+                }
+                appendLine("- Stored UMS personal facts: $umsCount")
+            }.trim()
+
+            ToolObservation.success(
+                summary = "Found ${files.size} memory notes",
+                payload = resultText,
+                executionTimeMs = System.currentTimeMillis() - startTime
+            )
+        } catch (e: Exception) {
+            ToolObservation.error(
+                summary = "Failed to list memory notes: ${e.message}",
+                recoveryHint = "Verify directory structure and retry.",
+                executionTimeMs = System.currentTimeMillis() - startTime
+            )
+        }
+    }
+}
+
+/**
+ * Read the content of a document or note from the user's local Memory Vault.
+ */
+class ReadMemoryFileTool(private val context: Context? = null) : AgentTool {
+    override val definition: ToolDefinition = ToolDefinition(
+        type = "function",
+        function = ToolFunction(
+            name = "read_memory_file",
+            description = "Read the contents of a specific document or note file from the user's local Memory Vault.",
+            parameters = ToolParameters(
+                properties = mapOf(
+                    "path" to ToolProperty(type = "string", description = "Relative path to file in the vault (e.g. 'notes/todo.md' or 'documents/report.txt')")
+                ),
+                required = listOf("path")
+            )
+        )
+    )
+
+    override fun getSystemPrompt(): String =
+        "Use `read_memory_file` to read the full text of documents or notes saved in the Memory Vault."
+
+    override suspend fun execute(argumentsJson: String): ToolObservation {
+        val startTime = System.currentTimeMillis()
+        return try {
+            val ctx = context ?: AppContainer.getContext()
+            if (ctx == null) {
+                return ToolObservation.error(
+                    summary = "Context unavailable to access memory files",
+                    recoveryHint = "Ensure application context is initialized."
+                )
+            }
+            val args = JSONObject(argumentsJson)
+            val path = args.optString("path", "").ifBlank {
+                args.optString("name", "").ifBlank {
+                    args.optString("filename", "")
+                }
+            }.trim()
+            val vaultRoot = com.bit.global.AppPaths.vaultRoot(ctx)
+            if (path.isBlank()) {
+                val available = vaultRoot.walkTopDown().filter { it.isFile }.map { it.relativeTo(vaultRoot).path }.take(15).toList()
+                val listStr = if (available.isNotEmpty()) {
+                    "\nAvailable notes:\n" + available.joinToString("\n") { "- $it" }
+                } else ""
+                return ToolObservation.error(
+                    summary = "'path' parameter is required to read a memory file.$listStr",
+                    recoveryHint = "Specify a valid relative path from the available notes."
+                )
+            }
+            val file = File(vaultRoot, path)
+            if (!file.exists() || !file.isFile) {
+                val found = vaultRoot.walkTopDown().find { it.isFile && it.name.equals(path, ignoreCase = true) }
+                if (found != null) {
+                    val text = found.readText()
+                    return ToolObservation.success(
+                        summary = "Read ${found.name} (${text.length} chars)",
+                        payload = text,
+                        executionTimeMs = System.currentTimeMillis() - startTime
+                    )
+                }
+                val existingFiles = vaultRoot.walkTopDown().filter { it.isFile }.map { it.name }.toList()
+                val availableHint = if (existingFiles.isNotEmpty()) {
+                    "Available files: [${existingFiles.take(20).joinToString(", ")}]."
+                } else {
+                    "No memory files found in vault."
+                }
+                return ToolObservation.error(
+                    summary = "Tool failed: Memory file '$path' not found in vault. $availableHint Do not claim you have this data.",
+                    recoveryHint = "Use list_memory_files or retry with an existing file from the vault: ${existingFiles.take(5).joinToString(", ")}."
+                )
+            }
+            val text = file.readText()
+            ToolObservation.success(
+                summary = "Read ${file.name} (${text.length} chars)",
+                payload = text,
+                executionTimeMs = System.currentTimeMillis() - startTime
+            )
+        } catch (e: Exception) {
+            ToolObservation.error(
+                summary = "Failed to read memory file: ${e.message}",
+                recoveryHint = "Check file path and retry.",
                 executionTimeMs = System.currentTimeMillis() - startTime
             )
         }

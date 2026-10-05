@@ -23,6 +23,7 @@ import com.bit.models.messages.Messages
 import com.bit.models.messages.RagResultItem
 import com.bit.models.messages.Role
 import com.bit.models.messages.ToolChainStepData
+import com.bit.ui.screen.home.parseThinkingTags
 import com.bit.models.enums.ProviderType
 import com.bit.models.plugins.PluginExecutionMetrics
 import com.bit.models.plugins.PluginResultData
@@ -48,6 +49,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -71,6 +73,17 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
 import com.bit.ui.components.ContextUsageState
 import com.bit.ui.components.HeuristicTextTokenCounter
+import com.bit.agent.harness.event.StepEvent
+import com.bit.agent.harness.event.StepKind
+import com.bit.agent.harness.event.ChipKind
+import com.bit.agent.harness.event.SourceChip
+import com.bit.agent.harness.event.StepUi
+import com.bit.agent.harness.event.ThinkingUi
+import com.bit.agent.harness.event.reduce
+import com.bit.agent.harness.event.toStepEvent
+import com.bit.agent.harness.event.extractReasoningLabel
+import com.bit.agent.harness.event.LabelThrottler
+import com.bit.agent.harness.event.toolLabel
 
 enum class AgentPhase { Idle, Planning, Executing, Summarizing, Complete }
 
@@ -105,20 +118,37 @@ class ChatViewModel @Inject constructor(
         val cached = cachedVaultNotes
         if (cached != null && now - vaultCacheTimestamp < VAULT_CACHE_TTL_MS) return cached
 
-        val notes: List<Pair<String, String>> = try {
-            val db = com.bit.di.AppContainer.getDatabase()
-            val dbNotes = kotlinx.coroutines.runBlocking(Dispatchers.IO) {
-                db.memoryNoteDao().getAiEnabledNotesOnce()
-            }
-            if (dbNotes.isNotEmpty()) {
-                dbNotes.take(10).map { note ->
-                    val body = if (note.content.length > 500) note.content.take(500) + "..." else note.content
-                    note.title to body
+        val notes = mutableListOf<Pair<String, String>>()
+        try {
+            // 1. UMS memories (User personal facts & preferences - Single Source of Truth)
+            val memoryRepo = runCatching { com.bit.di.AppContainer.getMemoryRepo() }.getOrNull()
+            val umsMemories = memoryRepo?.let {
+                kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                    runCatching { it.getAllOnce() }.getOrDefault(emptyList())
                 }
-            } else {
-                val vaultRoot = com.bit.global.AppPaths.vaultRoot(appContext)
-                vaultRoot.walkTopDown()
-                    .filter { it.isFile && it.extension.lowercase() == "md" }
+            }.orEmpty()
+            for (mem in umsMemories.take(15)) {
+                val categoryName = mem.category.name.lowercase().replaceFirstChar { it.uppercase() }
+                notes.add("Memory: $categoryName" to mem.fact)
+            }
+
+            // 2. Room Notes with AI enabled
+            val db = runCatching { com.bit.di.AppContainer.getDatabase() }.getOrNull()
+            val dbNotes = db?.let {
+                kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                    runCatching { it.memoryNoteDao().getAiEnabledNotesOnce() }.getOrDefault(emptyList())
+                }
+            }.orEmpty()
+            for (note in dbNotes.take(10)) {
+                val body = if (note.content.length > 500) note.content.take(500) + "..." else note.content
+                notes.add(note.title to body)
+            }
+
+            // 3. Vault files (Markdown and text files in /vault)
+            val vaultRoot = com.bit.global.AppPaths.vaultRoot(appContext)
+            if (vaultRoot.exists()) {
+                val vaultFiles = vaultRoot.walkTopDown()
+                    .filter { it.isFile && (it.extension.lowercase() in listOf("md", "txt")) }
                     .take(10)
                     .mapNotNull { file ->
                         try {
@@ -134,8 +164,9 @@ class ChatViewModel @Inject constructor(
                     }
                     .take(5)
                     .toList()
+                notes.addAll(vaultFiles)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (_: Exception) { }
 
         cachedVaultNotes = notes
         vaultCacheTimestamp = now
@@ -148,6 +179,74 @@ class ChatViewModel @Inject constructor(
     // ── Agent Harness integration ──
     val harnessState: StateFlow<com.bit.agent.harness.state.AgentHarnessState> = harnessEngine.state
     private var harnessJob: Job? = null
+
+    private val _turnUi = MutableStateFlow<com.bit.agent.harness.event.TurnUi?>(null)
+    val turnUi: StateFlow<com.bit.agent.harness.event.TurnUi?> = _turnUi.asStateFlow()
+
+    // ── Thinking / Steps Block state (isolated from TurnUi for 60fps streaming) ──
+    private val _thinkingUi = MutableStateFlow<com.bit.agent.harness.event.ThinkingUi?>(null)
+    val thinkingUi: StateFlow<com.bit.agent.harness.event.ThinkingUi?> = _thinkingUi.asStateFlow()
+
+    private val _reasoningText = MutableStateFlow<String>("")
+    val reasoningText: StateFlow<String> = _reasoningText.asStateFlow()
+
+    private val _streamingTurnId = MutableStateFlow<String?>(null)
+    val streamingTurnId: StateFlow<String?> = _streamingTurnId.asStateFlow()
+
+    private val _expandedBlockTurnIds = MutableStateFlow<Set<String>>(emptySet())
+    val expandedBlockTurnIds: StateFlow<Set<String>> = _expandedBlockTurnIds.asStateFlow()
+
+    private val _userCollapsedBlockTurnIds = MutableStateFlow<Set<String>>(emptySet())
+    val userCollapsedBlockTurnIds: StateFlow<Set<String>> = _userCollapsedBlockTurnIds.asStateFlow()
+
+    fun isBlockExpanded(msgId: String, thinking: ThinkingUi? = null): Boolean {
+        if (msgId in _userCollapsedBlockTurnIds.value) return false
+        if (msgId in _expandedBlockTurnIds.value) return true
+        if (thinking?.failureMessage != null) return true
+        return false
+    }
+
+    fun toggleBlockExpanded(msgId: String, isFailed: Boolean = false) {
+        val currentlyExpanded = if (msgId in _userCollapsedBlockTurnIds.value) false
+            else if (msgId in _expandedBlockTurnIds.value) true
+            else isFailed
+
+        if (currentlyExpanded) {
+            _expandedBlockTurnIds.update { it - msgId }
+            _userCollapsedBlockTurnIds.update { it + msgId }
+        } else {
+            _userCollapsedBlockTurnIds.update { it - msgId }
+            _expandedBlockTurnIds.update { it + msgId }
+        }
+    }
+
+    fun setBlockExpanded(msgId: String, expanded: Boolean) {
+        if (expanded) {
+            _userCollapsedBlockTurnIds.update { it - msgId }
+            _expandedBlockTurnIds.update { it + msgId }
+        } else {
+            _expandedBlockTurnIds.update { it - msgId }
+            _userCollapsedBlockTurnIds.update { it + msgId }
+        }
+    }
+
+    fun emitStepEvent(event: StepEvent) {
+        _thinkingUi.update { current ->
+            val base = current ?: ThinkingUi(
+                turnId = _streamingTurnId.value ?: "temp_${System.currentTimeMillis()}",
+                startedAtMs = (event as? StepEvent.Started)?.atMs ?: System.currentTimeMillis()
+            )
+            base.reduce(event)
+        }
+    }
+
+    fun getOrBuildThinkingUi(msg: Messages): ThinkingUi? {
+        return com.bit.agent.harness.event.buildFallbackThinkingUi(msg)
+    }
+
+    fun toggleTurnTraceExpand() {
+        _turnUi.update { it?.copy(expanded = !it.expanded) }
+    }
 
     /** Tool execution currently awaiting user approval (human-in-the-loop), or null. */
     val pendingApproval: StateFlow<com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval?> =
@@ -174,6 +273,7 @@ class ChatViewModel @Inject constructor(
     fun approvePendingAgentStep(rememberForSession: Boolean = false) {
         val current = harnessEngine.state.value
         if (current is com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval) {
+            emitStepEvent(StepEvent.Resumed(current.activeStep.id, toolLabel(current.toolName)))
             harnessEngine.approveStep(current.activeStep.id, rememberForSession)
         }
     }
@@ -181,6 +281,7 @@ class ChatViewModel @Inject constructor(
     fun denyPendingAgentStep() {
         val current = harnessEngine.state.value
         if (current is com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval) {
+            emitStepEvent(StepEvent.Resumed(current.activeStep.id, toolLabel(current.toolName)))
             harnessEngine.denyStep(current.activeStep.id, "denied by user")
         }
     }
@@ -191,12 +292,21 @@ class ChatViewModel @Inject constructor(
         if (current is com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval &&
             current.toolName.equals("ask_user", ignoreCase = true)
         ) {
+            emitStepEvent(StepEvent.Resumed(current.activeStep.id, toolLabel(current.toolName)))
             harnessEngine.answerPendingQuestion(current.activeStep.id, answer)
         }
     }
 
     fun startAgentGoal(goal: String) {
         if (goal.isBlank()) return
+        if (com.bit.agent.harness.engine.CapabilityIntentRouter.isCapabilityQuery(goal)) {
+            respondWithCapabilityReport(goal)
+            return
+        }
+        if (com.bit.agent.harness.engine.CapabilityIntentRouter.isMemoryQuery(goal)) {
+            respondWithMemoryReport(goal)
+            return
+        }
         if (_isGenerating.value) {
             stop()
         }
@@ -212,6 +322,17 @@ class ChatViewModel @Inject constructor(
         _agentStepEvents.value = emptyList()
         _agentPhase.value = AgentPhase.Planning
         _error.value = null
+
+        val turnId = java.util.UUID.randomUUID().toString()
+        _streamingTurnId.value = turnId
+        _reasoningText.value = ""
+        _thinkingUi.value = ThinkingUi(turnId = turnId, startedAtMs = System.currentTimeMillis())
+
+        _turnUi.value = com.bit.agent.harness.event.TurnUi(
+            reasoning = "",
+            steps = emptyList(),
+            finished = false
+        )
 
         val isNewChat = _currentChatId.value == null
 
@@ -229,10 +350,110 @@ class ChatViewModel @Inject constructor(
         val steps = mutableListOf<ToolChainStepData>()
 
         harnessJob = viewModelScope.launch {
+            var thinkId: String? = null
+            var eventRound = 0
+            val throttler = LabelThrottler(minGapMs = 1000L)
+            val reasoningBuilder = StringBuilder()
+
+            fun openThink(now: Long) {
+                if (thinkId != null) return
+                thinkId = "think_${turnId}_$eventRound"
+                emitStepEvent(StepEvent.Started(
+                    id = thinkId!!,
+                    kind = StepKind.Thinking,
+                    label = "Thinking…",
+                    atMs = now
+                ))
+            }
+
+            fun closeThink(now: Long) {
+                thinkId?.let { id ->
+                    emitStepEvent(StepEvent.Finished(
+                        id = id,
+                        ok = true,
+                        atMs = now
+                    ))
+                    thinkId = null
+                }
+            }
+
+            val eventJob = launch {
+                harnessEngine.events.collect { event ->
+                    _turnUi.update { current ->
+                        current?.reduce(event) ?: com.bit.agent.harness.event.TurnUi().reduce(event)
+                    }
+                    val currentLabel = _turnUi.value?.currentStatusLabel()
+                    if (currentLabel != null && currentLabel != "Done") {
+                        AppStateManager.setGeneratingText(currentLabel)
+                    }
+
+                    val now = System.currentTimeMillis()
+                    when (event) {
+                        is com.bit.agent.harness.event.AgentEvent.Reasoning -> {
+                            openThink(now)
+                            reasoningBuilder.append(event.delta)
+                            val fullThoughts = reasoningBuilder.toString()
+                            _reasoningText.value = fullThoughts
+                            if (throttler.ready(now)) {
+                                val nextLabel = throttler.next(extractReasoningLabel(fullThoughts), now)
+                                if (nextLabel != null && thinkId != null) {
+                                    emitStepEvent(StepEvent.Label(thinkId!!, nextLabel))
+                                }
+                            }
+                        }
+                        is com.bit.agent.harness.event.AgentEvent.ToolCommitted -> {
+                            closeThink(now)
+                            event.toStepEvent(now)?.let { emitStepEvent(it) }
+                        }
+                        is com.bit.agent.harness.event.AgentEvent.ToolFinished -> {
+                            event.toStepEvent(now)?.let { emitStepEvent(it) }
+                            eventRound++
+                        }
+                        is com.bit.agent.harness.event.AgentEvent.AnswerDelta -> {
+                            closeThink(now)
+                            event.toStepEvent(now)?.let { emitStepEvent(it) }
+                        }
+                        is com.bit.agent.harness.event.AgentEvent.Done -> {
+                            closeThink(now)
+                            event.toStepEvent(now)?.let { emitStepEvent(it) }
+                        }
+                    }
+                }
+            }
             try {
-                AppStateManager.setGeneratingText()
-                emitStepEvent(com.bit.models.messages.StepEvent(type = "PLANNING", label = "Analyzing task and decomposing into execution steps"))
-                harnessEngine.executeGoal(goal).collect { state ->
+                AppStateManager.setGeneratingText("Thinking")
+                val hasMemoryIntent = listOf("memory", "vault", "remember", "about me", "my profile", "my skills")
+                    .any { goal.contains(it, ignoreCase = true) }
+
+                var effectiveGoal = goal
+                if (hasMemoryIntent) {
+                    val memNotes = withContext(Dispatchers.IO) { getCachedVaultNotes() }
+                    if (memNotes.isNotEmpty()) {
+                        val stepId = "mem_pre_${turnId}"
+                        val chips = memNotes.take(3).map { (title, _) ->
+                            com.bit.agent.harness.event.SourceChip(title = title.take(24), kind = com.bit.agent.harness.event.ChipKind.Memory)
+                        }
+                        emitStepEvent(com.bit.agent.harness.event.StepEvent.Started(
+                            id = stepId,
+                            kind = com.bit.agent.harness.event.StepKind.Retrieval,
+                            label = "Reviewing memory notes",
+                            atMs = System.currentTimeMillis()
+                        ))
+                        val memContext = memNotes.joinToString("\n\n") { (title, body) ->
+                            "### $title\n$body"
+                        }
+                        effectiveGoal = "$goal\n\n[CONTEXT FROM USER MEMORY VAULT]:\n$memContext"
+                        emitStepEvent(com.bit.agent.harness.event.StepEvent.Finished(
+                            id = stepId,
+                            ok = true,
+                            atMs = System.currentTimeMillis(),
+                            chips = chips,
+                            detail = "Loaded ${memNotes.size} memory notes"
+                        ))
+                    }
+                }
+
+                harnessEngine.executeGoal(effectiveGoal).collect { state ->
                     when (state) {
                         is com.bit.agent.harness.state.AgentHarnessState.Decomposing -> {
                             _agentPhase.value = AgentPhase.Planning
@@ -294,6 +515,12 @@ class ChatViewModel @Inject constructor(
                         }
                         is com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval -> {
                             _agentPhase.value = AgentPhase.Executing
+                            val waitLabel = if (state.toolName.equals("ask_user", ignoreCase = true)) {
+                                "Waiting for your answer"
+                            } else {
+                                "Waiting for your approval"
+                            }
+                            emitStepEvent(StepEvent.Waiting(state.activeStep.id, waitLabel))
                             emitStepEvent(
                                 com.bit.models.messages.StepEvent(
                                     type = if (state.toolName.equals("ask_user", ignoreCase = true)) "QUESTION" else "APPROVAL",
@@ -339,8 +566,11 @@ class ChatViewModel @Inject constructor(
                                 )
                             )
                             val finalOutput = state.finalResult
+                            _turnUi.update { it?.copy(finished = true, expanded = false, activeToolLabel = null, thinkMs = state.executionTimeMs, answer = finalOutput) }
                             _streamingAssistantMessage.value = finalOutput
                             _agentSummary.value = state.finalResult
+                            closeThink(System.currentTimeMillis())
+                            emitStepEvent(com.bit.agent.harness.event.StepEvent.Completed(System.currentTimeMillis()))
                             persistAgentChat(goal, isNewChat, _agentPlan.value ?: "", steps, finalOutput)
                             AppStateManager.setGenerationComplete()
                             AppStateManager.chatRefreshed()
@@ -355,9 +585,13 @@ class ChatViewModel @Inject constructor(
                                     success = false
                                 )
                             )
-                            val failMsg = "Agent Goal Execution Halted: ${state.reason}"
+                            val plainReason = com.bit.agent.harness.event.humanizeFailure(state.reason)
+                            val failMsg = "Couldn't complete the task: $plainReason"
+                            _turnUi.update { it?.copy(finished = true, expanded = true, activeToolLabel = null) }
                             _streamingAssistantMessage.value = failMsg
                             _agentSummary.value = failMsg
+                            closeThink(System.currentTimeMillis())
+                            emitStepEvent(com.bit.agent.harness.event.StepEvent.Failed(System.currentTimeMillis(), plainReason))
                             persistAgentChat(goal, isNewChat, _agentPlan.value ?: "", steps, failMsg)
                             AppStateManager.setGenerationComplete()
                             AppStateManager.chatRefreshed()
@@ -549,7 +783,7 @@ class ChatViewModel @Inject constructor(
         get() = _currentMetrics.value
         set(value) { _currentMetrics.value = value }
 
-    // ── Agora-Style Context Window Tracking ──
+    // ── Context Window Tracking ──
     private val _contextUsageState = MutableStateFlow(ContextUsageState())
     val contextUsageState: StateFlow<ContextUsageState> = _contextUsageState.asStateFlow()
 
@@ -1031,10 +1265,136 @@ class ChatViewModel @Inject constructor(
         _currentGenerationType.value = ModelType.IMAGE_GENERATION
     }
 
+    private fun respondWithCapabilityReport(prompt: String) {
+        viewModelScope.launch {
+            val isNewChat = isNewConversation
+            val chatId = if (isNewChat) {
+                var createdId: String? = null
+                chatManager.createNewChat().onSuccess { id ->
+                    createdId = id
+                    _currentChatId.value = id
+                    chatManager.updateChatTitle(id, "Capabilities & Tools")
+                    AppStateManager.chatRefreshed()
+                }
+                createdId ?: return@launch
+            } else {
+                _currentChatId.value ?: run {
+                    var createdId: String? = null
+                    chatManager.createNewChat().onSuccess { id ->
+                        createdId = id
+                        _currentChatId.value = id
+                    }
+                    createdId ?: return@launch
+                }
+            }
+
+            chatManager.addUserMessage(chatId, prompt).onSuccess { userMsg ->
+                _messages.add(userMsg)
+                currentUserMessage = userMsg
+                AppStateManager.setHasMessages(true)
+            }
+
+            val report = com.bit.agent.harness.engine.CapabilityIntentRouter.buildCapabilityResponse(
+                mcpManager = mcpManager,
+                toolRegistry = harnessEngine.toolRegistry,
+                skillManager = skillManager
+            )
+
+            _turnUi.value = com.bit.agent.harness.event.TurnUi(
+                reasoning = "",
+                steps = listOf(
+                    com.bit.agent.harness.event.Step(
+                        id = "cap_report",
+                        label = "Reported active capabilities & tools",
+                        status = com.bit.agent.harness.event.StepStatus.Done
+                    )
+                ),
+                answer = report,
+                finished = true,
+                thinkMs = 40L
+            )
+
+            chatManager.addAssistantMessage(
+                chatId = chatId,
+                content = report
+            ).onSuccess { assistantMsg ->
+                _messages.add(assistantMsg)
+                AppStateManager.setGenerationComplete()
+                AppStateManager.chatRefreshed()
+            }
+        }
+    }
+
+    private fun respondWithMemoryReport(prompt: String) {
+        viewModelScope.launch {
+            val isNewChat = isNewConversation
+            val chatId = if (isNewChat) {
+                var createdId: String? = null
+                chatManager.createNewChat().onSuccess { id ->
+                    createdId = id
+                    _currentChatId.value = id
+                    chatManager.updateChatTitle(id, "Memory Vault")
+                    AppStateManager.chatRefreshed()
+                }
+                createdId ?: return@launch
+            } else {
+                _currentChatId.value ?: run {
+                    var createdId: String? = null
+                    chatManager.createNewChat().onSuccess { id ->
+                        createdId = id
+                        _currentChatId.value = id
+                    }
+                    createdId ?: return@launch
+                }
+            }
+
+            chatManager.addUserMessage(chatId, prompt).onSuccess { userMsg ->
+                _messages.add(userMsg)
+                currentUserMessage = userMsg
+                AppStateManager.setHasMessages(true)
+            }
+
+            val report = com.bit.agent.harness.engine.CapabilityIntentRouter.buildMemoryResponse(
+                context = appContext
+            )
+
+            _turnUi.value = com.bit.agent.harness.event.TurnUi(
+                reasoning = "",
+                steps = listOf(
+                    com.bit.agent.harness.event.Step(
+                        id = "mem_report",
+                        label = "Inspected on-device Memory Vault",
+                        status = com.bit.agent.harness.event.StepStatus.Done
+                    )
+                ),
+                answer = report,
+                finished = true,
+                thinkMs = 30L
+            )
+
+            chatManager.addAssistantMessage(
+                chatId = chatId,
+                content = report
+            ).onSuccess { assistantMsg ->
+                _messages.add(assistantMsg)
+                AppStateManager.setGenerationComplete()
+                AppStateManager.chatRefreshed()
+            }
+        }
+    }
+
     // ==================== Unified Text Generation Entry Point ====================
 
     fun sendChat(prompt: String) {
         val trimmedPrompt = prompt.trim()
+        if (com.bit.agent.harness.engine.CapabilityIntentRouter.isCapabilityQuery(trimmedPrompt)) {
+            respondWithCapabilityReport(trimmedPrompt)
+            return
+        }
+        if (com.bit.agent.harness.engine.CapabilityIntentRouter.isMemoryQuery(trimmedPrompt)) {
+            respondWithMemoryReport(trimmedPrompt)
+            return
+        }
         val isExplicitGoal = Regex("""(?:^|\s)/goal(?:\s|:|$|\b)""", RegexOption.IGNORE_CASE).containsMatchIn(trimmedPrompt)
         if (isAgentMode.value || isExplicitGoal) {
             val goal = if (isExplicitGoal) {
@@ -1065,7 +1425,12 @@ class ChatViewModel @Inject constructor(
         _streamingAssistantMessage.value = ""
         userMessageAdded.set(false)
         currentMetrics = null
+        _turnUi.value = null
         _error.value = null
+
+        val turnId = java.util.UUID.randomUUID().toString()
+        _streamingTurnId.value = turnId
+        _reasoningText.value = ""
 
         currentUserMessage = Messages(
             msgId = "",
@@ -1114,7 +1479,21 @@ class ChatViewModel @Inject constructor(
                 val maxTokensDeferred = async(Dispatchers.IO) { getCurrentModelMaxTokens() }
                 val hasAttachedDoc = _attachedFileName.value != null
                 val isRagEligible = shouldQueryRag(prompt) || hasAttachedDoc || _currentRagContext.value != null
+                val willHaveSteps = _thinkingModeEnabled.value || hasTools || isRagEligible
+                if (willHaveSteps) {
+                    _thinkingUi.value = ThinkingUi(turnId = turnId, startedAtMs = System.currentTimeMillis())
+                } else {
+                    _thinkingUi.value = null
+                }
+
                 val ragDeferred = if (isRagEligible) {
+                    val ragStepId = "ret_$turnId"
+                    emitStepEvent(com.bit.agent.harness.event.StepEvent.Started(
+                        id = ragStepId,
+                        kind = com.bit.agent.harness.event.StepKind.Retrieval,
+                        label = "Reading context…",
+                        atMs = System.currentTimeMillis()
+                    ))
                     async(Dispatchers.IO) {
                         globalRagOrchestrator.queryGlobalKnowledge(prompt, topK = 5)
                     }
@@ -1177,6 +1556,7 @@ class ChatViewModel @Inject constructor(
                     attachedResult?.confidence != null && attachedResult.confidence != com.bit.neuron_example.RetrievalConfidence.LOW
                 }
 
+                val ragStepId = "ret_$turnId"
                 if (attachedResult != null && attachedResult.results.isNotEmpty() && (meetsConfidence || hasAttachedDoc)) {
                     val rawChunks = if (isSmall) attachedResult.results.take(1) else attachedResult.results.take(3)
                     Log.d(TAG, "Global RAG injected ${rawChunks.size} chunks with confidence ${attachedResult.confidence} (isSmall=$isSmall)")
@@ -1196,6 +1576,25 @@ class ChatViewModel @Inject constructor(
                         )
                     }
                     _currentRagResults.value = displayResults
+                    val chips = displayResults.map {
+                        com.bit.agent.harness.event.SourceChip(
+                            title = it.ragName,
+                            kind = com.bit.agent.harness.event.ChipKind.Note
+                        )
+                    }
+                    emitStepEvent(StepEvent.Finished(
+                        id = ragStepId,
+                        ok = true,
+                        atMs = System.currentTimeMillis(),
+                        chips = chips
+                    ))
+                } else if (ragDeferred != null) {
+                    emitStepEvent(StepEvent.Finished(
+                        id = ragStepId,
+                        ok = true,
+                        atMs = System.currentTimeMillis(),
+                        chips = emptyList()
+                    ))
                 }
 
                 if (_attachedDocContent.value != null) {
@@ -1622,6 +2021,10 @@ class ChatViewModel @Inject constructor(
 
         val prompt = lastUserMsg.content.content
 
+        val turnId = java.util.UUID.randomUUID().toString()
+        _streamingTurnId.value = turnId
+        _reasoningText.value = ""
+
         // Set up generation state without creating a new user message
         _isGenerating.value = true
         _streamingUserMessage.value = prompt
@@ -1640,6 +2043,13 @@ class ChatViewModel @Inject constructor(
                         && (PluginManager.isToolCallingModelLoaded.value || activeProviderType == ProviderType.API)
                 LlmModelWorker.setThinkingEnabledGguf(_thinkingModeEnabled.value)
                 val ragContext = _currentRagContext.value
+
+                val willHaveSteps = _thinkingModeEnabled.value || hasTools || (ragContext != null)
+                if (willHaveSteps) {
+                    _thinkingUi.value = ThinkingUi(turnId = turnId, startedAtMs = System.currentTimeMillis())
+                } else {
+                    _thinkingUi.value = null
+                }
 
                 executeUnifiedGeneration(prompt, ragContext, maxTokens, isNewChat = false, isRegeneration = true)
 
@@ -1675,7 +2085,7 @@ class ChatViewModel @Inject constructor(
         return if (tokens > 0) tokens.coerceIn(1, 131072) else 4096
     }
 
-    // ==================== Unified Generation Flow (Agora Architecture) ====================
+    // ==================== Unified Generation Flow ====================
 
     private suspend fun executeUnifiedGeneration(
         prompt: String,
@@ -1744,6 +2154,12 @@ class ChatViewModel @Inject constructor(
         _agentSummary.value = null
         _toolChainSteps.value = emptyList()
         _agentPhase.value = AgentPhase.Executing
+        _turnUi.value = com.bit.agent.harness.event.TurnUi(
+            reasoning = "",
+            steps = emptyList(),
+            finished = false,
+            expanded = false
+        )
 
         val isTooTinyForTools = if (activeProviderType == ProviderType.API) {
             false
@@ -1777,6 +2193,57 @@ class ChatViewModel @Inject constructor(
             _agentPhase.value = AgentPhase.Executing
         }
 
+        val turnId = _streamingTurnId.value ?: java.util.UUID.randomUUID().toString().also {
+            _streamingTurnId.value = it
+        }
+        var thinkId: String? = null
+        var currentGenerationRound = 0
+        val labelThrottler = com.bit.agent.harness.event.LabelThrottler(minGapMs = 1000L)
+        var writingStarted = false
+
+        fun openThink(now: Long) {
+            if (thinkId != null) return
+            thinkId = "think_${turnId}_$currentGenerationRound"
+            emitStepEvent(com.bit.agent.harness.event.StepEvent.Started(
+                id = thinkId!!,
+                kind = com.bit.agent.harness.event.StepKind.Thinking,
+                label = "Thinking…",
+                atMs = now
+            ))
+        }
+
+        fun closeThink(now: Long) {
+            thinkId?.let { id ->
+                emitStepEvent(com.bit.agent.harness.event.StepEvent.Finished(
+                    id = id,
+                    ok = true,
+                    atMs = now
+                ))
+                thinkId = null
+            }
+        }
+
+        val onThoughtDelta: (String, String) -> Unit = { _, fullThoughts ->
+            val now = System.currentTimeMillis()
+            openThink(now)
+            _reasoningText.value = fullThoughts
+            if (labelThrottler.ready(now)) {
+                val nextLabel = labelThrottler.next(extractReasoningLabel(fullThoughts), now)
+                if (nextLabel != null && thinkId != null) {
+                    emitStepEvent(StepEvent.Label(thinkId!!, nextLabel))
+                }
+            }
+        }
+
+        val onTextDelta: (String) -> Unit = { _ ->
+            val now = System.currentTimeMillis()
+            closeThink(now)
+            if (!writingStarted) {
+                writingStarted = true
+                emitStepEvent(com.bit.agent.harness.event.StepEvent.WritingStarted(now))
+            }
+        }
+
         while (round < maxRounds) {
             round++
             Log.d(TAG, "Unified tool loop: starting round $round")
@@ -1789,9 +2256,9 @@ class ChatViewModel @Inject constructor(
             // Generate response (streaming)
             AppStateManager.setGeneratingText()
             val result = if (activeProviderType == ProviderType.API) {
-                generateRemoteUnified(conversationMessages, steps, currentRoundHasTools, maxTokens)
+                generateRemoteUnified(conversationMessages, steps, currentRoundHasTools, maxTokens, onThoughtDelta, onTextDelta)
             } else {
-                generateGgufUnified(conversationMessages, hasTools = currentRoundHasTools, maxTokens = maxTokens)
+                generateGgufUnified(conversationMessages, hasTools = currentRoundHasTools, maxTokens = maxTokens, onThoughtDelta, onTextDelta)
             }
 
             result.metrics?.let { m ->
@@ -1849,6 +2316,15 @@ class ChatViewModel @Inject constructor(
 
                 // Execute tool
                 val startTime = System.currentTimeMillis()
+                closeThink(startTime)
+                val toolStepId = "tool_${turnId}_${steps.size}_${normalizedName}"
+                val toolLabelStr = com.bit.agent.harness.event.toolLabel(normalizedName, emptyMap())
+                emitStepEvent(com.bit.agent.harness.event.StepEvent.Started(
+                    id = toolStepId,
+                    kind = com.bit.agent.harness.event.StepKind.Tool,
+                    label = toolLabelStr,
+                    atMs = startTime
+                ))
                 val toolCall = ToolCall(name = normalizedName, arguments = argsObj)
                 val toolResult = PluginManager.executeToolForMultiTurn(toolCall, context = appContext, callId = callKey)
                 val executionTime = System.currentTimeMillis() - startTime
@@ -1861,6 +2337,63 @@ class ChatViewModel @Inject constructor(
                     executionTimeMs = executionTime,
                     errorMessage = if (isSuccess) null else toolResult.resultJson
                 )
+
+                val isSearchExecution = normalizedName in listOf("web_search", "search_web") || isSearchResultJson(toolResult.resultJson)
+                val generatedChips = if (isSearchExecution && isSuccess) {
+                    val searchChips = mutableListOf<com.bit.agent.harness.event.SourceChip>()
+                    val raw = toolResult.rawData
+                    if (raw is com.bit.plugins.WebSearchResponse) {
+                        for (r in raw.results) {
+                            val title = r.title.ifBlank { r.domain.ifBlank { r.url } }
+                            searchChips.add(com.bit.agent.harness.event.SourceChip(title = title, kind = com.bit.agent.harness.event.ChipKind.Web))
+                        }
+                    } else {
+                        try {
+                            val json = JSONObject(toolResult.resultJson)
+                            val arr = json.optJSONArray("results")
+                            if (arr != null) {
+                                for (i in 0 until arr.length()) {
+                                    val item = arr.optJSONObject(i)
+                                    val title = item?.optString("title")?.ifBlank { null }
+                                        ?: item?.optString("domain")?.ifBlank { null }
+                                        ?: item?.optString("url")?.orEmpty()
+                                    if (!title.isNullOrBlank()) {
+                                        searchChips.add(com.bit.agent.harness.event.SourceChip(title = title, kind = com.bit.agent.harness.event.ChipKind.Web))
+                                    }
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    if (searchChips.isEmpty()) {
+                        listOf(com.bit.agent.harness.event.SourceChip(title = toolResult.pluginName.ifBlank { normalizedName }, kind = com.bit.agent.harness.event.ChipKind.Web))
+                    } else {
+                        searchChips.take(5)
+                    }
+                } else {
+                    val chipKind = when {
+                        normalizedName.contains("web", ignoreCase = true) -> com.bit.agent.harness.event.ChipKind.Web
+                        normalizedName.contains("memory", ignoreCase = true) -> com.bit.agent.harness.event.ChipKind.Memory
+                        normalizedName.contains("read", ignoreCase = true) || normalizedName.contains("file", ignoreCase = true) -> com.bit.agent.harness.event.ChipKind.File
+                        else -> com.bit.agent.harness.event.ChipKind.Note
+                    }
+                    val chipTitle = toolResult.pluginName.ifBlank { normalizedName }
+                    listOf(com.bit.agent.harness.event.SourceChip(title = chipTitle, kind = chipKind))
+                }
+
+                val stepDetail = if (isSearchExecution && isSuccess && generatedChips.isNotEmpty()) {
+                    null // Chips replace the "Web search completed successfully." text
+                } else {
+                    toolResult.resultJson.take(600)
+                }
+
+                emitStepEvent(StepEvent.Finished(
+                    id = toolStepId,
+                    ok = isSuccess,
+                    atMs = System.currentTimeMillis(),
+                    detail = stepDetail,
+                    chips = generatedChips
+                ))
+                currentGenerationRound++
 
                 // Add step data
                 val step = ToolChainStepData(
@@ -1876,40 +2409,51 @@ class ChatViewModel @Inject constructor(
                 _toolChainSteps.value = steps.toList()
                 toolExecuted = true
 
-                // Add PluginResult message to in-memory UI
-                if (toolResult.rawData != null) {
-                    val resultData = PluginResultData(
-                        pluginName = toolResult.pluginName,
-                        toolName = normalizedName,
-                        inputParams = argsObj.toString(),
-                        resultData = toolResult.resultJson,
-                        success = isSuccess
-                    )
-                    val pluginMessage = Messages(
-                        role = Role.Assistant,
-                        content = MessageContent(
-                            contentType = ContentType.PluginResult,
-                            content = "Plugin '${toolResult.pluginName}' executed tool '$normalizedName'",
-                            pluginResultData = resultData
-                        ),
-                        modelId = currentModelId,
-                        pluginMetrics = PluginExecutionMetrics(
-                            pluginName = toolResult.pluginName,
-                            toolName = normalizedName,
-                            executionTimeMs = executionTime,
-                            success = isSuccess
+                // Update unified TurnUi model
+                val callHash = rawArgs.hashCode()
+                val stepLabel = com.bit.agent.harness.event.labelForTool(normalizedName)
+                _turnUi.update { current ->
+                    val base = current ?: com.bit.agent.harness.event.TurnUi()
+                    val existingSteps = base.steps.toMutableList()
+                    val matchIdx = existingSteps.indexOfFirst { it.tool == normalizedName && it.argsHash == callHash }
+                    if (matchIdx >= 0) {
+                        val old = existingSteps[matchIdx]
+                        existingSteps[matchIdx] = old.copy(
+                            repeatCount = old.repeatCount + 1,
+                            status = if (isSuccess) com.bit.agent.harness.event.StepStatus.Done else com.bit.agent.harness.event.StepStatus.Failed,
+                            output = if (isSuccess) toolResult.resultJson else null,
+                            error = if (!isSuccess) toolResult.resultJson else null,
+                            durationMs = old.durationMs + executionTime
                         )
-                    )
-                    val pendingUserMsg = currentUserMessage
-                    if (!userMessageAdded.get() && pendingUserMsg != null) {
-                        _messages.add(pendingUserMsg)
-                        userMessageAdded.set(true)
+                    } else {
+                        existingSteps.add(
+                            com.bit.agent.harness.event.ToolStep(
+                                id = "${steps.size}_${normalizedName}",
+                                tool = normalizedName,
+                                label = stepLabel,
+                                status = if (isSuccess) com.bit.agent.harness.event.StepStatus.Done else com.bit.agent.harness.event.StepStatus.Failed,
+                                output = if (isSuccess) toolResult.resultJson else null,
+                                error = if (!isSuccess) toolResult.resultJson else null,
+                                durationMs = executionTime,
+                                argsHash = callHash,
+                                repeatCount = 1
+                            )
+                        )
                     }
-                    _messages.add(pluginMessage)
+                    base.copy(
+                        steps = existingSteps,
+                        currentLabel = stepLabel,
+                        activeToolLabel = null
+                    )
+                }
+
+                val pendingUserMsg = currentUserMessage
+                if (!userMessageAdded.get() && pendingUserMsg != null) {
+                    _messages.add(pendingUserMsg)
+                    userMessageAdded.set(true)
                 }
 
                 // Forced follow-up fetch gate: When web_search executes, enforce follow-up web_fetch on candidate URLs
-                val isSearchExecution = normalizedName in listOf("web_search", "search_web") || isSearchResultJson(toolResult.resultJson)
                 if (isSearchExecution && isSuccess) {
                     val candidateUrls = extractCandidateUrlsFromSearchResult(toolResult)
                     for (targetUrl in candidateUrls) {
@@ -1918,6 +2462,13 @@ class ChatViewModel @Inject constructor(
                             seenCalls[fetchKey] = 1
                             AppStateManager.setExecutingPlugin("Web Search", "web_fetch")
                             val fetchStartTime = System.currentTimeMillis()
+                            val fetchStepId = "tool_${turnId}_${steps.size}_web_fetch"
+                            emitStepEvent(com.bit.agent.harness.event.StepEvent.Started(
+                                id = fetchStepId,
+                                kind = com.bit.agent.harness.event.StepKind.Tool,
+                                label = com.bit.agent.harness.event.toolLabel("web_fetch", emptyMap()),
+                                atMs = fetchStartTime
+                            ))
                             val fetchArgsObj = JSONObject().put("url", targetUrl)
                             val fetchCall = ToolCall(name = "web_fetch", arguments = fetchArgsObj)
                             val fetchResult = PluginManager.executeToolForMultiTurn(fetchCall, context = appContext, callId = fetchKey)
@@ -1931,6 +2482,14 @@ class ChatViewModel @Inject constructor(
                                 executionTimeMs = fetchExecTime,
                                 errorMessage = if (fetchSuccess) null else fetchResult.resultJson
                             )
+                            emitStepEvent(StepEvent.Finished(
+                                id = fetchStepId,
+                                ok = fetchSuccess,
+                                atMs = System.currentTimeMillis(),
+                                detail = fetchResult.resultJson.take(600),
+                                chips = listOf(SourceChip(title = targetUrl, kind = ChipKind.Web))
+                            ))
+                            currentGenerationRound++
 
                             val fetchStep = ToolChainStepData(
                                 round = steps.size + 1,
@@ -1944,35 +2503,40 @@ class ChatViewModel @Inject constructor(
                             steps.add(fetchStep)
                             _toolChainSteps.value = steps.toList()
 
-                            if (fetchResult.rawData != null) {
-                                val fetchResultData = PluginResultData(
-                                    pluginName = fetchResult.pluginName,
-                                    toolName = "web_fetch",
-                                    inputParams = fetchArgsObj.toString(),
-                                    resultData = fetchResult.resultJson,
-                                    success = fetchSuccess
-                                )
-                                val fetchPluginMessage = Messages(
-                                    role = Role.Assistant,
-                                    content = MessageContent(
-                                        contentType = ContentType.PluginResult,
-                                        content = "Plugin '${fetchResult.pluginName}' executed tool 'web_fetch'",
-                                        pluginResultData = fetchResultData
-                                    ),
-                                    modelId = currentModelId,
-                                    pluginMetrics = PluginExecutionMetrics(
-                                        pluginName = fetchResult.pluginName,
-                                        toolName = "web_fetch",
-                                        executionTimeMs = fetchExecTime,
-                                        success = fetchSuccess
+                            _turnUi.update { current ->
+                                val base = current ?: com.bit.agent.harness.event.TurnUi()
+                                val existingSteps = base.steps.toMutableList()
+                                val fetchHash = targetUrl.hashCode()
+                                val matchIdx = existingSteps.indexOfFirst { it.tool == "web_fetch" && it.argsHash == fetchHash }
+                                if (matchIdx >= 0) {
+                                    val old = existingSteps[matchIdx]
+                                    existingSteps[matchIdx] = old.copy(
+                                        repeatCount = old.repeatCount + 1,
+                                        status = if (fetchSuccess) com.bit.agent.harness.event.StepStatus.Done else com.bit.agent.harness.event.StepStatus.Failed,
+                                        output = if (fetchSuccess) fetchResult.resultJson else null,
+                                        error = if (!fetchSuccess) fetchResult.resultJson else null,
+                                        durationMs = old.durationMs + fetchExecTime
                                     )
-                                )
-                                val pendingUserMsg = currentUserMessage
-                                if (!userMessageAdded.get() && pendingUserMsg != null) {
-                                    _messages.add(pendingUserMsg)
-                                    userMessageAdded.set(true)
+                                } else {
+                                    existingSteps.add(
+                                        com.bit.agent.harness.event.ToolStep(
+                                            id = "${steps.size}_web_fetch",
+                                            tool = "web_fetch",
+                                            label = "Reading web page",
+                                            status = if (fetchSuccess) com.bit.agent.harness.event.StepStatus.Done else com.bit.agent.harness.event.StepStatus.Failed,
+                                            output = if (fetchSuccess) fetchResult.resultJson else null,
+                                            error = if (!fetchSuccess) fetchResult.resultJson else null,
+                                            durationMs = fetchExecTime,
+                                            argsHash = fetchHash,
+                                            repeatCount = 1
+                                        )
+                                    )
                                 }
-                                _messages.add(fetchPluginMessage)
+                                base.copy(
+                                    steps = existingSteps,
+                                    currentLabel = "Reading web page",
+                                    activeToolLabel = null
+                                )
                             }
                         }
                     }
@@ -1997,9 +2561,9 @@ class ChatViewModel @Inject constructor(
             val synthesisPrompt = "$fullPrompt\n\n[CRITICAL INSTRUCTION: All tools have finished execution. Synthesize a direct, complete, and helpful final response to the user based on the tool results above. Present the exact data and answer clearly. Do NOT call any tools or output empty thoughts.]"
             val synthesisMessages = buildConversationMessagesWithSteps(synthesisPrompt, steps, isRegeneration, hasTools = false)
             val synthResult = if (activeProviderType == ProviderType.API) {
-                generateRemoteUnified(synthesisMessages, steps, hasTools = false, maxTokens = maxTokens)
+                generateRemoteUnified(synthesisMessages, steps, hasTools = false, maxTokens = maxTokens, onThoughtDelta, onTextDelta)
             } else {
-                generateGgufUnified(synthesisMessages, hasTools = false, maxTokens = maxTokens)
+                generateGgufUnified(synthesisMessages, hasTools = false, maxTokens = maxTokens, onThoughtDelta, onTextDelta)
             }
             synthResult.metrics?.let { m ->
                 totalTokensAccumulated += m.tokensPredicted
@@ -2020,6 +2584,9 @@ class ChatViewModel @Inject constructor(
             tokensPredicted = totalTokensAccumulated
         )
 
+        closeThink(System.currentTimeMillis())
+        emitStepEvent(com.bit.agent.harness.event.StepEvent.Completed(System.currentTimeMillis()))
+
         _streamingAssistantMessage.value = cleanResponse
 
         // Save to DB and finish
@@ -2033,6 +2600,16 @@ class ChatViewModel @Inject constructor(
             _agentPlan.value = harnessEngine.formatPlanToMarkdown(dagPlan, activeStepIndex = null)
         }
         _agentPhase.value = if (steps.isNotEmpty() || (dagPlan != null && dagPlan.steps.isNotEmpty())) AgentPhase.Complete else AgentPhase.Idle
+
+        val elapsedMs = totalTimeMsAccumulated.toLong().coerceAtLeast(1000L)
+        _turnUi.update { current ->
+            current?.copy(
+                finished = true,
+                expanded = false,
+                activeToolLabel = null,
+                thinkMs = elapsedMs
+            )
+        }
 
         if (steps.isNotEmpty()) {
             val finalSummary = if (stripThinkingTags(cleanResponse).isNotBlank()) {
@@ -2069,7 +2646,7 @@ class ChatViewModel @Inject constructor(
             }
             _streamingAssistantMessage.value = finalSummary
             _agentSummary.value = finalSummary
-            persistAgentChat(prompt, isNewChat, "Determine if any tools are needed to answer the query.", steps, finalSummary)
+            persistAgentChat(prompt, isNewChat, _agentPlan.value.orEmpty(), steps, finalSummary)
         } else {
             // Simple flow path
             if (isNewChat) {
@@ -2092,13 +2669,16 @@ class ChatViewModel @Inject constructor(
                 }
 
                 if (cleanResponse.isNotBlank()) {
+                    val currentStepsUi = _thinkingUi.value?.takeIf { it.steps.isNotEmpty() }
                     val assistantMessage = Messages(
+                        msgId = turnId,
                         role = Role.Assistant,
                         content = MessageContent(contentType = ContentType.Text, content = cleanResponse),
                         modelId = currentModelId,
                         decodingMetrics = currentMetrics,
                         ragResults = ragResultItems,
-                        researchTrace = captureActiveResearchTrace()
+                        researchTrace = captureActiveResearchTrace(),
+                        executionSteps = currentStepsUi
                     )
                     _messages.add(assistantMessage)
                     chatManager.addMessage(chatId, assistantMessage)
@@ -2155,7 +2735,25 @@ class ChatViewModel @Inject constructor(
                     Role.User -> result.add(JSONObject().put("role", "user").put("content", msg.content.content))
                     Role.Assistant -> {
                         when (msg.content.contentType) {
-                            ContentType.Text -> result.add(JSONObject().put("role", "assistant").put("content", msg.content.content))
+                            ContentType.Text -> {
+                                if (!msg.toolChainSteps.isNullOrEmpty()) {
+                                    for (histStep in msg.toolChainSteps) {
+                                        result.add(JSONObject().put("role", "assistant").put("content",
+                                            """{"name":"${histStep.toolName}","arguments":${histStep.args}}"""
+                                        ))
+                                        val histFormatted = SearchResultFormatter.format(histStep.result, appContext)
+                                        result.add(JSONObject().put("role", "tool").put("name", histStep.toolName).put("content", histFormatted))
+                                    }
+                                }
+                                if (msg.content.content.isNotBlank()) {
+                                    val assistantText = if (msg.interrupted) {
+                                        "${msg.content.content}\n[Note: This turn was interrupted by the user]"
+                                    } else {
+                                        msg.content.content
+                                    }
+                                    result.add(JSONObject().put("role", "assistant").put("content", assistantText))
+                                }
+                            }
                             else -> {}
                         }
                     }
@@ -2174,13 +2772,20 @@ class ChatViewModel @Inject constructor(
             
             // Format the search result or tool result using SearchResultFormatter!
             val formattedResult = SearchResultFormatter.format(step.result, appContext)
-            val contentText = if (step.toolName == "web_search") {
-                "Tool '${step.toolName}' result: $formattedResult\n\n[Instruction: If the search results above do not clearly state a fact, state that you cannot find it. Do not invent or assume any details.]"
-            } else {
-                "Tool '${step.toolName}' result:\n$formattedResult\n\n[Instruction: You may call another tool if further steps are needed (e.g. running the script or inspecting files), or provide your full final answer to the user.]"
+            val isFailed = !step.success || step.result.contains("not found", ignoreCase = true) || step.result.startsWith("Error", ignoreCase = true)
+            val contentText = when {
+                isFailed -> {
+                    "Tool '${step.toolName}' failed: $formattedResult\n\n[CRITICAL INSTRUCTION: Tool execution failed or the requested data/file was not found. Do NOT claim or assume you have this data. Check other available resources or report accurately to the user.]"
+                }
+                step.toolName == "web_search" -> {
+                    "Tool '${step.toolName}' result: $formattedResult\n\n[Instruction: If the search results above do not clearly state a fact, state that you cannot find it. Do not invent or assume any details.]"
+                }
+                else -> {
+                    "Tool '${step.toolName}' result:\n$formattedResult\n\n[Instruction: You may call another tool if further steps are needed (e.g. running the script or inspecting files), or provide your full final answer to the user.]"
+                }
             }
             
-            result.add(JSONObject().put("role", "user").put("content", contentText))
+            result.add(JSONObject().put("role", "tool").put("name", step.toolName).put("content", contentText))
         }
 
         return sanitizeRoleAlternation(result)
@@ -2234,7 +2839,9 @@ class ChatViewModel @Inject constructor(
         messages: List<JSONObject>,
         steps: List<ToolChainStepData>,
         hasTools: Boolean,
-        maxTokens: Int
+        maxTokens: Int,
+        onThoughtDelta: ((thought: String, fullThoughts: String) -> Unit)? = null,
+        onTextDelta: ((String) -> Unit)? = null
     ): GenerationResult {
         val remoteCfg = getRemoteInferenceConfig() ?: throw IllegalStateException("Remote API model is missing endpoint configuration")
 
@@ -2344,7 +2951,18 @@ class ChatViewModel @Inject constructor(
                         firstTokenTimeMs = System.currentTimeMillis()
                     }
                     streamChunkCount++
+                    onTextDelta?.invoke(event.text)
                     textBuilder.append(event.text)
+                    if (textBuilder.contains("<think>")) {
+                        val parsed = parseThinkingTags(textBuilder.toString())
+                        if (!parsed.thinkingContent.isNullOrBlank()) {
+                            _turnUi.update { current ->
+                                (current ?: com.bit.agent.harness.event.TurnUi()).copy(
+                                    reasoning = parsed.thinkingContent
+                                )
+                            }
+                        }
+                    }
                     val now = System.currentTimeMillis()
                     if (now - lastEmitTime >= STREAMING_THROTTLE_MS) {
                         val hasThinkInText = textBuilder.contains("<think>") || textBuilder.contains("</think>")
@@ -2363,6 +2981,13 @@ class ChatViewModel @Inject constructor(
                     }
                     streamChunkCount++
                     thinkBuilder.append(event.thought)
+                    val currentThoughts = thinkBuilder.toString()
+                    onThoughtDelta?.invoke(event.thought, currentThoughts)
+                    _turnUi.update { current ->
+                        (current ?: com.bit.agent.harness.event.TurnUi()).copy(
+                            reasoning = currentThoughts
+                        )
+                    }
                     val now = System.currentTimeMillis()
                     if (now - lastEmitTime >= STREAMING_THROTTLE_MS) {
                         val hasThinkInText = textBuilder.contains("<think>") || textBuilder.contains("</think>")
@@ -2420,7 +3045,7 @@ class ChatViewModel @Inject constructor(
             (actualCompletionTokens / (totalTimeMs / 1000f))
         } else 0f
 
-        Log.d("AgoraChat", "Metrics calculated: prompt=$promptTokens, completion=$actualCompletionTokens, reasoning=$reasoningTokens, cached=$cachedTokens, total=$totalTokens, tps=$tokensPerSec in ${totalTimeMs}ms (gen: ${genTimeMs}ms)")
+        Log.d("BitChat", "Metrics calculated: prompt=$promptTokens, completion=$actualCompletionTokens, reasoning=$reasoningTokens, cached=$cachedTokens, total=$totalTokens, tps=$tokensPerSec in ${totalTimeMs}ms (gen: ${genTimeMs}ms)")
 
         val metrics = com.bit.models.engine_schema.DecodingMetrics(
             tokensPerSecond = tokensPerSec,
@@ -2446,7 +3071,9 @@ class ChatViewModel @Inject constructor(
     private suspend fun generateGgufUnified(
         messages: List<JSONObject>,
         hasTools: Boolean,
-        maxTokens: Int
+        maxTokens: Int,
+        onThoughtDelta: ((thought: String, fullThoughts: String) -> Unit)? = null,
+        onTextDelta: ((String) -> Unit)? = null
     ): GenerationResult {
         if (hasTools) {
             PluginManager.restoreGrammar()
@@ -2471,6 +3098,7 @@ class ChatViewModel @Inject constructor(
                         content = event.text,
                         thinkingEnabled = thinkingActive,
                         onText = { text ->
+                            onTextDelta?.invoke(text)
                             textBuilder.append(text)
                             val now = System.currentTimeMillis()
                             if (now - lastEmitTime >= STREAMING_THROTTLE_MS) {
@@ -2486,6 +3114,13 @@ class ChatViewModel @Inject constructor(
                         },
                         onThought = { thought -> 
                             thinkBuilder.append(thought)
+                            val currentThoughts = thinkBuilder.toString()
+                            onThoughtDelta?.invoke(thought, currentThoughts)
+                            _turnUi.update { current ->
+                                (current ?: com.bit.agent.harness.event.TurnUi()).copy(
+                                    reasoning = currentThoughts
+                                )
+                            }
                             val now = System.currentTimeMillis()
                             if (now - lastEmitTime >= STREAMING_THROTTLE_MS) {
                                 val hasThink = textBuilder.contains("<think>") || textBuilder.contains("</think>")
@@ -2513,8 +3148,20 @@ class ChatViewModel @Inject constructor(
                 }
                 is GenerationEvent.Done -> {
                     thinkParser.flush(
-                        onText = { textBuilder.append(it) },
-                        onThought = { thinkBuilder.append(it) }
+                        onText = {
+                            onTextDelta?.invoke(it)
+                            textBuilder.append(it)
+                        },
+                        onThought = {
+                            thinkBuilder.append(it)
+                            val currentThoughts = thinkBuilder.toString()
+                            onThoughtDelta?.invoke(it, currentThoughts)
+                            _turnUi.update { current ->
+                                (current ?: com.bit.agent.harness.event.TurnUi()).copy(
+                                    reasoning = currentThoughts
+                                )
+                            }
+                        }
                     )
                     val hasThink = textBuilder.contains("<think>") || textBuilder.contains("</think>")
                     val output = if (thinkBuilder.isNotEmpty() && !hasThink) {
@@ -2603,16 +3250,25 @@ class ChatViewModel @Inject constructor(
         }
         val cleanPlan = if (realSteps.isEmpty()) null else plan.takeIf { !it.contains("direct_answer", ignoreCase = true) }
 
+        val finalContent = if (!summary.contains("<think>") && _turnUi.value?.reasoning?.isNotBlank() == true) {
+            "<think>${_turnUi.value?.reasoning?.trim()}</think>\n\n$summary"
+        } else {
+            summary
+        }
+
+        val currentStepsUi = _thinkingUi.value?.takeIf { it.steps.isNotEmpty() }
         val assistantMessage = Messages(
+            msgId = _streamingTurnId.value ?: java.util.UUID.randomUUID().toString(),
             role = Role.Assistant,
-            content = MessageContent(contentType = ContentType.Text, content = summary),
+            content = MessageContent(contentType = ContentType.Text, content = finalContent),
             modelId = currentModelId,
             decodingMetrics = currentMetrics,
             ragResults = ragResultItems,
             toolChainSteps = realSteps.takeIf { it.isNotEmpty() },
             agentPlan = cleanPlan,
             agentSummary = summary,
-            researchTrace = captureActiveResearchTrace()
+            researchTrace = captureActiveResearchTrace(),
+            executionSteps = currentStepsUi
         )
         
         // Remove ephemeral plugin result messages from in-memory UI to prevent duplicates
@@ -2993,6 +3649,12 @@ class ChatViewModel @Inject constructor(
                             },
                             onThought = { thought -> 
                                 thinkResultBuilder.append(thought)
+                                val currentThoughts = thinkResultBuilder.toString()
+                                _turnUi.update { current ->
+                                    (current ?: com.bit.agent.harness.event.TurnUi()).copy(
+                                        reasoning = currentThoughts
+                                    )
+                                }
                                 val now = System.currentTimeMillis()
                                 if (now - lastEmitTime >= STREAMING_THROTTLE_MS) {
                                     val hasThink = resultBuilder.contains("<think>") || resultBuilder.contains("</think>")
@@ -3029,12 +3691,28 @@ class ChatViewModel @Inject constructor(
                             content = remaining,
                             thinkingEnabled = thinkingActive,
                             onText = { resultBuilder.append(it) },
-                            onThought = { thinkResultBuilder.append(it) }
+                            onThought = {
+                                thinkResultBuilder.append(it)
+                                val currentThoughts = thinkResultBuilder.toString()
+                                _turnUi.update { current ->
+                                    (current ?: com.bit.agent.harness.event.TurnUi()).copy(
+                                        reasoning = currentThoughts
+                                    )
+                                }
+                            }
                         )
                     }
                     agentThinkParser.flush(
                         onText = { resultBuilder.append(it) },
-                        onThought = { thinkResultBuilder.append(it) }
+                        onThought = {
+                            thinkResultBuilder.append(it)
+                            val currentThoughts = thinkResultBuilder.toString()
+                            _turnUi.update { current ->
+                                (current ?: com.bit.agent.harness.event.TurnUi()).copy(
+                                    reasoning = currentThoughts
+                                )
+                            }
+                        }
                     )
                     val hasThink = resultBuilder.contains("<think>") || resultBuilder.contains("</think>")
                     val output = if (thinkResultBuilder.isNotEmpty() && !hasThink) {
@@ -3393,7 +4071,6 @@ class ChatViewModel @Inject constructor(
         if (isSmall && !hasTools) {
             compiledPrompt = compiledPrompt
                 .replace(Regex("(?s)<storage_and_tools_distinction>.*?</storage_and_tools_distinction>"), "")
-                .replace(Regex("(?s)<memory_vault_rules>.*?</memory_vault_rules>"), "")
                 .trim()
         }
 
@@ -3427,6 +4104,15 @@ class ChatViewModel @Inject constructor(
                 "$compiledPrompt\n\n$skillsPrompt"
             } else {
                 skillsPrompt
+            }
+        }
+
+        val liveMcpPrompt = mcpManager.getLiveMcpCapabilityPrompt()
+        if (liveMcpPrompt.isNotBlank()) {
+            compiledPrompt = if (compiledPrompt.isNotBlank()) {
+                "$compiledPrompt\n\n$liveMcpPrompt"
+            } else {
+                liveMcpPrompt
             }
         }
 
@@ -4255,13 +4941,16 @@ class ChatViewModel @Inject constructor(
                     chatManager.addMessage(newChatId, pluginMsg)
                 }
                 if (filteredResponse.isNotBlank()) {
+                    val currentStepsUi = _thinkingUi.value?.takeIf { it.steps.isNotEmpty() }
                     val assistantMsg = Messages(
+                        msgId = _streamingTurnId.value ?: java.util.UUID.randomUUID().toString(),
                         role = Role.Assistant,
                         content = MessageContent(contentType = ContentType.Text, content = filteredResponse),
                         modelId = currentModelId,
-                            decodingMetrics = metrics,
+                        decodingMetrics = metrics,
                         ragResults = ragResultItems,
-                        toolChainSteps = toolChainSteps
+                        toolChainSteps = toolChainSteps,
+                        executionSteps = currentStepsUi
                     )
                     chatManager.addMessage(newChatId, assistantMsg)
                     handlePostTurnMemoryExtraction(userPrompt, newChatId)
@@ -4468,6 +5157,9 @@ class ChatViewModel @Inject constructor(
         currentMetrics = null
         currentImageMetrics = null
         userMessageAdded.set(false)
+        _streamingTurnId.value = null
+        _reasoningText.value = ""
+        _thinkingUi.value = null
         _toolChainSteps.value = emptyList()
         _currentToolChainRound.value = 0
         _agentPhase.value = AgentPhase.Idle
@@ -4481,6 +5173,7 @@ class ChatViewModel @Inject constructor(
     // ==================== Generation Control ====================
 
     fun stop() {
+        emitStepEvent(com.bit.agent.harness.event.StepEvent.Stopped(System.currentTimeMillis()))
         if (TTSManager.isPlaying.value) { TTSManager.stopPlayback() }
 
         val currentGenType = _currentGenerationType.value
@@ -4492,6 +5185,7 @@ class ChatViewModel @Inject constructor(
         harnessEngine.reset()
         com.bit.agent.harness.engine.SubagentSessionBus.clear()
         _agentPhase.value = AgentPhase.Complete
+        _turnUi.update { it?.copy(finished = true, expanded = false, activeToolLabel = null) }
 
         // 1. Snapshot mutable state BEFORE cancellation
         val snapshotChatId = _currentChatId.value
@@ -4568,6 +5262,8 @@ class ChatViewModel @Inject constructor(
         processedContent += "\n\n_Stopped_"
         
         val cleanContent = processedContent.trim()
+        val currentSteps = _toolChainSteps.value.takeIf { it.isNotEmpty() }
+        val currentExecutionSteps = _thinkingUi.value?.takeIf { it.steps.isNotEmpty() }
         if (chatId != null && userMsg != null && cleanContent.isNotEmpty()) {
             if (!wasUserAdded && !_messages.contains(userMsg)) {
                 _messages.add(userMsg)
@@ -4576,20 +5272,27 @@ class ChatViewModel @Inject constructor(
             val lastMsg = _messages.lastOrNull()
             if (lastMsg != null && lastMsg.role == Role.Assistant && lastMsg.content.contentType == ContentType.Text) {
                 // Assistant message was already added during generation, update content cleanly
-                if (lastMsg.content.content != cleanContent) {
-                    val updatedMsg = lastMsg.copy(content = lastMsg.content.copy(content = cleanContent))
-                    val idx = _messages.indexOf(lastMsg)
-                    if (idx >= 0) {
-                        _messages[idx] = updatedMsg
-                    }
-                    viewModelScope.launch { chatManager.addMessage(chatId, updatedMsg) }
+                val updatedMsg = lastMsg.copy(
+                    content = lastMsg.content.copy(content = cleanContent),
+                    toolChainSteps = currentSteps ?: lastMsg.toolChainSteps,
+                    interrupted = true,
+                    executionSteps = currentExecutionSteps ?: lastMsg.executionSteps
+                )
+                val idx = _messages.indexOf(lastMsg)
+                if (idx >= 0) {
+                    _messages[idx] = updatedMsg
                 }
+                viewModelScope.launch { chatManager.addMessage(chatId, updatedMsg) }
             } else {
                 val assistantMessage = Messages(
+                    msgId = _streamingTurnId.value ?: java.util.UUID.randomUUID().toString(),
                     role = Role.Assistant,
                     content = MessageContent(contentType = ContentType.Text, content = cleanContent),
                     modelId = currentModelId,
-                    decodingMetrics = metrics
+                    decodingMetrics = metrics,
+                    toolChainSteps = currentSteps,
+                    interrupted = true,
+                    executionSteps = currentExecutionSteps
                 )
                 _messages.add(assistantMessage)
                 regenerationSnapshot?.let { old ->

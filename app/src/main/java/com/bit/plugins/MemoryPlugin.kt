@@ -136,16 +136,26 @@ class MemoryPlugin(private val context: Context) : SuperPlugin {
                     Result.success(filesArray)
                 }
                 TOOL_READ_MEMORY -> {
-                    val name = toolCall.getString("name")
-                    val file = findFileInVault(vaultDir, name)
+                    val name = toolCall.getString("name").ifBlank {
+                        toolCall.getString("path").ifBlank {
+                            toolCall.getString("filename")
+                        }
+                    }.trim()
+                    val file = if (name.isNotBlank()) findFileInVault(vaultDir, name) else null
                     if (file == null || !file.exists()) {
-                        Result.success("Error: File '$name' not found in vault.")
+                        val existingFiles = vaultDir.walkTopDown().filter { it.isFile }.map { it.name }.toList()
+                        val availableHint = if (existingFiles.isNotEmpty()) {
+                            "Available memory files: [${existingFiles.take(20).joinToString(", ")}]."
+                        } else {
+                            "No memory files currently exist in vault."
+                        }
+                        Result.failure(IllegalArgumentException("Tool failed: Memory file '$name' not found in vault. $availableHint Do not claim you have this data."))
                     } else {
                         val parsed = com.bit.util.DocumentParser.parseDocument(file, context)
                         if (parsed.isSuccess) {
                             Result.success(parsed.getOrThrow())
                         } else {
-                            Result.success("Error reading file '$name': ${parsed.exceptionOrNull()?.message}")
+                            Result.failure(parsed.exceptionOrNull() ?: RuntimeException("Error reading file '$name'"))
                         }
                     }
                 }
