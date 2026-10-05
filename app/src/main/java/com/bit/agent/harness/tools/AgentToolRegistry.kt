@@ -25,28 +25,54 @@ import javax.inject.Singleton
  * with dynamic external MCP server tools and PluginManager tools.
  */
 @Singleton
-class AgentToolRegistry @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val bridge: AgentToolBridge,
-    private val ragOrchestrator: GlobalRagOrchestrator,
-    private val memoryNoteDao: MemoryNoteDao,
-    private val mcpManager: McpManager,
-    private val aiMemoryWriter: AiMemoryWriter,
-    private val workspaceRepository: com.bit.repo.WorkspaceRepository,
-    private val skillManager: com.bit.skills.SkillManager,
-    private val discoveryTreeStore: com.bit.agent.rsi.storage.DiscoveryTreeStore? = null,
-    private val dreamingOptimizer: com.bit.agent.rsi.engine.DreamingPolicyOptimizer? = null,
-    private val logger: HarnessLogger = NoOpHarnessLogger
-) {
+open class AgentToolRegistry {
+    private val context: Context?
+    private val bridge: AgentToolBridge?
+    private val ragOrchestrator: GlobalRagOrchestrator?
+    private val memoryNoteDao: MemoryNoteDao?
+    val mcpManager: McpManager?
+    private val aiMemoryWriter: AiMemoryWriter?
+    private val workspaceRepository: com.bit.repo.WorkspaceRepository?
+    private val skillManager: com.bit.skills.SkillManager?
+    private val discoveryTreeStore: com.bit.agent.rsi.storage.DiscoveryTreeStore?
+    private val dreamingOptimizer: com.bit.agent.rsi.engine.DreamingPolicyOptimizer?
+    private val logger: HarnessLogger
+
     private val json = Json { ignoreUnknownKeys = true }
-    private val registryScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private val registryScope: CoroutineScope
 
     @Volatile
     private var cachedTools: List<AgentTool>? = null
 
     var subagentExecutor: SubagentExecutor? = null
 
-    init {
+    @Inject
+    constructor(
+        @ApplicationContext context: Context,
+        bridge: AgentToolBridge,
+        ragOrchestrator: GlobalRagOrchestrator,
+        memoryNoteDao: MemoryNoteDao,
+        mcpManager: McpManager,
+        aiMemoryWriter: AiMemoryWriter,
+        workspaceRepository: com.bit.repo.WorkspaceRepository,
+        skillManager: com.bit.skills.SkillManager,
+        discoveryTreeStore: com.bit.agent.rsi.storage.DiscoveryTreeStore? = null,
+        dreamingOptimizer: com.bit.agent.rsi.engine.DreamingPolicyOptimizer? = null,
+        logger: HarnessLogger = NoOpHarnessLogger
+    ) {
+        this.context = context
+        this.bridge = bridge
+        this.ragOrchestrator = ragOrchestrator
+        this.memoryNoteDao = memoryNoteDao
+        this.mcpManager = mcpManager
+        this.aiMemoryWriter = aiMemoryWriter
+        this.workspaceRepository = workspaceRepository
+        this.skillManager = skillManager
+        this.discoveryTreeStore = discoveryTreeStore
+        this.dreamingOptimizer = dreamingOptimizer
+        this.logger = logger
+        this.registryScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+
         registryScope.launch {
             mcpManager.servers.collect {
                 refresh()
@@ -54,32 +80,54 @@ class AgentToolRegistry @Inject constructor(
         }
     }
 
+    /** Testing and standalone constructor. */
+    constructor(customTools: List<AgentTool> = emptyList()) {
+        this.context = null
+        this.bridge = null
+        this.ragOrchestrator = null
+        this.memoryNoteDao = null
+        this.mcpManager = null
+        this.aiMemoryWriter = null
+        this.workspaceRepository = null
+        this.skillManager = null
+        this.discoveryTreeStore = null
+        this.dreamingOptimizer = null
+        this.logger = NoOpHarnessLogger
+        this.registryScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        this.cachedTools = customTools
+    }
+
     /** All currently available tools. */
-    fun tools(): List<AgentTool> {
+    open fun tools(): List<AgentTool> {
         cachedTools?.let { return it }
+        val ctx = context ?: return emptyList()
         val tools = buildList {
-            // 1. Native Harness & Device Tools
-            add(VaultQueryTool(ragOrchestrator, logger))
-            add(UseSkillTool(context = context, skillManager = skillManager, workspaceRepository = workspaceRepository, logger = logger))
+            ragOrchestrator?.let { add(VaultQueryTool(ragOrchestrator = it, context = ctx, logger = logger)) }
+            skillManager?.let { sm -> workspaceRepository?.let { wr -> add(UseSkillTool(context = ctx, skillManager = sm, workspaceRepository = wr, logger = logger)) } }
             add(com.bit.agent.rsi.tools.DiscoveryQueryTool(discoveryTreeStore))
             add(com.bit.agent.rsi.tools.OptimizeExplorationPolicyTool(dreamingOptimizer))
             add(AskUserTool(logger))
             add(TimeInfoTool())
-            add(ClipboardTool(context))
+            add(ClipboardTool(ctx))
 
             // 2. Workspace Tools
-            add(WorkspaceReadFileTool(context))
-            add(WorkspaceWriteFileTool(context))
-            add(WorkspaceEditFileTool(context))
-            add(WorkspaceShellTool(context = context, workspaceRepository = workspaceRepository))
-            add(StrReplaceEditorTool(context))
+            add(WorkspaceReadFileTool(ctx))
+            add(WorkspaceWriteFileTool(ctx))
+            add(WorkspaceEditFileTool(ctx))
+            add(WorkspaceListFilesTool(ctx))
+            add(WorkspaceReadPdfTool(ctx))
+            add(WorkspaceReadDocumentTool(ctx))
+            workspaceRepository?.let { add(WorkspaceShellTool(context = ctx, workspaceRepository = it)) }
+            add(StrReplaceEditorTool(ctx))
             add(TodoWriteTool())
 
-            // 3. Memory Vault Tools (UMS Single Source of Truth)
-            add(CreateMemoryTool(aiMemoryWriter))
-            add(QueryMemoryTool(memoryNoteDao))
-            add(UpdateMemoryTool(aiMemoryWriter))
-            add(DeleteMemoryTool(aiMemoryWriter))
+            // 3. Memory Vault Tools (UMS Single Source of Truth & Local File Vault)
+            aiMemoryWriter?.let { add(CreateMemoryTool(it)) }
+            memoryNoteDao?.let { add(QueryMemoryTool(it)) }
+            aiMemoryWriter?.let { add(UpdateMemoryTool(it)) }
+            aiMemoryWriter?.let { add(DeleteMemoryTool(it)) }
+            add(ListMemoryFilesTool(ctx))
+            add(ReadMemoryFileTool(ctx))
 
             // 4. Subagent & Loop Tools
             val exec = subagentExecutor ?: SubagentExecutor { task ->
@@ -97,18 +145,20 @@ class AgentToolRegistry @Inject constructor(
             add(RalphTool(exec))
 
             // 5. Plugin & MCP Tools
-            try {
-                PluginManager.getEnabledToolDefinitions().forEach { builder ->
-                    runCatching {
-                        val defJson = builder.build().toOpenAIFormat().toString()
-                        val definition = json.decodeFromString<ToolDefinition>(defJson)
-                        add(PluginBackedTool(definition, bridge))
-                    }.onFailure { e ->
-                        logger.w("AgentToolRegistry", "Skipping unparseable tool definition: ${e.message}")
+            bridge?.let { b ->
+                try {
+                    PluginManager.getEnabledToolDefinitions().forEach { builder ->
+                        runCatching {
+                            val defJson = builder.build().toOpenAIFormat().toString()
+                            val definition = json.decodeFromString<ToolDefinition>(defJson)
+                            add(PluginBackedTool(definition, b))
+                        }.onFailure { e ->
+                            logger.w("AgentToolRegistry", "Skipping unparseable tool definition: ${e.message}")
+                        }
                     }
+                } catch (e: Exception) {
+                    logger.w("AgentToolRegistry", "PluginManager tools note: ${e.message}")
                 }
-            } catch (e: Exception) {
-                logger.w("AgentToolRegistry", "PluginManager tools note: ${e.message}")
             }
         }
         cachedTools = tools

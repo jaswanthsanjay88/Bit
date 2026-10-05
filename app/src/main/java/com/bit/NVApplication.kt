@@ -5,7 +5,6 @@ import android.util.Log
 import com.bit.data.AppSettingsDataStore
 import com.bit.data.VaultManager
 import com.bit.di.AppContainer
-import com.bit.plugins.FileManagerPlugin
 import com.bit.plugins.PluginManager
 import com.bit.plugins.SystemInfoPlugin
 import com.bit.plugins.WebSearchPlugin
@@ -70,7 +69,6 @@ class NVApplication : Application() {
 
         // Register plugins
         PluginManager.registerPlugin(WebSearchPlugin(applicationContext))
-        PluginManager.registerPlugin(FileManagerPlugin(applicationContext))
         PluginManager.registerPlugin(SystemInfoPlugin(applicationContext))
         PluginManager.registerPlugin(com.bit.plugins.MemoryPlugin(applicationContext))
         PluginManager.registerPlugin(com.bit.plugins.McpPlugin(applicationContext, mcpManager))

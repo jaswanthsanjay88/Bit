@@ -194,6 +194,195 @@ class WorkspaceEditFileTool(private val context: Context) : AgentTool {
 }
 
 /**
+ * Host-side Workspace List Files Tool.
+ */
+class WorkspaceListFilesTool(private val context: Context) : AgentTool {
+    override val definition: ToolDefinition = ToolDefinition(
+        type = "function",
+        function = ToolFunction(
+            name = "workspace_list_files",
+            description = "List files and directories in the workspace (/workspace) or a subdirectory.",
+            parameters = ToolParameters(
+                properties = mapOf(
+                    "path" to ToolProperty(type = "string", description = "Relative or absolute directory path (defaults to workspace root)"),
+                    "recursive" to ToolProperty(type = "boolean", description = "Whether to list recursively (default: false)"),
+                    "filter" to ToolProperty(type = "string", description = "Optional extension filter or pattern (e.g. '.kt', '.py', '.html')")
+                ),
+                required = emptyList()
+            )
+        )
+    )
+
+    override suspend fun execute(argumentsJson: String): ToolObservation {
+        val startTime = System.currentTimeMillis()
+        return try {
+            val args = JSONObject(if (argumentsJson.isBlank()) "{}" else argumentsJson)
+            val path = args.optString("path", "").trim()
+            val recursive = args.optBoolean("recursive", false)
+            val filter = args.optString("filter", "").trim().lowercase()
+
+            val dir = resolveFile(context, path.ifBlank { "" })
+            if (!dir.exists()) {
+                return ToolObservation.error(
+                    summary = "Directory not found: $path",
+                    recoveryHint = "Specify a valid directory path inside the workspace."
+                )
+            }
+
+            val files = if (dir.isFile) {
+                listOf(dir)
+            } else if (recursive) {
+                dir.walkTopDown().maxDepth(5).filter { it.isFile || it.isDirectory }.toList()
+            } else {
+                dir.listFiles()?.toList().orEmpty()
+            }
+
+            val filtered = files.filter { f ->
+                if (filter.isBlank()) true
+                else f.name.lowercase().contains(filter) || f.extension.lowercase() == filter.removePrefix(".")
+            }.take(100)
+
+            val lines = filtered.map { f ->
+                val termPath = com.bit.workspace.WorkspacePaths.terminalPath(context, f)
+                val type = if (f.isDirectory) "[DIR]" else "[FILE]"
+                val size = if (f.isFile) " (${com.bit.workspace.WorkspacePaths.humanSize(f.length())})" else ""
+                "$type $termPath$size"
+            }
+
+            val summary = "Found ${filtered.size} items in ${dir.name.ifBlank { "/workspace" }}"
+            ToolObservation.success(
+                summary = summary,
+                payload = if (lines.isEmpty()) "Directory is empty." else lines.joinToString("\n"),
+                executionTimeMs = System.currentTimeMillis() - startTime
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "workspace_list_files error: ${e.message}", e)
+            ToolObservation.error(
+                summary = "Failed to list files: ${e.message}",
+                recoveryHint = "Ensure directory exists and path is inside workspace.",
+                executionTimeMs = System.currentTimeMillis() - startTime
+            )
+        }
+    }
+}
+
+/**
+ * Workspace Read PDF Tool.
+ */
+class WorkspaceReadPdfTool(private val context: Context) : AgentTool {
+    override val definition: ToolDefinition = ToolDefinition(
+        type = "function",
+        function = ToolFunction(
+            name = "workspace_read_pdf",
+            description = "Extract and read text content from a PDF document in the workspace (/workspace).",
+            parameters = ToolParameters(
+                properties = mapOf(
+                    "path" to ToolProperty(type = "string", description = "Path to the PDF file inside the workspace"),
+                    "max_pages" to ToolProperty(type = "integer", description = "Maximum pages to extract (default: 10)")
+                ),
+                required = listOf("path")
+            )
+        )
+    )
+
+    override suspend fun execute(argumentsJson: String): ToolObservation {
+        val startTime = System.currentTimeMillis()
+        return try {
+            val args = JSONObject(argumentsJson)
+            val path = args.optString("path", "").trim()
+            if (path.isBlank()) {
+                return ToolObservation.error("'path' parameter is required to read a PDF file.")
+            }
+            val file = resolveFile(context, path)
+            if (!file.exists() || !file.isFile) {
+                return ToolObservation.error("PDF file not found: $path", "Verify file exists in workspace.")
+            }
+
+            val parsed = com.bit.util.DocumentParser.parseDocument(file, context)
+            if (parsed.isFailure) {
+                return ToolObservation.error(
+                    summary = "Failed to parse PDF '${file.name}': ${parsed.exceptionOrNull()?.message}",
+                    recoveryHint = "Ensure the PDF file is not corrupted."
+                )
+            }
+
+            val text = parsed.getOrThrow()
+            ToolObservation.success(
+                summary = "Read PDF ${file.name} (${text.length} chars)",
+                payload = text.take(15000),
+                artifacts = listOf(file.absolutePath),
+                executionTimeMs = System.currentTimeMillis() - startTime
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "workspace_read_pdf error: ${e.message}", e)
+            ToolObservation.error(
+                summary = "Error reading PDF: ${e.message}",
+                recoveryHint = "Verify file exists and path is inside workspace.",
+                executionTimeMs = System.currentTimeMillis() - startTime
+            )
+        }
+    }
+}
+
+/**
+ * Workspace Read Document Tool (PDF, DOCX, XLSX, TXT, CSV, MD, Code).
+ */
+class WorkspaceReadDocumentTool(private val context: Context) : AgentTool {
+    override val definition: ToolDefinition = ToolDefinition(
+        type = "function",
+        function = ToolFunction(
+            name = "workspace_read_document",
+            description = "Read formatted documents (PDF, DOCX, XLSX, CSV, Markdown, text, code) from the workspace.",
+            parameters = ToolParameters(
+                properties = mapOf(
+                    "path" to ToolProperty(type = "string", description = "Path to the document file"),
+                    "max_chars" to ToolProperty(type = "integer", description = "Maximum characters to read (default: 10000)")
+                ),
+                required = listOf("path")
+            )
+        )
+    )
+
+    override suspend fun execute(argumentsJson: String): ToolObservation {
+        val startTime = System.currentTimeMillis()
+        return try {
+            val args = JSONObject(argumentsJson)
+            val path = args.optString("path", "").trim()
+            val maxChars = args.optInt("max_chars", 10000).coerceIn(500, 50000)
+            if (path.isBlank()) {
+                return ToolObservation.error("'path' parameter is required to read a document.")
+            }
+            val file = resolveFile(context, path)
+            if (!file.exists() || !file.isFile) {
+                return ToolObservation.error("Document not found: $path", "Verify file exists in workspace.")
+            }
+
+            val parsed = com.bit.util.DocumentParser.parseDocument(file, context)
+            val text = if (parsed.isSuccess) {
+                parsed.getOrThrow()
+            } else {
+                file.readText(Charsets.UTF_8)
+            }
+
+            val truncated = if (text.length > maxChars) text.take(maxChars) + "\n... [truncated at $maxChars chars]" else text
+            ToolObservation.success(
+                summary = "Read document ${file.name} (${truncated.length} chars)",
+                payload = truncated,
+                artifacts = listOf(file.absolutePath),
+                executionTimeMs = System.currentTimeMillis() - startTime
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "workspace_read_document error: ${e.message}", e)
+            ToolObservation.error(
+                summary = "Error reading document: ${e.message}",
+                recoveryHint = "Verify file exists and is accessible.",
+                executionTimeMs = System.currentTimeMillis() - startTime
+            )
+        }
+    }
+}
+
+/**
  * Workspace Shell Execution Tool.
  */
 class WorkspaceShellTool(

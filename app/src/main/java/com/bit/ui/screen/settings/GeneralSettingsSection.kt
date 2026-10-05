@@ -148,13 +148,13 @@ internal fun LazyListScope.generalSettingsSection(
 
                 GlassDivider()
 
-                // File Manager
-                val isFileManagerEnabled = enabledPlugins.contains("File Manager")
+                // Linux Workspace
+                val isWorkspaceEnabled = enabledPlugins.contains(com.bit.plugins.WorkspacePlugin.PLUGIN_NAME)
                 SettingsSwitchRow(
-                    title = "File & Workspace Manager",
-                    description = "Allow AI to read workspace files, inspect code directories, and view documents",
-                    checked = isFileManagerEnabled,
-                    onCheckedChange = { com.bit.plugins.PluginManager.togglePlugin("File Manager", it) }
+                    title = "Linux Workspace & Files",
+                    description = "Allow AI to execute code, manage project files (/workspace), and inspect documents",
+                    checked = isWorkspaceEnabled,
+                    onCheckedChange = { com.bit.plugins.PluginManager.togglePlugin(com.bit.plugins.WorkspacePlugin.PLUGIN_NAME, it) }
                 )
 
                 GlassDivider()

@@ -55,7 +55,6 @@ object PluginManager {
         setOf(
             WEB_SEARCH_PLUGIN_NAME,
             "Memory Vault",
-            "File Manager",
             "System Info",
             WorkspacePlugin.PLUGIN_NAME,
             McpPlugin.PLUGIN_NAME,

@@ -324,7 +324,7 @@ fun TermsAndConditionsScreen(
                     content = """
                         BIT includes built-in plugins that extend AI capabilities:
                         • Web Search: Connects to DuckDuckGo (requires internet connection)
-                        • File Manager: Accesses files within app directories only
+                        • Linux Workspace: Accesses files within the sandboxed workspace directory only
                         • Calculator: Mathematical expressions and unit conversion
                         • Clipboard: Read/write system clipboard
                         • Date & Time: Current time and timezone operations

@@ -27,6 +27,9 @@ class WorkspacePlugin(
         const val TOOL_WORKSPACE_READ_FILE = "workspace_read_file"
         const val TOOL_WORKSPACE_WRITE_FILE = "workspace_write_file"
         const val TOOL_WORKSPACE_EDIT_FILE = "workspace_edit_file"
+        const val TOOL_WORKSPACE_LIST_FILES = "workspace_list_files"
+        const val TOOL_WORKSPACE_READ_PDF = "workspace_read_pdf"
+        const val TOOL_WORKSPACE_READ_DOCUMENT = "workspace_read_document"
     }
 
     override fun getPluginInfo(): PluginInfo {
@@ -65,12 +68,32 @@ class WorkspacePlugin(
             .booleanParam("replace_all", "Whether to replace all occurrences (default: false)", false)
             .stringParam("workspace_id", "Optional workspace ID", false)
 
+        val listFilesBuilder = ToolDefinitionBuilder(
+            TOOL_WORKSPACE_LIST_FILES,
+            "List files and directories in the workspace directory."
+        )
+            .stringParam("path", "Directory path inside workspace (defaults to workspace root)", false)
+            .booleanParam("recursive", "Whether to list files recursively (default: false)", false)
+
+        val readPdfBuilder = ToolDefinitionBuilder(
+            TOOL_WORKSPACE_READ_PDF,
+            "Extract text content from a PDF document in the workspace."
+        )
+            .stringParam("path", "Path to the PDF file inside the workspace", true)
+
+        val readDocBuilder = ToolDefinitionBuilder(
+            TOOL_WORKSPACE_READ_DOCUMENT,
+            "Read formatted document (PDF, DOCX, XLSX, TXT, CSV, MD) from the workspace."
+        )
+            .stringParam("path", "Path to the document file", true)
+            .numberParam("max_chars", "Maximum number of characters to read (default: 10000)", false)
+
         return PluginInfo(
             name = PLUGIN_NAME,
             description = "On-device Linux PRoot workspace for running code, compiling, executing shell commands, and managing development project files. Do NOT use for personal user memories or notes.",
             author = "BIT Workspace Engine",
             version = "1.0.0",
-            toolDefinitionBuilder = listOf(shellBuilder, readFileBuilder, writeFileBuilder, editFileBuilder)
+            toolDefinitionBuilder = listOf(shellBuilder, readFileBuilder, writeFileBuilder, editFileBuilder, listFilesBuilder, readPdfBuilder, readDocBuilder)
         )
     }
 
@@ -181,6 +204,95 @@ class WorkspacePlugin(
                         put("status", "success")
                         put("path", "/workspace/${entry.path}")
                         put("message", "File edited successfully")
+                    }
+                }
+
+                TOOL_WORKSPACE_LIST_FILES -> {
+                    val rawPath = args.optString("path", "").trim()
+                    val recursive = args.optBoolean("recursive", false)
+                    val targetDir = if (rawPath.isBlank()) {
+                        com.bit.workspace.WorkspacePaths.root(context, workspace.id)
+                    } else {
+                        com.bit.workspace.WorkspacePaths.resolveFile(context, rawPath, workspace.id)
+                    }
+
+                    if (!targetDir.exists() || !targetDir.isDirectory) {
+                        JSONObject().apply {
+                            put("status", "error")
+                            put("message", "Directory not found: $rawPath")
+                        }
+                    } else {
+                        val fileList = if (recursive) {
+                            targetDir.walkTopDown().filter { it != targetDir }.map { file ->
+                                val rel = file.relativeTo(targetDir).path.replace('\\', '/')
+                                if (file.isDirectory) "$rel/" else "$rel (${file.length()} bytes)"
+                            }.toList()
+                        } else {
+                            targetDir.listFiles()?.map { file ->
+                                if (file.isDirectory) "${file.name}/" else "${file.name} (${file.length()} bytes)"
+                            }.orEmpty()
+                        }
+                        JSONObject().apply {
+                            put("status", "success")
+                            put("path", com.bit.workspace.WorkspacePaths.terminalPath(context, targetDir, workspace.id))
+                            put("count", fileList.size)
+                            put("files", org.json.JSONArray(fileList))
+                        }
+                    }
+                }
+
+                TOOL_WORKSPACE_READ_PDF -> {
+                    val rawPath = args.optString("path", "").trim()
+                    require(rawPath.isNotBlank()) { "path is required" }
+                    val file = com.bit.workspace.WorkspacePaths.resolveFile(context, rawPath, workspace.id)
+                    if (!file.exists() || !file.isFile) {
+                        JSONObject().apply {
+                            put("status", "error")
+                            put("message", "PDF file not found: $rawPath")
+                        }
+                    } else {
+                        val parsed = com.bit.util.DocumentParser.parseDocument(file, context)
+                        if (parsed.isFailure) {
+                            JSONObject().apply {
+                                put("status", "error")
+                                put("message", "Failed to parse PDF '${file.name}': ${parsed.exceptionOrNull()?.message}")
+                            }
+                        } else {
+                            val text = parsed.getOrThrow()
+                            JSONObject().apply {
+                                put("status", "success")
+                                put("path", com.bit.workspace.WorkspacePaths.terminalPath(context, file, workspace.id))
+                                put("text", text.take(15000))
+                                put("length", text.length)
+                            }
+                        }
+                    }
+                }
+
+                TOOL_WORKSPACE_READ_DOCUMENT -> {
+                    val rawPath = args.optString("path", "").trim()
+                    require(rawPath.isNotBlank()) { "path is required" }
+                    val maxChars = args.optInt("max_chars", 10000).coerceIn(500, 50000)
+                    val file = com.bit.workspace.WorkspacePaths.resolveFile(context, rawPath, workspace.id)
+                    if (!file.exists() || !file.isFile) {
+                        JSONObject().apply {
+                            put("status", "error")
+                            put("message", "Document not found: $rawPath")
+                        }
+                    } else {
+                        val parsed = com.bit.util.DocumentParser.parseDocument(file, context)
+                        val text = if (parsed.isSuccess) {
+                            parsed.getOrThrow()
+                        } else {
+                            file.readText(Charsets.UTF_8)
+                        }
+                        val truncated = if (text.length > maxChars) text.take(maxChars) + "\n... [truncated at $maxChars chars]" else text
+                        JSONObject().apply {
+                            put("status", "success")
+                            put("path", com.bit.workspace.WorkspacePaths.terminalPath(context, file, workspace.id))
+                            put("content", truncated)
+                            put("length", text.length)
+                        }
                     }
                 }
 
