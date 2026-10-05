@@ -33,8 +33,8 @@ internal fun createWorkspaceTerminalSession(
     client: TerminalSessionClient,
 ): TerminalSession {
     val appContext = context.applicationContext
-    val workspaceDir = File(File(appContext.filesDir, "workspaces"), root)
-    val filesDir = File(workspaceDir, "files").apply { mkdirs() }
+    val filesDir = com.bit.workspace.WorkspacePaths.root(appContext, root)
+    val workspaceDir = filesDir.parentFile ?: File(File(appContext.filesDir, "workspaces"), root)
     val linuxDir = File(workspaceDir, "linux").apply { mkdirs() }
     val tempDir = File(workspaceDir, "tmp").apply {
         mkdirs()

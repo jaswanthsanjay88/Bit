@@ -110,10 +110,14 @@ class WorkspaceWriteFileTool(private val context: Context) : AgentTool {
 
             file.parentFile?.mkdirs()
             file.writeText(content)
+            check(file.exists() && file.length() > 0) { "Write could not be verified" }
+
+            val sizeStr = com.bit.workspace.WorkspacePaths.humanSize(file.length())
+            val terminalPath = com.bit.workspace.WorkspacePaths.terminalPath(context, file)
 
             ToolObservation.success(
-                summary = "Wrote ${content.length} characters to ${file.name}",
-                payload = "File saved successfully at ${file.absolutePath}",
+                summary = "Saved ${file.name} ($sizeStr)",
+                payload = "File saved successfully at $terminalPath ($sizeStr)",
                 artifacts = listOf(file.absolutePath),
                 executionTimeMs = System.currentTimeMillis() - startTime
             )
@@ -285,13 +289,11 @@ class WorkspaceShellTool(
 }
 
 private fun resolveFile(context: Context?, path: String): File {
-    val f = File(path)
-    if (f.isAbsolute) return f
-    val base = context?.getExternalFilesDir("workspace")
-        ?: context?.let { File(it.filesDir, "workspace") }
-        ?: File("./workspace")
-    base.mkdirs()
-    return File(base, path)
+    return if (context != null) {
+        com.bit.workspace.WorkspacePaths.resolveFile(context, path)
+    } else {
+        File(path)
+    }
 }
 
 /**
@@ -451,10 +453,13 @@ class StrReplaceEditorTool(private val context: Context? = null) : AgentTool {
         val fileText = args.optString("file_text", "")
         target.parentFile?.mkdirs()
         target.writeText(fileText)
+        check(target.exists()) { "Write could not be verified" }
+        val sizeStr = com.bit.workspace.WorkspacePaths.humanSize(target.length())
+        val termPath = context?.let { com.bit.workspace.WorkspacePaths.terminalPath(it, target) } ?: target.name
         val newVersion = computeFileVersion(target)
         return ToolObservation.success(
-            summary = "Created new file: ${target.name} (${fileText.length} chars) [version=$newVersion]",
-            payload = "New file created successfully at: ${target.absolutePath}",
+            summary = "Saved ${target.name} ($sizeStr) [version=$newVersion]",
+            payload = "New file created successfully at $termPath ($sizeStr)",
             artifacts = listOf(target.absolutePath),
             executionTimeMs = System.currentTimeMillis() - startTime
         )
