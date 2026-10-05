@@ -8,6 +8,7 @@ import java.util.Locale
  * Unified workspace directory path resolver.
  * Ensures tools (file read/write/edit) and the PRoot terminal mount reference
  * the exact same underlying directory (/workspace).
+ * Enforces strict canonical jail isolation against path traversal attacks.
  */
 object WorkspacePaths {
 
@@ -47,10 +48,8 @@ object WorkspacePaths {
 
     /**
      * Resolves a user or model supplied path to the canonical workspace file.
-     * Handles:
-     * - `/workspace/portfolio.html` -> `<root>/portfolio.html`
-     * - `portfolio.html` -> `<root>/portfolio.html`
-     * - `/storage/emulated/0/.../files/workspace/portfolio.html` -> `<root>/portfolio.html`
+     * Enforces canonical jail: candidate path must reside inside rootDir.
+     * Throws SecurityException on traversal attempts or unauthorized host access.
      */
     fun resolveFile(ctx: Context, path: String, rootName: String? = null): File {
         return resolveFile(ctx.applicationContext.filesDir, path, rootName)
@@ -61,8 +60,22 @@ object WorkspacePaths {
      */
     fun resolveFile(appFilesDir: File, path: String, rootName: String? = null): File {
         val clean = path.trim().replace('\\', '/')
-        val rootDir = root(appFilesDir, rootName)
+        val rootDir = root(appFilesDir, rootName).canonicalFile
+        val rootCanonicalPath = rootDir.canonicalPath
 
+        // 1. Guard against unauthorized host absolute paths
+        if (clean.startsWith("/")) {
+            val isVirtualWorkspace = clean.startsWith("/workspace/") || clean == "/workspace"
+            if (!isVirtualWorkspace) {
+                val f = File(clean)
+                val canonical = try { f.canonicalPath } catch (_: Exception) { f.absolutePath }
+                if (!canonical.startsWith(rootCanonicalPath)) {
+                    throw SecurityException("Access denied: path traverses outside workspace root ('$path')")
+                }
+            }
+        }
+
+        // 2. Strip known virtual /workspace prefixes or legacy external paths
         val relative = when {
             clean.startsWith("/workspace/") -> clean.removePrefix("/workspace/")
             clean == "/workspace" -> ""
@@ -71,18 +84,37 @@ object WorkspacePaths {
             clean.startsWith("/") -> {
                 val f = File(clean)
                 val canonical = try { f.canonicalPath } catch (_: Exception) { f.absolutePath }
-                if (canonical.startsWith(rootDir.canonicalPath)) {
+                if (canonical.startsWith(rootCanonicalPath)) {
                     f.canonicalFile.relativeTo(rootDir).path
                 } else {
-                    f.name
+                    throw SecurityException("Access denied: path traverses outside workspace root ('$path')")
                 }
             }
             else -> clean
         }
 
         val target = if (relative.isBlank()) rootDir else File(rootDir, relative)
+        val canonicalTarget = target.canonicalFile
+        val targetCanonicalPath = canonicalTarget.canonicalPath
+
+        // 3. Canonical Jail Verification
+        val isInsideJail = targetCanonicalPath == rootCanonicalPath ||
+                targetCanonicalPath.startsWith(rootCanonicalPath + File.separator)
+
+        if (!isInsideJail) {
+            throw SecurityException("Access denied: path traverses outside workspace root ('$path')")
+        }
+
+        // 4. Vault Safeguard: cannot target user's encrypted memory vault
+        val vaultDir = File(appFilesDir, "vault").canonicalFile
+        val vaultCanonicalPath = vaultDir.canonicalPath
+        if (targetCanonicalPath == vaultCanonicalPath ||
+            targetCanonicalPath.startsWith(vaultCanonicalPath + File.separator)) {
+            throw SecurityException("Access denied: path targets protected vault ('$path')")
+        }
+
         target.parentFile?.mkdirs()
-        return target
+        return canonicalTarget
     }
 
     /**
