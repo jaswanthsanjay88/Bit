@@ -80,6 +80,15 @@ class NVApplication : Application() {
         TTSManager.init(applicationContext, autoLoad = false)
         Log.d(TAG, "TTSManager initialized")
 
+        // Non-destructive migration of legacy BIT_files into canonical workspace root
+        appScope.launch(Dispatchers.IO) {
+            try {
+                com.bit.workspace.WorkspaceMigrationHelper.migrateIfNeeded(applicationContext)
+            } catch (e: Exception) {
+                Log.e(TAG, "Legacy workspace migration failed", e)
+            }
+        }
+
         // Run data integrity check after UMS is ready (deferred to let UI render first)
         appScope.launch {
             delay(2000) // Let Activity.onCreate + first frame complete before scanning
