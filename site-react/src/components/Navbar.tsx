@@ -130,10 +130,8 @@ export const Navbar: React.FC = () => {
             className="flex items-center gap-2 focus-ring rounded-full py-1 pr-2 group"
             aria-label="BIT Homepage"
           >
-            <div className="w-6 h-6 rounded-md bg-[#0a0a0a] flex items-center justify-center text-white transition-transform group-hover:scale-105">
-              <BitLogo className="w-3.5 h-3.5 text-white" />
-            </div>
-            <span className="font-semibold text-[#0a0a0a] tracking-tight text-[15px]">
+            <BitLogo className="w-5 h-5 text-black transition-transform group-hover:scale-105" />
+            <span className="font-semibold text-black tracking-tight text-[15px]">
               BIT
             </span>
           </a>

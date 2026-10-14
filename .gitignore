@@ -84,10 +84,15 @@ __pycache__/
 /material-3-skill*/
 bit_website issue/
 bit_test.png
+mediatek*.jpg
+qualcomm*.jpg
 
 # Node modules & web artifacts
 node_modules/
 **/node_modules/
 /web-ui/
-/bit_website issue/
 screen_*.png
+
+# Evaluation transcripts
+evals/baseline/
+/evals/baseline/

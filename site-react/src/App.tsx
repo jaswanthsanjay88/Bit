@@ -2,6 +2,7 @@ import React from 'react';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
 import { TrustRow } from './components/TrustRow';
+import { ModelLogosRow } from './components/ModelLogosRow';
 import { FeatureStories } from './components/FeatureStories';
 import { UserPainComparison } from './components/UserPainComparison';
 import { SimpleHowItWorks } from './components/SimpleHowItWorks';
@@ -34,6 +35,9 @@ export const App: React.FC = () => {
 
         {/* 03. Section A: Stats Row (4-col grid with vertical hairlines) */}
         <TrustRow />
+
+        {/* 03.5 Real Model Ecosystem Logos (Qwen, Gemma, Mistral, Microsoft Phi, Meta Llama, DeepSeek) */}
+        <ModelLogosRow />
 
         {/* 04. Section B: Feature Sections (reusable open layout with live traces) */}
         <FeatureStories />
