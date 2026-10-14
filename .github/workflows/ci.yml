@@ -50,8 +50,11 @@ jobs:
 
       - name: Install exact pinned NDK & CMake
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager --install "ndk;28.2.13676358" "cmake;3.22.1"
+          SDKMANAGER=$(find ${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools -name sdkmanager -type f | head -n 1)
+          test -x "$SDKMANAGER" || { echo "::error::sdkmanager not found in $ANDROID_HOME"; exit 1; }
+          echo "Using sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" --install "ndk;28.2.13676358" "cmake;3.22.1"
 
       - name: Make gradlew executable
         run: chmod +x gradlew
@@ -102,8 +105,11 @@ jobs:
 
       - name: Install exact pinned NDK & CMake
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager --install "ndk;28.2.13676358" "cmake;3.22.1"
+          SDKMANAGER=$(find ${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools -name sdkmanager -type f | head -n 1)
+          test -x "$SDKMANAGER" || { echo "::error::sdkmanager not found in $ANDROID_HOME"; exit 1; }
+          echo "Using sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" --install "ndk;28.2.13676358" "cmake;3.22.1"
 
       - name: Make gradlew executable
         run: chmod +x gradlew
