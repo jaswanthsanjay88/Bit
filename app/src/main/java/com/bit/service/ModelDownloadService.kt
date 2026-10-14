@@ -1061,39 +1061,17 @@ class ModelDownloadService : Service() {
             ProviderType.GGUF -> {
                 val appSettings = AppSettingsDataStore(this@ModelDownloadService)
                 val tuningEnabled = appSettings.hardwareTuningEnabled.firstOrNull() ?: true
+                val modelSizeMB = (fileSize / (1024 * 1024)).toInt()
                 val loadingParams = if (tuningEnabled) {
                     val perfMode = appSettings.performanceMode.firstOrNull() ?: com.bit.global.PerformanceMode.BALANCED
-                    val modelSizeMB = (fileSize / (1024 * 1024)).toInt()
                     val profile = HardwareScanner.scan(this@ModelDownloadService)
                     DeviceTuner.tune(profile, modelSizeMB, modelName, perfMode)
                 } else {
                     com.bit.models.engine_schema.GgufLoadingParams()
                 }
 
-                val isSmall = modelId.contains("350m", ignoreCase = true) ||
-                        modelName.contains("350m", ignoreCase = true) ||
-                        modelId.contains("125m", ignoreCase = true) ||
-                        modelName.contains("125m", ignoreCase = true) ||
-                        modelId.contains("160m", ignoreCase = true) ||
-                        modelName.contains("160m", ignoreCase = true) ||
-                        modelId.contains("tiny", ignoreCase = true) ||
-                        modelName.contains("tiny", ignoreCase = true) ||
-                        modelId.contains("mini", ignoreCase = true) ||
-                        modelName.contains("mini", ignoreCase = true)
-
-                val isVerySmall = isSmall
-                val isMediumSmall = modelId.contains("1.5b", ignoreCase = true) ||
-                        modelName.contains("1.5b", ignoreCase = true) ||
-                        modelId.contains("1.7b", ignoreCase = true) ||
-                        modelName.contains("1.7b", ignoreCase = true) ||
-                        modelId.contains("1.8b", ignoreCase = true) ||
-                        modelName.contains("1.8b", ignoreCase = true) ||
-                        modelId.contains("2b", ignoreCase = true) ||
-                        modelName.contains("2b", ignoreCase = true) ||
-                        modelId.contains("3b", ignoreCase = true) ||
-                        modelName.contains("3b", ignoreCase = true) ||
-                        modelId.contains("qwen3", ignoreCase = true) ||
-                        modelName.contains("qwen3", ignoreCase = true)
+                val isVerySmall = modelSizeMB in 1 until 500
+                val isMediumSmall = modelSizeMB in 500 until 2500
 
                 val inferenceParams = if (isVerySmall) {
                     com.bit.models.engine_schema.GgufInferenceParams(

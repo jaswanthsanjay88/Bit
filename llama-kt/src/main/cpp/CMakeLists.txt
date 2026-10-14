@@ -164,6 +164,7 @@ set(VLM_SOURCES
 add_library(${CMAKE_PROJECT_NAME} SHARED
     gguf_lib.cpp
     error_tracker.cpp
+    bitnet/bitnet_lut.cpp
     ${LLAMA_DIR}/engine/tn-log.cpp
     ${LLAMA_DIR}/engine/thread-engine.cpp
     ${LLAMA_DIR}/engine/power-engine.cpp
@@ -182,6 +183,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     ${LLAMA_DIR}/engine
     ${LLAMA_DIR}/engine/vlm
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/bitnet
     ${RAG_INGEST_DIR}
     ${TEXT_DIGEST_DIR}
 )
@@ -189,6 +191,11 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # -Wno-cast-qual silences vendored stb_image / miniaudio warnings used by VLM.
 # -Wno-format silences the size_t/int64_t printf warnings in clip.cpp.
 target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -O3 -DNDEBUG -Wno-cast-qual -Wno-format)
+
+find_package(OpenMP QUIET)
+if (OpenMP_CXX_FOUND)
+    target_link_libraries(${CMAKE_PROJECT_NAME} OpenMP::OpenMP_CXX)
+endif()
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
     llama

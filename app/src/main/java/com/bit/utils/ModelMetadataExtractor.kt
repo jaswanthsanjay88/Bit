@@ -15,7 +15,7 @@ enum class SizeCategory {
 
 object ModelMetadataExtractor {
     private val parameterRegex = Regex("""(\d+\.?\d*)B""", RegexOption.IGNORE_CASE)
-    private val quantizationRegex = Regex("""Q(\d+_\d+|[0-9]+_K_[MS]|[0-9]+)""", RegexOption.IGNORE_CASE)
+    private val quantizationRegex = Regex("""(T?Q\d+_\d+|TQ[12]_0|I2_S|TL[12]|IQ\d+_[A-Z_]+|Q[0-9]+_K_[MS]|[0-9]+_K|Q[0-9]+)""", RegexOption.IGNORE_CASE)
 
     /**
      * Extracts parameter count from model name (e.g., "8B", "0.5B", "32B")
@@ -27,12 +27,28 @@ object ModelMetadataExtractor {
     }
 
     /**
-     * Extracts quantization level from filename (e.g., "Q4_0", "Q5_K_M")
+     * Extracts quantization level from filename (e.g., "Q4_0", "TQ1_0", "I2_S", "Q5_K_M")
      * Returns null if no quantization found
      */
     fun extractQuantization(fileName: String): String? {
         val match = quantizationRegex.find(fileName)
         return match?.value?.uppercase()
+    }
+
+    /**
+     * Maps extracted quantization string or token directly to canonical [com.dark.gguf_lib.GgmlQuantType].
+     */
+    fun parseQuantType(quantOrFileName: String): com.dark.gguf_lib.GgmlQuantType {
+        val token = extractQuantization(quantOrFileName) ?: quantOrFileName
+        return com.dark.gguf_lib.GgmlQuantType.fromName(token)
+    }
+
+    /**
+     * Determines whether the quantization type supports BitNet LUT hardware acceleration.
+     * Purely driven by the GgmlQuantType enum mapping without matching on model names or filenames.
+     */
+    fun isBitNetQuant(quantToken: String): Boolean {
+        return parseQuantType(quantToken).isBitNetLutAccelerated
     }
 
     /**

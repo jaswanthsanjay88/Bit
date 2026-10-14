@@ -74,4 +74,9 @@
 -keep class com.dark.gguf_lib.Personality { *; }
 -keep class com.dark.gguf_lib.ControlVectorConfig { *; }
 -keep class com.dark.gguf_lib.toolcalling.** { *; }
+-keep class com.dark.gguf_lib.BitNetEngine { *; }
+-keep class com.dark.gguf_lib.BitNetEngine$* { *; }
+-keep interface com.dark.gguf_lib.BitNetHardwareProbe { *; }
+-keep class com.dark.gguf_lib.DefaultBitNetHardwareProbe { *; }
+-keep enum com.dark.gguf_lib.GgmlQuantType { *; }
 

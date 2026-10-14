@@ -58,27 +58,39 @@ object HardwareEngine {
     /** Convenience: first GPU/IGPU profile if any, else null. */
     fun firstGpu(): GpuProfile? = probe().firstOrNull { it.isGpu }
 
+    /** True if BitNet 1-bit / 1.58-bit ternary LUT acceleration is available on this device. */
+    fun isBitNetAvailable(): Boolean = BitNetEngine.isSupported
+
+    /** BitNet engine profile details. */
+    fun bitnetInfo(): BitNetEngine.BitNetInfo? = BitNetEngine.getInfo()
+
     /** Convenience: human-readable summary for debug screens. */
     fun summary(): String = buildString {
         val list = probe()
-        if (list.isEmpty()) return "no backends registered"
-        for (p in list) {
-            append("• ${p.backendName} ${p.deviceName}")
-            append(" [${p.deviceType.name.lowercase()}, ${p.vendor.name.lowercase()}]")
-            if (p.totalMemoryBytes > 0) {
-                append(" mem=${p.totalMemoryBytes / (1024 * 1024)} MiB")
+        if (list.isEmpty()) {
+            append("no backends registered")
+        } else {
+            for (p in list) {
+                append("• ${p.backendName} ${p.deviceName}")
+                append(" [${p.deviceType.name.lowercase()}, ${p.vendor.name.lowercase()}]")
+                if (p.totalMemoryBytes > 0) {
+                    append(" mem=${p.totalMemoryBytes / (1024 * 1024)} MiB")
+                }
+                append(" slots=${p.parallelComputeSlots}")
+                if (p.supportsAsync) append(" async")
+                if (p.supportsEvents) append(" events")
+                append('\n')
             }
-            append(" slots=${p.parallelComputeSlots}")
-            if (p.supportsAsync) append(" async")
-            if (p.supportsEvents) append(" events")
-            append('\n')
+        }
+        if (isBitNetAvailable()) {
+            append("• BitNet 1.58b ARM NEON LUT Engine [accelerated, ternary W2A8]\n")
         }
     }.trim()
 
     // ── Heuristics ─────────────────────────────────────────────────────────
 
     private fun JSONArray.toNameList(): List<String> =
-        (0 until length()).mapNotNull { optJSONObject(it)?.optString("name", null) }
+        (0 until length()).mapNotNull { optJSONObject(it)?.optString("name")?.takeIf { s -> s.isNotBlank() } }
 
     /**
      * Vendor is parsed from device description, not from a vendor ID — the

@@ -1,6 +1,8 @@
 package com.bit.viewmodel
 
+import android.app.ActivityManager
 import android.app.Application
+import android.content.Context
 import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
@@ -90,14 +92,50 @@ class LLMModelViewModel @Inject constructor(
     }
 
     init {
+        // Sync ViewModel current model ID with ActiveModelSession resets
+        viewModelScope.launch {
+            ActiveModelSession.currentModelId.collect { activeId ->
+                if (activeId.isEmpty() && _currentModelID.value.isNotEmpty()) {
+                    _currentModelID.value = ""
+                }
+            }
+        }
+
         viewModelScope.launch(Dispatchers.IO) {
             val savedId = appSettings.lastModelId.first() ?: return@launch
             // Only offer if no model is currently loaded
             if (_currentModelID.value.isNotEmpty()) return@launch
             val model = repository.getModelById(savedId) ?: return@launch
             if (!model.isActive && model.providerType != ProviderType.API) return@launch
-            // Wait for the LLM service to be ready before showing the dialog,
-            // so clicking "Load" starts instantly instead of blocking on service bind
+
+            // Check file existence on disk
+            if (model.pathType == PathType.FILE && !File(model.modelPath).exists()) {
+                Log.w("LLMModelVM", "Saved model file does not exist on disk: ${model.modelPath}")
+                appSettings.saveLastModelId(null)
+                return@launch
+            }
+
+            // Check memory headroom before attempting startup load
+            if (model.providerType == ProviderType.GGUF || model.providerType == ProviderType.VLM) {
+                try {
+                    val actManager = getApplication<Application>().getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                    val memInfo = ActivityManager.MemoryInfo()
+                    actManager?.getMemoryInfo(memInfo)
+                    val availMb = memInfo.availMem / (1024 * 1024)
+                    val modelFile = if (model.pathType == PathType.FILE) File(model.modelPath) else null
+                    val modelSizeMb = if (modelFile?.exists() == true) modelFile.length() / (1024 * 1024) else (model.fileSize?.div(1024 * 1024) ?: 0L)
+
+                    if (memInfo.lowMemory || (modelSizeMb > 0 && availMb < modelSizeMb + 200)) {
+                        Log.w("LLMModelVM", "Skipping auto-load of ${model.modelName} on startup due to low memory (available: ${availMb}MB, model: ${modelSizeMb}MB)")
+                        appSettings.saveLastModelId(null)
+                        return@launch
+                    }
+                } catch (e: Exception) {
+                    Log.w("LLMModelVM", "Memory pre-check warning: ${e.message}")
+                }
+            }
+
+            // Wait for the LLM service to be ready before loading
             if (model.providerType != ProviderType.API) {
                 try {
                     LlmModelWorker.ensureServiceReady()
@@ -192,6 +230,27 @@ class LLMModelViewModel @Inject constructor(
     }
 
     private suspend fun loadGgufModel(model: Model, config: ModelConfig) {
+        // RAM headroom guard: prevent native OOM process crashes on low-memory review devices
+        try {
+            val actManager = getApplication<Application>().getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            val memInfo = ActivityManager.MemoryInfo()
+            actManager?.getMemoryInfo(memInfo)
+            val availMb = memInfo.availMem / (1024 * 1024)
+            val modelFile = if (model.pathType == PathType.FILE) File(model.modelPath) else null
+            val modelSizeMb = if (modelFile?.exists() == true) modelFile.length() / (1024 * 1024) else (model.fileSize?.div(1024 * 1024) ?: 0L)
+
+            if (memInfo.lowMemory || (modelSizeMb > 0 && availMb < (modelSizeMb * 0.75).toLong())) {
+                Log.w("LLMModelVM", "Blocked loading ${model.modelName}: insufficient RAM (avail: ${availMb}MB, model: ${modelSizeMb}MB)")
+                AppStateManager.setError(
+                    message = "Insufficient device memory to load ${model.modelName} (Available RAM: ${availMb}MB, requires ~${modelSizeMb}MB). Please try a smaller model like LFM2 350M or Qwen 0.6B.",
+                    modelName = model.modelName
+                )
+                return
+            }
+        } catch (e: Exception) {
+            Log.w("LLMModelVM", "RAM headroom check exception: ${e.message}")
+        }
+
         val success = if (model.pathType == PathType.CONTENT_URI) {
             // Use FD-based loading for content:// URIs (SAF)
             val uri = model.modelPath.toUri()
@@ -210,7 +269,9 @@ class LLMModelViewModel @Inject constructor(
             LlmModelWorker.setCurrentGgufModelId(model.id)
             _currentModelID.value = model.id
             _currentModelType.value = ProviderType.GGUF
-            ActiveModelSession.set(model.id, ProviderType.GGUF)
+            val infoJson = LlmModelWorker.getGgufModelInfo()
+            val nParams = runCatching { org.json.JSONObject(infoJson ?: "{}").optLong("n_params", 0L) }.getOrDefault(0L)
+            ActiveModelSession.set(model.id, ProviderType.GGUF, paramCount = nParams)
             AppStateManager.setModelLoaded(model.modelName)
             appSettings.saveLastModelId(model.id)
 
@@ -231,7 +292,8 @@ class LLMModelViewModel @Inject constructor(
             com.bit.plugins.PluginManager.setToolCallingModelLoaded(nativeSupports)
             com.bit.plugins.PluginManager.syncToolsWithLLM()
         } else {
-            AppStateManager.setError("Failed to load GGUF model")
+            AppStateManager.setError("Failed to load ${model.modelName}. Please try selecting another model.", modelName = model.modelName)
+            appSettings.saveLastModelId(null)
         }
     }
 
@@ -393,27 +455,8 @@ class LLMModelViewModel @Inject constructor(
     fun unloadModel() {
         viewModelScope.launch {
             try {
-                when (_currentModelType.value) {
-                    ProviderType.GGUF -> {
-                        LlmModelWorker.unloadGgufModel()
-                        LlmModelWorker.setCurrentGgufModelId(null)
-                    }
-                    ProviderType.VLM -> {
-                        LlmModelWorker.releaseVlmProjector()
-                        LlmModelWorker.unloadGgufModel()
-                        LlmModelWorker.setCurrentGgufModelId(null)
-                    }
-                    ProviderType.DIFFUSION -> {
-                        LlmModelWorker.stopDiffusionBackend()
-                        LlmModelWorker.setCurrentDiffusionModelId(null)
-                    }
-                    else -> {}
-                }
-
-                _currentModelID.value = ""
-                _currentModelType.value = null
+                unloadCurrentModel()
                 AppStateManager.setModelUnloaded()
-                ActiveModelSession.clear()
             } catch (e: Exception) {
                 AppStateManager.setError(e.message ?: "Failed to unload model")
             }

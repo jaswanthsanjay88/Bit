@@ -39,6 +39,7 @@
 #include "error_tracker.h"
 #include "mtmd.h"
 #include "mtmd-helper.h"
+#include "bitnet_lut.h"
 
 #include <nlohmann/json.hpp>
 
@@ -584,8 +585,8 @@ static void mark_sampler_dirty() {
 }
 
 // Kotlin sometimes sends persona names ("Luna", "Nova") as the message role
-// for assistant turns. Chat templates only accept the four canonical roles,
-// so anything else is remapped to "assistant".
+// for assistant turns. Chat templates accept canonical roles: system, user, assistant, tool, developer.
+// Non-canonical personas are remapped to "assistant".
 static std::vector<common_chat_msg> parse_messages_json(const std::string & messages_json) {
     std::vector<common_chat_msg> msgs;
     try {
@@ -598,8 +599,44 @@ static std::vector<common_chat_msg> parse_messages_json(const std::string & mess
                 if (msg.contains("reasoning_content")) {
                     cm.reasoning_content = msg.value("reasoning_content", "");
                 }
+                if (msg.contains("name")) {
+                    cm.tool_name = msg.value("name", "");
+                }
+                if (msg.contains("tool_call_id")) {
+                    cm.tool_call_id = msg.value("tool_call_id", "");
+                }
+                if (msg.contains("tool_calls") && msg["tool_calls"].is_array()) {
+                    for (auto & tc_json : msg["tool_calls"]) {
+                        common_chat_tool_call tc;
+                        if (tc_json.contains("id")) {
+                            tc.id = tc_json.value("id", "");
+                        }
+                        if (tc_json.contains("function") && tc_json["function"].is_object()) {
+                            auto & fn = tc_json["function"];
+                            tc.name = fn.value("name", "");
+                            if (fn.contains("arguments")) {
+                                if (fn["arguments"].is_string()) {
+                                    tc.arguments = fn["arguments"].get<std::string>();
+                                } else {
+                                    tc.arguments = fn["arguments"].dump();
+                                }
+                            }
+                        } else {
+                            tc.name = tc_json.value("name", "");
+                            if (tc_json.contains("arguments")) {
+                                if (tc_json["arguments"].is_string()) {
+                                    tc.arguments = tc_json["arguments"].get<std::string>();
+                                } else {
+                                    tc.arguments = tc_json["arguments"].dump();
+                                }
+                            }
+                        }
+                        cm.tool_calls.push_back(tc);
+                    }
+                }
                 if (cm.role != "system" && cm.role != "user" &&
-                    cm.role != "assistant") {
+                    cm.role != "assistant" && cm.role != "tool" &&
+                    cm.role != "developer") {
                     cm.role = "assistant";
                 }
                 msgs.push_back(cm);
@@ -709,6 +746,7 @@ static chat_template_result fallback_chat_template(const std::vector<common_chat
         if (msg.role == "system")         prompt += msg.content + "\n";
         else if (msg.role == "user")      prompt += "User: " + msg.content + "\n";
         else if (msg.role == "assistant") prompt += "Assistant: " + msg.content + "\n";
+        else if (msg.role == "tool")      prompt += "Tool (" + msg.tool_name + "): " + msg.content + "\n";
     }
     if (add_generation_prompt) prompt += "Assistant:";
     out.prompt = prompt;
@@ -2160,6 +2198,14 @@ Java_com_dark_gguf_1lib_GGUFNativeLib_nativeGetModelInfo(JNIEnv * env, jobject) 
         }
         if (llama_model_meta_val_str(g_state.model, "general.file_type", buf, sizeof(buf)) > 0) {
             info["file_type"] = buf;
+        }
+
+        // Quantization type enum and canonical name
+        enum llama_ftype ftype = llama_model_ftype(g_state.model);
+        info["ftype"] = (int)ftype;
+        const char * ftype_name = llama_ftype_name(ftype);
+        if (ftype_name) {
+            info["ftype_name"] = ftype_name;
         }
 
         // Vocab info
@@ -4528,4 +4574,62 @@ Java_com_dark_gguf_1lib_GGUFNativeLib_nativeTextDigest(
 
     std::string out = text_digest::compress(text_str, query_str, opts);
     return env->NewStringUTF(out.c_str());
+}
+
+// ── BitNet 1.58-bit / LUT JNI Bridge ──────────────────────────────────────
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_dark_gguf_1lib_GGUFNativeLib_nativeBitNetIsSupported(JNIEnv *, jobject) {
+    return (jboolean)bitnet_has_neon_support();
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_dark_gguf_1lib_GGUFNativeLib_nativeBitNetGetInfo(JNIEnv * env, jobject) {
+    const char * info = bitnet_get_info_json();
+    return env->NewStringUTF(info ? info : "{}");
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_dark_gguf_1lib_GGUFNativeLib_nativeBitNetRunBenchmark(
+        JNIEnv * env, jobject,
+        jint k, jint m, jint iters, jint threads) {
+    const char * res = bitnet_run_benchmark((int)k, (int)m, (int)iters, (int)threads);
+    return env->NewStringUTF(res ? res : "{}");
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_dark_gguf_1lib_GGUFNativeLib_nativeBitNetCheckParity(
+        JNIEnv * env, jobject,
+        jint n, jbyteArray jweights, jfloatArray jactivations, jfloatArray joutDelta) {
+    if (n <= 0 || (n % BITNET_BLOCK_SIZE != 0)) {
+        return (jint)BITNET_ERR_UNALIGNED_SIZE;
+    }
+    if (!jweights || !jactivations) {
+        return (jint)BITNET_ERR_NULL_POINTER;
+    }
+    jsize w_len = env->GetArrayLength(jweights);
+    jsize a_len = env->GetArrayLength(jactivations);
+    int expected_bytes = (n / BITNET_BLOCK_SIZE) * sizeof(bitnet_block_i2_s);
+    if (w_len < expected_bytes || a_len < n) {
+        return (jint)BITNET_ERR_INVALID_ARGUMENT;
+    }
+
+    jbyte * w_ptr = env->GetByteArrayElements(jweights, nullptr);
+    jfloat * a_ptr = env->GetFloatArrayElements(jactivations, nullptr);
+
+    float s_scalar = 0.0f;
+    float s_neon = 0.0f;
+    float diff = 0.0f;
+
+    bitnet_status_t status = bitnet_parity_check(n, w_ptr, a_ptr, &s_scalar, &s_neon, &diff);
+
+    if (joutDelta && env->GetArrayLength(joutDelta) >= 3) {
+        jfloat delta_vals[3] = { s_scalar, s_neon, diff };
+        env->SetFloatArrayRegion(joutDelta, 0, 3, delta_vals);
+    }
+
+    env->ReleaseByteArrayElements(jweights, w_ptr, JNI_ABORT);
+    env->ReleaseFloatArrayElements(jactivations, a_ptr, JNI_ABORT);
+
+    return (jint)status;
 }

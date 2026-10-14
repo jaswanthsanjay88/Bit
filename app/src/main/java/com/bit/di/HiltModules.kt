@@ -153,3 +153,23 @@
             )
         }
     }
+
+    @Module
+    @InstallIn(SingletonComponent::class)
+    object BitNetModule {
+
+        @Provides
+        @Singleton
+        fun provideBitNetHardwareProbe(): com.dark.gguf_lib.BitNetHardwareProbe {
+            return com.dark.gguf_lib.DefaultBitNetHardwareProbe()
+        }
+
+        @Provides
+        @Singleton
+        fun provideBitNetEngine(
+            probe: com.dark.gguf_lib.BitNetHardwareProbe
+        ): com.dark.gguf_lib.BitNetEngine {
+            return com.dark.gguf_lib.BitNetEngine(probe)
+        }
+    }
+

@@ -300,11 +300,6 @@ object PluginManager {
         return getEnabledToolDefinitions().map { it.name }
     }
 
-    private fun isSmallModel(modelId: String): Boolean {
-        val id = modelId.lowercase()
-        return id.contains("350m") || id.contains("125m") || id.contains("160m") || id.contains("tiny") || id.contains("mini")
-    }
-
     private val pluginScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
 
     fun syncToolsWithLLM() {
@@ -321,11 +316,10 @@ object PluginManager {
                 return@launch
             }
 
-            val activeModelId = ActiveModelSession.currentModelId.value
-            if (isSmallModel(activeModelId)) {
+            if (ActiveModelSession.isSubBillion.value) {
                 LlmModelWorker.clearToolsGguf()
                 _isToolCallingModelLoaded.value = false
-                Log.d(TAG, "Active model is a small model ($activeModelId); stripping tool schemas.")
+                Log.d(TAG, "Active model is sub-1B parameter model; stripping tool schemas.")
                 return@launch
             }
 

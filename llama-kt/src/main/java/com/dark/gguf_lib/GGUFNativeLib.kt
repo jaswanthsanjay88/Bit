@@ -387,4 +387,8 @@ internal object GGUFNativeLib {
      * ```
      */
     external fun nativeListBackendsJson(): String
+    external fun nativeBitNetIsSupported(): Boolean
+    external fun nativeBitNetGetInfo(): String
+    external fun nativeBitNetRunBenchmark(k: Int, m: Int, iters: Int, threads: Int = 0): String
+    external fun nativeBitNetCheckParity(n: Int, weights: ByteArray, activations: FloatArray, outDelta: FloatArray? = null): Int
 }

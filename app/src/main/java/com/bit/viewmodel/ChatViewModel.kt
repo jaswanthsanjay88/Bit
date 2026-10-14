@@ -6,8 +6,10 @@ import android.graphics.Bitmap
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bit.data.AppSettingsDataStore
@@ -113,19 +115,17 @@ class ChatViewModel @Inject constructor(
     @Volatile private var vaultCacheTimestamp = 0L
     private val VAULT_CACHE_TTL_MS = 30_000L // 30 seconds
 
-    private fun getCachedVaultNotes(): List<Pair<String, String>> {
+    private suspend fun getCachedVaultNotes(): List<Pair<String, String>> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val cached = cachedVaultNotes
-        if (cached != null && now - vaultCacheTimestamp < VAULT_CACHE_TTL_MS) return cached
+        if (cached != null && now - vaultCacheTimestamp < VAULT_CACHE_TTL_MS) return@withContext cached
 
         val notes = mutableListOf<Pair<String, String>>()
         try {
             // 1. UMS memories (User personal facts & preferences - Single Source of Truth)
             val memoryRepo = runCatching { com.bit.di.AppContainer.getMemoryRepo() }.getOrNull()
             val umsMemories = memoryRepo?.let {
-                kotlinx.coroutines.runBlocking(Dispatchers.IO) {
-                    runCatching { it.getAllOnce() }.getOrDefault(emptyList())
-                }
+                runCatching { it.getAllOnce() }.getOrDefault(emptyList())
             }.orEmpty()
             for (mem in umsMemories.take(15)) {
                 val categoryName = mem.category.name.lowercase().replaceFirstChar { it.uppercase() }
@@ -135,9 +135,7 @@ class ChatViewModel @Inject constructor(
             // 2. Room Notes with AI enabled
             val db = runCatching { com.bit.di.AppContainer.getDatabase() }.getOrNull()
             val dbNotes = db?.let {
-                kotlinx.coroutines.runBlocking(Dispatchers.IO) {
-                    runCatching { it.memoryNoteDao().getAiEnabledNotesOnce() }.getOrDefault(emptyList())
-                }
+                runCatching { it.memoryNoteDao().getAiEnabledNotesOnce() }.getOrDefault(emptyList())
             }.orEmpty()
             for (note in dbNotes.take(10)) {
                 val body = if (note.content.length > 500) note.content.take(500) + "..." else note.content
@@ -170,7 +168,7 @@ class ChatViewModel @Inject constructor(
 
         cachedVaultNotes = notes
         vaultCacheTimestamp = now
-        return notes
+        notes
     }
 
     val streamingEnabled: StateFlow<Boolean> = appSettings.streamingEnabled
@@ -193,6 +191,9 @@ class ChatViewModel @Inject constructor(
     private val _streamingTurnId = MutableStateFlow<String?>(null)
     val streamingTurnId: StateFlow<String?> = _streamingTurnId.asStateFlow()
 
+    val blockExpansionStates = mutableStateMapOf<String, Boolean>()
+    val visibleEpoch = mutableStateOf(0)
+
     private val _expandedBlockTurnIds = MutableStateFlow<Set<String>>(emptySet())
     val expandedBlockTurnIds: StateFlow<Set<String>> = _expandedBlockTurnIds.asStateFlow()
 
@@ -200,6 +201,8 @@ class ChatViewModel @Inject constructor(
     val userCollapsedBlockTurnIds: StateFlow<Set<String>> = _userCollapsedBlockTurnIds.asStateFlow()
 
     fun isBlockExpanded(msgId: String, thinking: ThinkingUi? = null): Boolean {
+        val userChoice = blockExpansionStates[msgId]
+        if (userChoice != null) return userChoice
         if (msgId in _userCollapsedBlockTurnIds.value) return false
         if (msgId in _expandedBlockTurnIds.value) return true
         if (thinking?.failureMessage != null) return true
@@ -207,20 +210,20 @@ class ChatViewModel @Inject constructor(
     }
 
     fun toggleBlockExpanded(msgId: String, isFailed: Boolean = false) {
-        val currentlyExpanded = if (msgId in _userCollapsedBlockTurnIds.value) false
-            else if (msgId in _expandedBlockTurnIds.value) true
-            else isFailed
-
-        if (currentlyExpanded) {
-            _expandedBlockTurnIds.update { it - msgId }
-            _userCollapsedBlockTurnIds.update { it + msgId }
-        } else {
+        val currentlyExpanded = isBlockExpanded(msgId, null)
+        val next = !currentlyExpanded
+        blockExpansionStates[msgId] = next
+        if (next) {
             _userCollapsedBlockTurnIds.update { it - msgId }
             _expandedBlockTurnIds.update { it + msgId }
+        } else {
+            _expandedBlockTurnIds.update { it - msgId }
+            _userCollapsedBlockTurnIds.update { it + msgId }
         }
     }
 
     fun setBlockExpanded(msgId: String, expanded: Boolean) {
+        blockExpansionStates[msgId] = expanded
         if (expanded) {
             _userCollapsedBlockTurnIds.update { it - msgId }
             _expandedBlockTurnIds.update { it + msgId }
@@ -249,10 +252,9 @@ class ChatViewModel @Inject constructor(
     }
 
     /** Tool execution currently awaiting user approval (human-in-the-loop), or null. */
-    val pendingApproval: StateFlow<com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval?> =
-        harnessState
-            .map { it as? com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    private val _pendingApproval = MutableStateFlow<com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval?>(null)
+    val pendingApproval: StateFlow<com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval?> = _pendingApproval.asStateFlow()
+    private var pendingApprovalDeferred: kotlinx.coroutines.CompletableDeferred<Boolean>? = null
 
     val isAgentMode: StateFlow<Boolean> = appSettings.agentModeEnabled
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
@@ -271,342 +273,87 @@ class ChatViewModel @Inject constructor(
     }
 
     fun approvePendingAgentStep(rememberForSession: Boolean = false) {
-        val current = harnessEngine.state.value
-        if (current is com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval) {
+        val current = _pendingApproval.value
+        if (current != null) {
             emitStepEvent(StepEvent.Resumed(current.activeStep.id, toolLabel(current.toolName)))
-            harnessEngine.approveStep(current.activeStep.id, rememberForSession)
+            if (rememberForSession && current.toolName == "workspace_shell") {
+                val cmd = com.bit.agent.loop.AgentLoop.extractCommandString(current.toolArguments)
+                val prefix = cmd.split(" ").firstOrNull()?.trim() ?: cmd
+                if (prefix.isNotBlank()) {
+                    val root = com.bit.workspace.WorkspacePaths.root(appContext)
+                    com.bit.agent.loop.ProjectCommandApprovalStore.addAllowedPrefix(root, prefix)
+                }
+            }
+            pendingApprovalDeferred?.complete(true)
+            _pendingApproval.value = null
+            pendingApprovalDeferred = null
+            return
+        }
+        val harnessCurrent = harnessEngine.state.value
+        if (harnessCurrent is com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval) {
+            emitStepEvent(StepEvent.Resumed(harnessCurrent.activeStep.id, toolLabel(harnessCurrent.toolName)))
+            harnessEngine.approveStep(harnessCurrent.activeStep.id, rememberForSession)
         }
     }
 
     fun denyPendingAgentStep() {
-        val current = harnessEngine.state.value
-        if (current is com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval) {
+        val current = _pendingApproval.value
+        if (current != null) {
             emitStepEvent(StepEvent.Resumed(current.activeStep.id, toolLabel(current.toolName)))
-            harnessEngine.denyStep(current.activeStep.id, "denied by user")
+            pendingApprovalDeferred?.complete(false)
+            _pendingApproval.value = null
+            pendingApprovalDeferred = null
+            return
+        }
+        val harnessCurrent = harnessEngine.state.value
+        if (harnessCurrent is com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval) {
+            emitStepEvent(StepEvent.Resumed(harnessCurrent.activeStep.id, toolLabel(harnessCurrent.toolName)))
+            harnessEngine.denyStep(harnessCurrent.activeStep.id, "denied by user")
         }
     }
 
     /** Delivers the user's typed answer to a pending ask_user step. */
     fun answerAgentQuestion(answer: String) {
-        val current = harnessEngine.state.value
-        if (current is com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval &&
-            current.toolName.equals("ask_user", ignoreCase = true)
-        ) {
+        val current = _pendingApproval.value
+        if (current != null && current.toolName.equals("ask_user", ignoreCase = true)) {
             emitStepEvent(StepEvent.Resumed(current.activeStep.id, toolLabel(current.toolName)))
-            harnessEngine.answerPendingQuestion(current.activeStep.id, answer)
+            pendingApprovalDeferred?.complete(true)
+            _pendingApproval.value = null
+            pendingApprovalDeferred = null
+            return
         }
+        val harnessCurrent = harnessEngine.state.value
+        if (harnessCurrent is com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval &&
+            harnessCurrent.toolName.equals("ask_user", ignoreCase = true)
+        ) {
+            emitStepEvent(StepEvent.Resumed(harnessCurrent.activeStep.id, toolLabel(harnessCurrent.toolName)))
+            harnessEngine.answerPendingQuestion(harnessCurrent.activeStep.id, answer)
+        }
+    }
+
+    fun undoLastAgentTurn(): Boolean {
+        val root = com.bit.workspace.WorkspacePaths.root(appContext)
+        val success = com.bit.agent.harness.coding.ShadowGitManager.rollback(root)
+        if (success) {
+            val lastMsg = _messages.lastOrNull()
+            if (lastMsg != null && lastMsg.role == Role.Assistant) {
+                viewModelScope.launch {
+                    chatManager.deleteMessage(lastMsg.msgId)
+                    _messages.remove(lastMsg)
+                }
+            }
+            _turnUi.value = null
+            _toolChainSteps.value = emptyList()
+        }
+        return success
     }
 
     fun startAgentGoal(goal: String) {
         if (goal.isBlank()) return
-        if (com.bit.agent.harness.engine.CapabilityIntentRouter.isCapabilityQuery(goal)) {
-            respondWithCapabilityReport(goal)
-            return
-        }
-        if (com.bit.agent.harness.engine.CapabilityIntentRouter.isMemoryQuery(goal)) {
-            respondWithMemoryReport(goal)
-            return
-        }
-        if (_isGenerating.value) {
-            stop()
-        }
-        resetAgentGoal()
-        harnessJob?.cancel()
-
-        _isGenerating.value = true
-        _streamingUserMessage.value = goal
-        _streamingAssistantMessage.value = ""
-        _agentPlan.value = null
-        _agentSummary.value = null
-        _toolChainSteps.value = emptyList()
-        _agentStepEvents.value = emptyList()
-        _agentPhase.value = AgentPhase.Planning
-        _error.value = null
-
-        val turnId = java.util.UUID.randomUUID().toString()
-        _streamingTurnId.value = turnId
-        _reasoningText.value = ""
-        _thinkingUi.value = ThinkingUi(turnId = turnId, startedAtMs = System.currentTimeMillis())
-
-        _turnUi.value = com.bit.agent.harness.event.TurnUi(
-            reasoning = "",
-            steps = emptyList(),
-            finished = false
-        )
-
-        val isNewChat = _currentChatId.value == null
-
-        val userMsg = Messages(
-            msgId = java.util.UUID.randomUUID().toString(),
-            role = Role.User,
-            content = MessageContent(contentType = ContentType.Text, content = goal),
-            modelId = currentModelId
-        )
-        currentUserMessage = userMsg
-        userMessageAdded.set(true)
-        _messages.add(userMsg)
-        AppStateManager.setHasMessages(true)
-
-        val steps = mutableListOf<ToolChainStepData>()
-
-        harnessJob = viewModelScope.launch {
-            var thinkId: String? = null
-            var eventRound = 0
-            val throttler = LabelThrottler(minGapMs = 1000L)
-            val reasoningBuilder = StringBuilder()
-
-            fun openThink(now: Long) {
-                if (thinkId != null) return
-                thinkId = "think_${turnId}_$eventRound"
-                emitStepEvent(StepEvent.Started(
-                    id = thinkId!!,
-                    kind = StepKind.Thinking,
-                    label = "Thinking…",
-                    atMs = now
-                ))
-            }
-
-            fun closeThink(now: Long) {
-                thinkId?.let { id ->
-                    emitStepEvent(StepEvent.Finished(
-                        id = id,
-                        ok = true,
-                        atMs = now
-                    ))
-                    thinkId = null
-                }
-            }
-
-            val eventJob = launch {
-                harnessEngine.events.collect { event ->
-                    _turnUi.update { current ->
-                        current?.reduce(event) ?: com.bit.agent.harness.event.TurnUi().reduce(event)
-                    }
-                    val currentLabel = _turnUi.value?.currentStatusLabel()
-                    if (currentLabel != null && currentLabel != "Done") {
-                        AppStateManager.setGeneratingText(currentLabel)
-                    }
-
-                    val now = System.currentTimeMillis()
-                    when (event) {
-                        is com.bit.agent.harness.event.AgentEvent.Reasoning -> {
-                            openThink(now)
-                            reasoningBuilder.append(event.delta)
-                            val fullThoughts = reasoningBuilder.toString()
-                            _reasoningText.value = fullThoughts
-                            if (throttler.ready(now)) {
-                                val nextLabel = throttler.next(extractReasoningLabel(fullThoughts), now)
-                                if (nextLabel != null && thinkId != null) {
-                                    emitStepEvent(StepEvent.Label(thinkId!!, nextLabel))
-                                }
-                            }
-                        }
-                        is com.bit.agent.harness.event.AgentEvent.ToolCommitted -> {
-                            closeThink(now)
-                            event.toStepEvent(now)?.let { emitStepEvent(it) }
-                        }
-                        is com.bit.agent.harness.event.AgentEvent.ToolFinished -> {
-                            event.toStepEvent(now)?.let { emitStepEvent(it) }
-                            eventRound++
-                        }
-                        is com.bit.agent.harness.event.AgentEvent.AnswerDelta -> {
-                            closeThink(now)
-                            event.toStepEvent(now)?.let { emitStepEvent(it) }
-                        }
-                        is com.bit.agent.harness.event.AgentEvent.Done -> {
-                            closeThink(now)
-                            event.toStepEvent(now)?.let { emitStepEvent(it) }
-                        }
-                    }
-                }
-            }
-            try {
-                AppStateManager.setGeneratingText("Thinking")
-                val hasMemoryIntent = listOf("memory", "vault", "remember", "about me", "my profile", "my skills")
-                    .any { goal.contains(it, ignoreCase = true) }
-
-                var effectiveGoal = goal
-                if (hasMemoryIntent) {
-                    val memNotes = withContext(Dispatchers.IO) { getCachedVaultNotes() }
-                    if (memNotes.isNotEmpty()) {
-                        val stepId = "mem_pre_${turnId}"
-                        val chips = memNotes.take(3).map { (title, _) ->
-                            com.bit.agent.harness.event.SourceChip(title = title.take(24), kind = com.bit.agent.harness.event.ChipKind.Memory)
-                        }
-                        emitStepEvent(com.bit.agent.harness.event.StepEvent.Started(
-                            id = stepId,
-                            kind = com.bit.agent.harness.event.StepKind.Retrieval,
-                            label = "Reviewing memory notes",
-                            atMs = System.currentTimeMillis()
-                        ))
-                        val memContext = memNotes.joinToString("\n\n") { (title, body) ->
-                            "### $title\n$body"
-                        }
-                        effectiveGoal = "$goal\n\n[CONTEXT FROM USER MEMORY VAULT]:\n$memContext"
-                        emitStepEvent(com.bit.agent.harness.event.StepEvent.Finished(
-                            id = stepId,
-                            ok = true,
-                            atMs = System.currentTimeMillis(),
-                            chips = chips,
-                            detail = "Loaded ${memNotes.size} memory notes"
-                        ))
-                    }
-                }
-
-                harnessEngine.executeGoal(effectiveGoal).collect { state ->
-                    when (state) {
-                        is com.bit.agent.harness.state.AgentHarnessState.Decomposing -> {
-                            _agentPhase.value = AgentPhase.Planning
-                        }
-                        is com.bit.agent.harness.state.AgentHarnessState.Executing -> {
-                            val isDirectAnswer = state.toolName.equals("direct_answer", ignoreCase = true) ||
-                                    state.toolName.equals("direct_response", ignoreCase = true)
-                            _agentPhase.value = AgentPhase.Executing
-                            if (!isDirectAnswer) {
-                                emitStepEvent(
-                                    com.bit.models.messages.StepEvent(
-                                        type = "EXECUTING",
-                                        label = state.activeStep.description,
-                                        toolName = state.toolName,
-                                        stepIndex = state.stepIndex,
-                                        totalSteps = state.totalSteps
-                                    )
-                                )
-                                val displayPlan = com.bit.agent.harness.state.TaskPlan(goal, mutableListOf(state.activeStep))
-                                _agentPlan.value = harnessEngine.formatPlanToMarkdown(displayPlan, activeStepIndex = state.stepIndex)
-                            }
-                        }
-                        is com.bit.agent.harness.state.AgentHarnessState.GateChecking -> {
-                            _agentPhase.value = AgentPhase.Executing
-                            val step = state.step
-                            val obs = state.observation
-                            val isDirectAnswer = step.toolName.equals("direct_answer", ignoreCase = true) ||
-                                    step.toolName.equals("direct_response", ignoreCase = true)
-                            if (!isDirectAnswer) {
-                                emitStepEvent(
-                                    com.bit.models.messages.StepEvent(
-                                        type = "GATE",
-                                        label = "Validating '${step.description}'",
-                                        toolName = step.toolName,
-                                        durationMs = obs.executionTimeMs,
-                                        success = state.passed
-                                    )
-                                )
-                                val pluginName = when {
-                                    step.toolName.contains("search", ignoreCase = true) || step.toolName.contains("fetch", ignoreCase = true) -> "Web Search"
-                                    step.toolName.contains("workspace", ignoreCase = true) || step.toolName.contains("shell", ignoreCase = true) -> "Linux Workspace"
-                                    step.toolName.contains("memory", ignoreCase = true) || step.toolName.contains("vault", ignoreCase = true) -> "Memory Vault"
-                                    else -> "Agent Tool"
-                                }
-                                val stepData = ToolChainStepData(
-                                    round = state.step.retryCount + 1,
-                                    toolName = step.toolName,
-                                    pluginName = pluginName,
-                                    args = step.toolArguments,
-                                    result = obs.payload ?: obs.summary,
-                                    success = obs.isSuccess,
-                                    executionTimeMs = obs.executionTimeMs
-                                )
-                                if (steps.none { it.toolName == step.toolName && it.args == step.toolArguments }) {
-                                    steps.add(stepData)
-                                    _toolChainSteps.value = steps.toList()
-                                }
-                            }
-                        }
-                        is com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval -> {
-                            _agentPhase.value = AgentPhase.Executing
-                            val waitLabel = if (state.toolName.equals("ask_user", ignoreCase = true)) {
-                                "Waiting for your answer"
-                            } else {
-                                "Waiting for your approval"
-                            }
-                            emitStepEvent(StepEvent.Waiting(state.activeStep.id, waitLabel))
-                            emitStepEvent(
-                                com.bit.models.messages.StepEvent(
-                                    type = if (state.toolName.equals("ask_user", ignoreCase = true)) "QUESTION" else "APPROVAL",
-                                    label = if (state.toolName.equals("ask_user", ignoreCase = true))
-                                        "Agent needs your input"
-                                    else
-                                        "Approval required for '${state.activeStep.description}'",
-                                    toolName = state.toolName
-                                )
-                            )
-                        }
-                        is com.bit.agent.harness.state.AgentHarnessState.SubagentRunning -> {
-                            _agentPhase.value = AgentPhase.Executing
-                            emitStepEvent(
-                                com.bit.models.messages.StepEvent(
-                                    type = "SUBAGENT",
-                                    label = "Subagent [${state.subagentTask.role}] deployed",
-                                    stepIndex = state.parentStepIndex,
-                                    totalSteps = state.totalParentSteps
-                                )
-                            )
-                        }
-                        is com.bit.agent.harness.state.AgentHarnessState.SelfCorrecting -> {
-                            _agentPhase.value = AgentPhase.Executing
-                            emitStepEvent(
-                                com.bit.models.messages.StepEvent(
-                                    type = "SELF_CORRECT",
-                                    label = "Self-correcting '${state.failedStep.description}' (attempt ${state.retryCount}/${state.maxRetries})",
-                                    toolName = state.failedStep.toolName,
-                                    success = false
-                                )
-                            )
-                        }
-                        com.bit.agent.harness.state.AgentHarnessState.Idle -> {}
-                        is com.bit.agent.harness.state.AgentHarnessState.Completed -> {
-                            _agentPhase.value = AgentPhase.Complete
-                            emitStepEvent(
-                                com.bit.models.messages.StepEvent(
-                                    type = "COMPLETE",
-                                    label = "Goal completed in ${state.totalTurns} turn(s)",
-                                    durationMs = state.executionTimeMs,
-                                    success = true
-                                )
-                            )
-                            val finalOutput = state.finalResult
-                            _turnUi.update { it?.copy(finished = true, expanded = false, activeToolLabel = null, thinkMs = state.executionTimeMs, answer = finalOutput) }
-                            _streamingAssistantMessage.value = finalOutput
-                            _agentSummary.value = state.finalResult
-                            closeThink(System.currentTimeMillis())
-                            emitStepEvent(com.bit.agent.harness.event.StepEvent.Completed(System.currentTimeMillis()))
-                            persistAgentChat(goal, isNewChat, _agentPlan.value ?: "", steps, finalOutput)
-                            AppStateManager.setGenerationComplete()
-                            AppStateManager.chatRefreshed()
-                            resetStreamingState()
-                        }
-                        is com.bit.agent.harness.state.AgentHarnessState.Failed -> {
-                            _agentPhase.value = AgentPhase.Complete
-                            emitStepEvent(
-                                com.bit.models.messages.StepEvent(
-                                    type = "FAILED",
-                                    label = "Execution halted: ${state.reason}",
-                                    success = false
-                                )
-                            )
-                            val plainReason = com.bit.agent.harness.event.humanizeFailure(state.reason)
-                            val failMsg = "Couldn't complete the task: $plainReason"
-                            _turnUi.update { it?.copy(finished = true, expanded = true, activeToolLabel = null) }
-                            _streamingAssistantMessage.value = failMsg
-                            _agentSummary.value = failMsg
-                            closeThink(System.currentTimeMillis())
-                            emitStepEvent(com.bit.agent.harness.event.StepEvent.Failed(System.currentTimeMillis(), plainReason))
-                            persistAgentChat(goal, isNewChat, _agentPlan.value ?: "", steps, failMsg)
-                            AppStateManager.setGenerationComplete()
-                            AppStateManager.chatRefreshed()
-                            resetStreamingState()
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("ChatViewModel", "Error in startAgentGoal: ${e.message}", e)
-                reportError(e.message ?: "Agent execution error")
-                AppStateManager.setGenerationComplete()
-                resetStreamingState()
-            }
-        }
+        // Unified loop: every agent-mode message routes into the single tool loop with full history
+        sendChat(goal)
     }
+
 
     fun cancelAgentGoal() {
         harnessJob?.cancel()
@@ -640,8 +387,85 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private val _allMessages = mutableStateListOf<Messages>()
+    val allMessages: List<Messages> get() = _allMessages
+
     private val _messages = mutableStateListOf<Messages>()
     val messages: SnapshotStateList<Messages> = _messages
+
+    // Branch selection map (Key: parentId, Value: selectedChildMsgId)
+    private val _selectedBranches = mutableStateMapOf<String, String>()
+    val selectedBranches: Map<String, String> get() = _selectedBranches
+
+    fun getVersionInfo(message: Messages): com.bit.models.messages.MessageVersionInfo? {
+        val pool = if (_allMessages.isNotEmpty()) _allMessages else _messages
+        return getVersionInfo(message, pool)
+    }
+
+    fun selectMessageVersion(parentId: String, targetMsgId: String) {
+        _selectedBranches[parentId] = targetMsgId
+        rebuildVisibleMessages()
+        visibleEpoch.value++
+    }
+
+    private fun runOnMainOrDirect(block: () -> Unit) {
+        val mainLooper = try { android.os.Looper.getMainLooper() } catch (_: Throwable) { null }
+        val currentLooper = try { android.os.Looper.myLooper() } catch (_: Throwable) { null }
+        if (mainLooper == null || currentLooper == mainLooper) {
+            block()
+        } else {
+            android.os.Handler(mainLooper).post(block)
+        }
+    }
+
+    fun rebuildVisibleMessages() {
+        runOnMainOrDirect {
+            val pool = if (_allMessages.isNotEmpty()) _allMessages else _messages
+            val visible = resolveActivePath(pool, _selectedBranches)
+            _messages.clear()
+            _messages.addAll(visible)
+            visibleEpoch.value++
+        }
+    }
+
+    private fun addMessageToState(message: Messages) {
+        runOnMainOrDirect {
+            val existingIndex = if (message.msgId.isNotBlank()) {
+                val byId = _allMessages.indexOfFirst { it.msgId == message.msgId }
+                if (byId != -1) byId else _allMessages.indexOfLast { it.role == message.role && it.msgId.isBlank() && it.content.content == message.content.content }
+            } else {
+                _allMessages.indexOfLast { it.role == message.role && it.msgId.isBlank() && it.content.content == message.content.content }
+            }
+            if (existingIndex != -1) {
+                _allMessages[existingIndex] = message
+            } else {
+                _allMessages.add(message)
+            }
+            message.parentId?.takeIf { it.isNotBlank() }?.let { pId ->
+                if (message.msgId.isNotBlank()) {
+                    _selectedBranches[pId] = message.msgId
+                }
+            }
+            val pool = if (_allMessages.isNotEmpty()) _allMessages else _messages
+            val visible = resolveActivePath(pool, _selectedBranches)
+            _messages.clear()
+            _messages.addAll(visible)
+            visibleEpoch.value++
+        }
+    }
+
+    private fun syncLoadedMessages(loadedMessages: List<Messages>) {
+        runOnMainOrDirect {
+            val sanitized = sanitizeLoadedMessages(loadedMessages)
+            _allMessages.clear()
+            _allMessages.addAll(sanitized)
+            val pool = if (_allMessages.isNotEmpty()) _allMessages else _messages
+            val visible = resolveActivePath(pool, _selectedBranches)
+            _messages.clear()
+            _messages.addAll(visible)
+            visibleEpoch.value++
+        }
+    }
 
     private val _isGenerating = MutableStateFlow(false)
     val isGenerating: StateFlow<Boolean> = _isGenerating
@@ -791,14 +615,20 @@ class ChatViewModel @Inject constructor(
         val modelId = currentModelId ?: ""
         val modelType = ActiveModelSession.currentModelType.value
 
+        val resolvedModelName = runCatching {
+            AppContainer.getModelRepository().getModelById(modelId)?.modelName
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: modelId
+
         val budget = if (modelType == ProviderType.API) {
-            getRemoteInferenceConfig()?.contextSize ?: com.bit.models.ModelContextDefaults.resolve(modelId, ProviderType.API)
+            getRemoteInferenceConfig()?.contextSize?.takeIf { it > 0 }
+                ?: com.bit.models.ModelContextDefaults.resolve(resolvedModelName, ProviderType.API)
         } else {
             LlmModelWorker.lastLoadedGgufConfig?.let { cfg ->
                 runCatching {
                     GgufEngineSchema.fromJson(cfg.modelLoadingParams, cfg.modelInferenceParams).loadingParams.ctxSize
-                }.getOrNull()
-            } ?: currentMetrics?.contextTokensMax?.takeIf { it > 0 } ?: com.bit.models.ModelContextDefaults.resolve(modelId, ProviderType.GGUF)
+                }.getOrNull()?.takeIf { it > 0 }
+            } ?: currentMetrics?.contextTokensMax?.takeIf { it > 0 }
+              ?: com.bit.models.ModelContextDefaults.resolve(resolvedModelName, ProviderType.GGUF)
         }
 
         // Core system prompt (instructions, persona, date/time, user memory rules)
@@ -1065,8 +895,8 @@ class ChatViewModel @Inject constructor(
                     chatManager.getChatMessages(lastChatId).onSuccess { loadedMessages ->
                         if (loadedMessages.isNotEmpty()) {
                             _currentChatId.value = lastChatId
-                            _messages.clear()
-                            _messages.addAll(sanitizeLoadedMessages(loadedMessages))
+                            _selectedBranches.clear()
+                            syncLoadedMessages(loadedMessages)
                             AppStateManager.setHasMessages(true)
                         }
                     }
@@ -1147,8 +977,10 @@ class ChatViewModel @Inject constructor(
                 _streamingAssistantMessage,
                 isAgentMode,
                 _currentMetrics,
-                LlmModelWorker.isGgufModelLoaded
-            ) { _, _, _, _, _ -> }
+                LlmModelWorker.isGgufModelLoaded,
+                ActiveModelSession.currentModelId,
+                ActiveModelSession.currentModelType
+            ) { _ -> }
                 .debounce(100L)
                 .collect {
                     updateContextUsageState()
@@ -1169,10 +1001,10 @@ class ChatViewModel @Inject constructor(
     }
 
     /** Fetch the current GGUF model's inference config from DB (cached per call). */
-    private suspend fun getGgufModelSchema(): GgufEngineSchema {
-        val modelId = LlmModelWorker.currentGgufModelId.value ?: return GgufEngineSchema()
-        val config = AppContainer.getModelRepository().getConfigByModelId(modelId) ?: return GgufEngineSchema()
-        return GgufEngineSchema.fromJson(config.modelLoadingParams, config.modelInferenceParams)
+    private suspend fun getGgufModelSchema(): GgufEngineSchema = withContext(Dispatchers.IO) {
+        val modelId = LlmModelWorker.currentGgufModelId.value ?: return@withContext GgufEngineSchema()
+        val config = AppContainer.getModelRepository().getConfigByModelId(modelId) ?: return@withContext GgufEngineSchema()
+        GgufEngineSchema.fromJson(config.modelLoadingParams, config.modelInferenceParams)
     }
 
     private suspend fun getModelInferenceParams(): GgufInferenceParams =
@@ -1181,13 +1013,16 @@ class ChatViewModel @Inject constructor(
     // ==================== Chat Management ====================
 
     fun startNewConversation() {
-        // Cancel any in-flight generation and autonomous agent harness before switching
-        generationJob?.cancel()
-        generationJob = null
-        harnessJob?.cancel()
-        harnessJob = null
-        harnessEngine.reset()
-        com.bit.agent.harness.engine.SubagentSessionBus.clear()
+        if (_isGenerating.value) {
+            stop(isSwitchingChat = true)
+        } else {
+            generationJob?.cancel()
+            generationJob = null
+            harnessJob?.cancel()
+            harnessJob = null
+            harnessEngine.reset()
+            com.bit.agent.harness.engine.SubagentSessionBus.clear()
+        }
 
         _currentChatId.value = null
         _messages.clear()
@@ -1211,17 +1046,25 @@ class ChatViewModel @Inject constructor(
         _currentRagContext.value = null
         _currentRagResults.value = emptyList()
         _promptEditState.value = null
+        _turnUi.value = null
         AppStateManager.setHasMessages(false)
+        AppStateManager.setGenerationComplete()
+        AppStateManager.chatRefreshed()
     }
 
     fun loadChat(chatId: String) {
-        // Cancel any in-flight generation and harness from the previous chat
-        generationJob?.cancel()
-        generationJob = null
-        harnessJob?.cancel()
-        harnessJob = null
-        harnessEngine.reset()
-        com.bit.agent.harness.engine.SubagentSessionBus.clear()
+        if (_currentChatId.value == chatId) return
+
+        if (_isGenerating.value) {
+            stop(isSwitchingChat = true)
+        } else {
+            generationJob?.cancel()
+            generationJob = null
+            harnessJob?.cancel()
+            harnessJob = null
+            harnessEngine.reset()
+            com.bit.agent.harness.engine.SubagentSessionBus.clear()
+        }
 
         viewModelScope.launch {
             try {
@@ -1233,10 +1076,13 @@ class ChatViewModel @Inject constructor(
                 _streamingAssistantMessage.value = ""
                 _agentPhase.value = AgentPhase.Idle
                 _isGenerating.value = false
+                _turnUi.value = null
+                _selectedBranches.clear()
                 chatManager.getChatMessages(chatId).onSuccess { loadedMessages ->
-                    _messages.clear()
-                    _messages.addAll(sanitizeLoadedMessages(loadedMessages))
+                    syncLoadedMessages(loadedMessages)
                     AppStateManager.setHasMessages(loadedMessages.isNotEmpty())
+                    AppStateManager.setGenerationComplete()
+                    AppStateManager.chatRefreshed()
                 }.onFailure { e ->
                     reportError("Failed to load chat: ${e.message}")
                 }
@@ -1289,7 +1135,7 @@ class ChatViewModel @Inject constructor(
             }
 
             chatManager.addUserMessage(chatId, prompt).onSuccess { userMsg ->
-                _messages.add(userMsg)
+                addMessageToState(userMsg)
                 currentUserMessage = userMsg
                 AppStateManager.setHasMessages(true)
             }
@@ -1314,11 +1160,13 @@ class ChatViewModel @Inject constructor(
                 thinkMs = 40L
             )
 
+            val capParentId = currentUserMessage?.msgId
             chatManager.addAssistantMessage(
                 chatId = chatId,
-                content = report
+                content = report,
+                parentId = capParentId
             ).onSuccess { assistantMsg ->
-                _messages.add(assistantMsg)
+                addMessageToState(assistantMsg)
                 AppStateManager.setGenerationComplete()
                 AppStateManager.chatRefreshed()
             }
@@ -1349,7 +1197,7 @@ class ChatViewModel @Inject constructor(
             }
 
             chatManager.addUserMessage(chatId, prompt).onSuccess { userMsg ->
-                _messages.add(userMsg)
+                addMessageToState(userMsg)
                 currentUserMessage = userMsg
                 AppStateManager.setHasMessages(true)
             }
@@ -1372,11 +1220,13 @@ class ChatViewModel @Inject constructor(
                 thinkMs = 30L
             )
 
+            val memParentId = currentUserMessage?.msgId
             chatManager.addAssistantMessage(
                 chatId = chatId,
-                content = report
+                content = report,
+                parentId = memParentId
             ).onSuccess { assistantMsg ->
-                _messages.add(assistantMsg)
+                addMessageToState(assistantMsg)
                 AppStateManager.setGenerationComplete()
                 AppStateManager.chatRefreshed()
             }
@@ -1396,17 +1246,12 @@ class ChatViewModel @Inject constructor(
             return
         }
         val isExplicitGoal = Regex("""(?:^|\s)/goal(?:\s|:|$|\b)""", RegexOption.IGNORE_CASE).containsMatchIn(trimmedPrompt)
-        if (isAgentMode.value || isExplicitGoal) {
-            val goal = if (isExplicitGoal) {
-                trimmedPrompt.replace(Regex("""(?:^|\s)/goal(?:\s|:|$|\b)""", RegexOption.IGNORE_CASE), " ").trim().removePrefix(":").trim()
-            } else {
-                trimmedPrompt
-            }
-            if (goal.isNotBlank()) {
-                startAgentGoal(goal)
-                return
-            }
+        val effectivePrompt = if (isExplicitGoal) {
+            trimmedPrompt.replace(Regex("""(?:^|\s)/goal(?:\s|:|$|\b)""", RegexOption.IGNORE_CASE), " ").trim().removePrefix(":").trim()
+        } else {
+            trimmedPrompt
         }
+        if (effectivePrompt.isBlank()) return
         if (!isAnyTextModelLoaded) {
             val hint = if (isAnyImageModelLoaded)
                 "You have an image model loaded — switch to image mode, or load a text model for chat"
@@ -1439,13 +1284,13 @@ class ChatViewModel @Inject constructor(
             modelId = currentModelId,
         )
         if (!userMessageAdded.get()) {
-            _messages.add(currentUserMessage!!)
+            addMessageToState(currentUserMessage!!)
             userMessageAdded.set(true)
         }
         AppStateManager.setHasMessages(true)
 
         var job: Job? = null
-        job = viewModelScope.launch {
+        job = viewModelScope.launch(Dispatchers.Default) {
             try {
                 // Let Compose render the StreamingView before native engine saturates CPU
                 kotlinx.coroutines.yield()
@@ -1499,20 +1344,22 @@ class ChatViewModel @Inject constructor(
                     }
                 } else null
 
-                // Create chat in DB while other async work is running
+                // Create chat in DB while other async work is running (offload to Dispatchers.IO)
                 val chatId = if (isNewChat) {
                     var createdId: String? = null
-                    chatManager.createNewChat().onSuccess { id ->
-                        createdId = id
-                        _currentChatId.value = id
-                        // Immediate title from user prompt (kills "New Chat" spam immediately)
-                        val instantTitle = prompt.trim().replace("\n", " ").take(35).trim()
-                        if (instantTitle.isNotBlank()) {
-                            chatManager.updateChatTitle(id, instantTitle)
-                            AppStateManager.chatRefreshed()
+                    withContext(Dispatchers.IO) {
+                        chatManager.createNewChat().onSuccess { id ->
+                            createdId = id
+                            _currentChatId.value = id
+                            // Immediate title from user prompt (kills "New Chat" spam immediately)
+                            val instantTitle = prompt.trim().replace("\n", " ").take(35).trim()
+                            if (instantTitle.isNotBlank()) {
+                                chatManager.updateChatTitle(id, instantTitle)
+                                AppStateManager.chatRefreshed()
+                            }
+                        }.onFailure { e ->
+                            reportError("Failed to create chat: ${e.message}")
                         }
-                    }.onFailure { e ->
-                        reportError("Failed to create chat: ${e.message}")
                     }
                     createdId ?: return@launch
                 } else {
@@ -1522,13 +1369,12 @@ class ChatViewModel @Inject constructor(
                     }
                 }
 
-                chatManager.addUserMessage(chatId, prompt).onSuccess { userMsg ->
+                val userMsgResult = withContext(Dispatchers.IO) {
+                    chatManager.addUserMessage(chatId, prompt)
+                }
+                userMsgResult.onSuccess { userMsg ->
                     currentUserMessage = userMsg
-                    // Update the optimistic message with the real DB message (having the correct msgId)
-                    val idx = _messages.indexOfLast { it.role == Role.User && it.msgId == "" && it.content.content == prompt }
-                    if (idx != -1) {
-                        _messages[idx] = userMsg
-                    }
+                    addMessageToState(userMsg)
                 }.onFailure { e ->
                     reportError("Failed to save message: ${e.message}")
                     return@launch
@@ -1536,18 +1382,9 @@ class ChatViewModel @Inject constructor(
 
                 // ── Await parallelized results ──
                 val maxTokens = maxTokensDeferred.await()
-                val attachedResult = ragDeferred?.await()
+                val attachedResult = ragDeferred?.let { kotlinx.coroutines.withTimeoutOrNull(2000L) { it.await() } }
 
-                val activeModelId = currentModelId ?: ""
-                val isSmall = activeModelId.contains("350m", ignoreCase = true) ||
-                        activeModelId.contains("125m", ignoreCase = true) ||
-                        activeModelId.contains("160m", ignoreCase = true) ||
-                        activeModelId.contains("0.5b", ignoreCase = true) ||
-                        activeModelId.contains("0.6b", ignoreCase = true) ||
-                        activeModelId.contains("0.8b", ignoreCase = true) ||
-                        activeModelId.contains("1b", ignoreCase = true) ||
-                        activeModelId.contains("tiny", ignoreCase = true) ||
-                        activeModelId.contains("mini", ignoreCase = true)
+                val isSmall = ActiveModelSession.isSmallModel.value
 
                 var ragContext = _currentRagContext.value
                 val meetsConfidence = if (isSmall) {
@@ -1735,30 +1572,48 @@ class ChatViewModel @Inject constructor(
             modelId = currentModelId,
         )
         if (!userMessageAdded.get()) {
-            _messages.add(currentUserMessage!!)
+            addMessageToState(currentUserMessage!!)
             userMessageAdded.set(true)
         }
         AppStateManager.setHasMessages(true)
 
-        // Persist user message immediately for existing chats so it survives navigation
-        if (!isNewConversation) {
-            val chatId = _currentChatId.value
-            if (chatId != null && currentUserMessage != null) {
-                viewModelScope.launch(Dispatchers.IO) {
-                    try {
-                        chatManager.addMessage(chatId, currentUserMessage!!)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to persist VLM user message: ${e.message}")
-                    }
-                }
-            }
-        }
+        val isNewChat = isNewConversation
 
         var job: Job? = null
         job = viewModelScope.launch {
             try {
                 // Let Compose render the StreamingView before native engine saturates CPU
                 kotlinx.coroutines.yield()
+
+                // Persist user message immediately so it survives navigation and cancellation
+                val chatId = if (isNewChat) {
+                    var createdId: String? = null
+                    chatManager.createNewChat().onSuccess { id ->
+                        createdId = id
+                        _currentChatId.value = id
+                        val instantTitle = prompt.trim().replace("\n", " ").take(35).trim()
+                        if (instantTitle.isNotBlank()) {
+                            chatManager.updateChatTitle(id, instantTitle)
+                            AppStateManager.chatRefreshed()
+                        }
+                    }.onFailure { e ->
+                        reportError("Failed to create chat: ${e.message}")
+                    }
+                    createdId ?: return@launch
+                } else {
+                    _currentChatId.value ?: run {
+                        reportError("No chat selected")
+                        return@launch
+                    }
+                }
+
+                if (currentUserMessage != null) {
+                    try {
+                        chatManager.addMessage(chatId, currentUserMessage!!)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to persist VLM user message: ${e.message}")
+                    }
+                }
 
                 val modelId = currentModelId ?: ""
                 val modelDb = try { AppContainer.getModelRepository().getModelById(modelId) } catch (_: Exception) { null }
@@ -1941,33 +1796,32 @@ class ChatViewModel @Inject constructor(
                 val finalResponse = if (thinkingBuilder.isNotEmpty()) "<think>${thinkingBuilder}</think>${resultBuilder.toString().trim()}" else resultBuilder.toString().trim()
                 _streamingAssistantMessage.value = finalResponse
 
-                if (isNewChat) {
-                    createChatWithMessages(prompt, finalResponse, currentMetrics)
-                } else {
-                    val chatId = _currentChatId.value ?: return@launch
-                    val pendingUserMsg = currentUserMessage
-                    if (!userMessageAdded.get() && pendingUserMsg != null) {
-                        _messages.add(pendingUserMsg)
-                        userMessageAdded.set(true)
+                val pendingUserMsg = currentUserMessage
+                if (!userMessageAdded.get() && pendingUserMsg != null) {
+                    addMessageToState(pendingUserMsg)
+                    userMessageAdded.set(true)
+                }
+                if (finalResponse.isNotBlank()) {
+                    val ragResultItems = _currentRagResults.value.takeIf { it.isNotEmpty() }?.map { result ->
+                        RagResultItem(ragName = result.ragName, content = result.content, score = result.score, nodeId = result.nodeId)
                     }
-                    if (finalResponse.isNotBlank()) {
-                        val ragResultItems = _currentRagResults.value.takeIf { it.isNotEmpty() }?.map { result ->
-                            RagResultItem(ragName = result.ragName, content = result.content, score = result.score, nodeId = result.nodeId)
-                        }
-                        val assistantMessage = Messages(
-                            role = Role.Assistant,
-                            content = MessageContent(contentType = ContentType.Text, content = finalResponse),
-                            modelId = currentModelId,
-                            decodingMetrics = currentMetrics,
-                            ragResults = ragResultItems,
-                            researchTrace = captureActiveResearchTrace()
-                        )
-                        _messages.add(assistantMessage)
-                        chatManager.addMessage(chatId, assistantMessage)
-                        handlePostTurnMemoryExtraction(prompt, chatId)
-                        AppStateManager.setGenerationComplete()
-                        AppStateManager.chatRefreshed()
+                    val assistantMessage = Messages(
+                        role = Role.Assistant,
+                        parentId = currentUserMessage?.msgId,
+                        content = MessageContent(contentType = ContentType.Text, content = finalResponse),
+                        modelId = currentModelId,
+                        decodingMetrics = currentMetrics,
+                        ragResults = ragResultItems,
+                        researchTrace = captureActiveResearchTrace()
+                    )
+                    addMessageToState(assistantMessage)
+                    chatManager.addMessage(chatId, assistantMessage)
+                    handlePostTurnMemoryExtraction(prompt, chatId)
+                    if (isNewChat) {
+                        generateChatTitleAsync(chatId, prompt, finalResponse)
                     }
+                    AppStateManager.setGenerationComplete()
+                    AppStateManager.chatRefreshed()
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -2012,11 +1866,18 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        // Snapshot the old assistant message — remove from UI but keep for rollback
+        // Snapshot the old assistant message for rollback if cancelled
         val lastAssistantMsg = _messages.lastOrNull { it.role == Role.Assistant }
         regenerationSnapshot = lastAssistantMsg
-        if (lastAssistantMsg != null) {
-            _messages.remove(lastAssistantMsg)
+        if (lastAssistantMsg != null && lastAssistantMsg.parentId == null) {
+            val stamped = lastAssistantMsg.copy(parentId = lastUserMsg.msgId)
+            val allIdx = _allMessages.indexOfFirst { it.msgId == lastAssistantMsg.msgId }
+            if (allIdx != -1) _allMessages[allIdx] = stamped
+            val mIdx = _messages.indexOfFirst { it.msgId == lastAssistantMsg.msgId }
+            if (mIdx != -1) _messages[mIdx] = stamped
+            viewModelScope.launch(Dispatchers.IO) {
+                chatManager.updateMessage(chatId, stamped)
+            }
         }
 
         val prompt = lastUserMsg.content.content
@@ -2053,10 +1914,7 @@ class ChatViewModel @Inject constructor(
 
                 executeUnifiedGeneration(prompt, ragContext, maxTokens, isNewChat = false, isRegeneration = true)
 
-                // Generation completed successfully — now delete old message from DB
-                if (lastAssistantMsg != null) {
-                    chatManager.deleteMessage(lastAssistantMsg.msgId)
-                }
+                // Non-destructive regeneration: previous version is preserved in tree!
                 regenerationSnapshot = null
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // stop() handles rollback via regenerationSnapshot
@@ -2074,10 +1932,18 @@ class ChatViewModel @Inject constructor(
         generationJob = job
     }
 
+    fun continueTurn() {
+        if (_isGenerating.value) return
+        sendChat("Continue")
+    }
+
     private fun restoreRegenerationSnapshot() {
         val snapshot = regenerationSnapshot ?: return
         regenerationSnapshot = null
-        _messages.add(snapshot)
+        if (!_messages.any { it.msgId == snapshot.msgId }) {
+            _messages.add(snapshot)
+        }
+        rebuildVisibleMessages()
     }
 
     private suspend fun getCurrentModelMaxTokens(): Int {
@@ -2086,6 +1952,81 @@ class ChatViewModel @Inject constructor(
     }
 
     // ==================== Unified Generation Flow ====================
+
+    /**
+     * Shared tool executor enforcing identical approval policies across
+     * both the remote API path (AgentLoop) and the local GGUF path.
+     */
+    val sharedToolExecutor: com.bit.agent.loop.SharedToolExecutor by lazy {
+        com.bit.agent.loop.SharedToolExecutor(
+            approvalGate = { toolName, args ->
+                val deferred = kotlinx.coroutines.CompletableDeferred<Boolean>()
+                pendingApprovalDeferred = deferred
+                val step = com.bit.agent.harness.state.TaskStep(
+                    id = "step_${System.currentTimeMillis()}",
+                    description = "Execution requires approval: $toolName",
+                    toolName = toolName,
+                    toolArguments = args,
+                    expectedOutcome = "Approval outcome"
+                )
+                _pendingApproval.value = com.bit.agent.harness.state.AgentHarnessState.AwaitingApproval(
+                    activeStep = step,
+                    toolName = toolName,
+                    toolArguments = args,
+                    approvalState = com.bit.agent.harness.model.ToolApprovalState.Pending
+                )
+                deferred.await()
+            },
+            alwaysAllowedPrefixes = {
+                val root = com.bit.workspace.WorkspacePaths.root(appContext)
+                com.bit.agent.loop.ProjectCommandApprovalStore.loadAllowedPrefixes(root)
+            },
+            isToolSensitive = { name, args ->
+                val tool = harnessEngine.toolRegistry?.tools()?.firstOrNull { it.definition.function.name == name }
+                tool?.needsApproval(args) == true
+            }
+        )
+    }
+
+    /**
+     * PR 0: Factory method for extracted standalone AgentLoop.
+     * Takes provider, tool registry, approval gate, and step cap with no Android/ViewModel dependencies.
+     */
+    fun createAgentLoop(
+        provider: com.bit.api.LlmProvider,
+        stepCap: Int? = null,
+        baseConfig: com.bit.api.ProviderConfig? = null,
+        contextBudgetTokens: Int = 131_072
+    ): com.bit.agent.loop.AgentLoop {
+        val rootDir = com.bit.workspace.WorkspacePaths.root(appContext)
+        val tools = harnessEngine.toolRegistry?.tools() ?: emptyList()
+        return com.bit.agent.loop.AgentLoop(
+            provider = provider,
+            tools = tools,
+            approvalGate = sharedToolExecutor.approvalGate,
+            stepCap = stepCap,
+            projectDir = rootDir,
+            baseConfig = baseConfig,
+            contextBudgetTokens = contextBudgetTokens
+        )
+    }
+
+    private fun buildChatMessageHistory(activeUserPrompt: String): List<ChatMessage> {
+        val list = mutableListOf<ChatMessage>()
+        val historyList = _messages.filter { it.content.contentType == ContentType.Text }
+        val lastUserMsg = historyList.lastOrNull { it.role == Role.User }
+        for (m in historyList) {
+            if (m === lastUserMsg && m.content.content == activeUserPrompt) continue
+            val participant = if (m.role == Role.User) Participant.USER else Participant.MODEL
+            val rawText = m.content.content
+            // Strip <think>...</think> tags from previous assistant turns so prior reasoning does not leak into prompt history
+            val text = if (m.role == Role.Assistant) stripThinkingTags(rawText).trim() else rawText
+            if (text.isNotBlank()) {
+                list.add(ChatMessage(text = text, participant = participant))
+            }
+        }
+        return list
+    }
 
     private suspend fun executeUnifiedGeneration(
         prompt: String,
@@ -2125,8 +2066,7 @@ class ChatViewModel @Inject constructor(
         val isSmall = if (activeProviderType == ProviderType.API) {
             false
         } else {
-            val id = activeModelId.lowercase()
-            Regex("""\b(350m|125m|160m|tiny|1b|2b|3b|1\.5b|1\.7b|1\.8b)\b""").containsMatchIn(id)
+            ActiveModelSession.isSmallModel.value
         }
 
         var finalPrepend = if (isSmall) "" else globalPrepend
@@ -2164,21 +2104,21 @@ class ChatViewModel @Inject constructor(
         val isTooTinyForTools = if (activeProviderType == ProviderType.API) {
             false
         } else {
-            val id = activeModelId.lowercase()
-            Regex("""\b(350m|125m|160m|0\.5b|0\.6b|0\.8b)\b""").containsMatchIn(id)
+            ActiveModelSession.isSubBillion.value
         }
         val hasTools = PluginManager.hasEnabledTools()
                 && (PluginManager.isToolCallingModelLoaded.value || activeProviderType == ProviderType.API)
                 && !isTooTinyForTools
 
         val steps = mutableListOf<ToolChainStepData>()
+        val executedToolCache = mutableMapOf<String, String>()
         // key -> execution count; bounded repeats allow legitimate retries
         // (e.g. re-reading a file after an edit) without infinite loops.
         val seenCalls = mutableMapOf<String, Int>()
         val maxToolCallRepeats = 3
         var finalResponse = ""
         var round = 0
-        val maxRounds = 256
+        val maxRounds = 5
         var totalTokensAccumulated = 0
         var totalTimeMsAccumulated = 0f
         var firstTokenTimeOverall = 0f
@@ -2191,6 +2131,39 @@ class ChatViewModel @Inject constructor(
         } else {
             _agentPlan.value = null
             _agentPhase.value = AgentPhase.Executing
+        }
+
+        // PR 0: Instantiate extracted AgentLoop to verify linkage without behavior change
+        val remoteCfg = if (activeProviderType == ProviderType.API) getRemoteInferenceConfig() else null
+        val baseConfig = remoteCfg?.let { cfg ->
+            val apiKey = LlmProviderResolver.cleanApiKey(cfg.authHeader)
+            val baseUrl = LlmProviderResolver.cleanBaseUrl(cfg.endpoint)
+            val effectiveTemp = if (isAgentMode.value) {
+                if (cfg.temperature != 0.7f) cfg.temperature else 0.6f
+            } else cfg.temperature
+            val effectiveTopP = if (isAgentMode.value) {
+                if (cfg.topP != 0.95f) cfg.topP else 0.95f
+            } else cfg.topP
+            com.bit.api.ProviderConfig(
+                apiKey = apiKey,
+                modelId = cfg.model,
+                baseUrl = baseUrl,
+                thinkingEnabled = _thinkingModeEnabled.value || cfg.thinkingEnabled,
+                thinkingBudgetTokens = cfg.thinkingBudget,
+                temperature = effectiveTemp,
+                topP = effectiveTopP,
+                maxTokens = if (cfg.maxTokens > 0) cfg.maxTokens else 4096
+            )
+        }
+        val activeProviderForLoop = remoteCfg?.let { cfg ->
+            LlmProviderResolver.resolveProvider(cfg.endpoint, cfg.model)
+        }
+        val agentLoop = activeProviderForLoop?.let { 
+            createAgentLoop(
+                it, 
+                baseConfig = baseConfig,
+                contextBudgetTokens = remoteCfg?.contextSize ?: 131_072
+            ) 
         }
 
         val turnId = _streamingTurnId.value ?: java.util.UUID.randomUUID().toString().also {
@@ -2235,13 +2208,230 @@ class ChatViewModel @Inject constructor(
             }
         }
 
-        val onTextDelta: (String) -> Unit = { _ ->
+        val onTextDelta: (String) -> Unit = { delta ->
             val now = System.currentTimeMillis()
             closeThink(now)
             if (!writingStarted) {
                 writingStarted = true
                 emitStepEvent(com.bit.agent.harness.event.StepEvent.WritingStarted(now))
             }
+            _streamingAssistantMessage.value = (_streamingAssistantMessage.value ?: "") + delta
+        }
+
+        if (activeProviderType == ProviderType.API) {
+            val loop = agentLoop ?: run {
+                reportError("Remote API model is missing valid endpoint configuration")
+                return
+            }
+            val modelSystemPrompt = getCurrentModelSystemPrompt(userQuery = prompt, hasTools = hasTools)
+            val assembledPrompt = harnessEngine.promptAssembler?.assemblePrompt(modelSystemPrompt) ?: modelSystemPrompt
+            val fullSystemPrompt = if (isAgentMode.value) {
+                if (assembledPrompt.isNotBlank()) {
+                    "${com.bit.agent.loop.AgentLoop.DEFAULT_AGENT_SYSTEM_PROMPT}\n\n$assembledPrompt"
+                } else {
+                    com.bit.agent.loop.AgentLoop.DEFAULT_AGENT_SYSTEM_PROMPT
+                }
+            } else {
+                assembledPrompt
+            }
+            val history = buildChatMessageHistory(prompt)
+            val loopResult = loop.run(
+                prompt = fullPrompt,
+                history = history,
+                systemPrompt = fullSystemPrompt,
+                onThoughtDelta = onThoughtDelta,
+                onTextDelta = onTextDelta,
+                onStepStarted = { toolName, args ->
+                    val now = System.currentTimeMillis()
+                    closeThink(now)
+                    val toolStepId = "tool_${turnId}_${steps.size}_${toolName}"
+                    val uiModel = com.bit.agent.presentation.ToolResultPresenter.present(toolName, "", args)
+                    val toolLabelStr = when (uiModel) {
+                        is com.bit.agent.presentation.ToolUiModel.WebSearchUi -> "Searched: ${uiModel.query}"
+                        else -> com.bit.agent.harness.event.toolLabel(toolName, emptyMap())
+                    }
+                    val argsMap: Map<String, Any?> = try {
+                        if (args.isBlank()) emptyMap()
+                        else {
+                            val jo = JSONObject(args)
+                            val m = mutableMapOf<String, Any?>()
+                            val itKeys = jo.keys()
+                            while (itKeys.hasNext()) {
+                                val k = itKeys.next()
+                                m[k] = jo.opt(k)
+                            }
+                            m
+                        }
+                    } catch (_: Exception) {
+                        if (args.isNotBlank()) mapOf("raw" to args) else emptyMap()
+                    }
+                    emitStepEvent(com.bit.agent.harness.event.StepEvent.Started(
+                        id = toolStepId,
+                        kind = com.bit.agent.harness.event.StepKind.Tool,
+                        label = toolLabelStr,
+                        atMs = now,
+                        toolName = toolName,
+                        toolArgs = argsMap,
+                        uiModel = uiModel
+                    ))
+                    AppStateManager.setExecutingPlugin("", toolName)
+                    _agentPhase.value = AgentPhase.Executing
+                },
+                onStepFinished = { toolName, success, output, args ->
+                    val now = System.currentTimeMillis()
+                    val toolStepId = "tool_${turnId}_${steps.size}_${toolName}"
+                    val uiModel = com.bit.agent.presentation.ToolResultPresenter.present(toolName, output, args)
+                    val chips = when (uiModel) {
+                        is com.bit.agent.presentation.ToolUiModel.WebSearchUi -> uiModel.results.map { s ->
+                            com.bit.agent.harness.event.SourceChip(
+                                title = s.title,
+                                kind = com.bit.agent.harness.event.ChipKind.Web,
+                                url = s.url,
+                                domain = s.domain
+                            )
+                        }
+                        else -> emptyList()
+                    }
+                    val argsMap: Map<String, Any?> = try {
+                        if (args.isBlank()) emptyMap()
+                        else {
+                            val jo = JSONObject(args)
+                            val m = mutableMapOf<String, Any?>()
+                            val itKeys = jo.keys()
+                            while (itKeys.hasNext()) {
+                                val k = itKeys.next()
+                                m[k] = jo.opt(k)
+                            }
+                            m
+                        }
+                    } catch (_: Exception) {
+                        if (args.isNotBlank()) mapOf("raw" to args) else emptyMap()
+                    }
+                    emitStepEvent(StepEvent.Finished(
+                        id = toolStepId,
+                        ok = success,
+                        atMs = now,
+                        detail = output.take(600),
+                        toolName = toolName,
+                        toolArgs = argsMap,
+                        uiModel = uiModel,
+                        chips = chips
+                    ))
+                    AppStateManager.setPluginExecutionComplete(
+                        pluginName = toolName,
+                        toolName = toolName,
+                        success = success,
+                        executionTimeMs = 0L,
+                        errorMessage = if (success) null else output
+                    )
+                    val stepLabel = when (uiModel) {
+                        is com.bit.agent.presentation.ToolUiModel.WebSearchUi -> "Searched: ${uiModel.query}"
+                        else -> com.bit.agent.harness.event.labelForTool(toolName)
+                    }
+                    _turnUi.update { current ->
+                        val base = current ?: com.bit.agent.harness.event.TurnUi()
+                        val existing = base.steps.toMutableList()
+                        existing.add(
+                            com.bit.agent.harness.event.ToolStep(
+                                id = toolStepId,
+                                tool = toolName,
+                                label = stepLabel,
+                                status = if (success) com.bit.agent.harness.event.StepStatus.Done else com.bit.agent.harness.event.StepStatus.Failed,
+                                output = if (success) output else null,
+                                error = if (!success) output else null,
+                                durationMs = 0L,
+                                argsHash = (toolName + args).hashCode(),
+                                repeatCount = 1
+                            )
+                        )
+                        base.copy(steps = existing, currentLabel = stepLabel, activeToolLabel = null)
+                    }
+                    val stepData = ToolChainStepData(
+                        round = steps.size + 1,
+                        toolName = toolName,
+                        pluginName = toolName,
+                        args = args,
+                        result = output,
+                        executionTimeMs = 0L,
+                        success = success
+                    )
+                    steps.add(stepData)
+                    viewModelScope.launch { updateContextUsageState() }
+                }
+            )
+
+            closeThink(System.currentTimeMillis())
+            emitStepEvent(com.bit.agent.harness.event.StepEvent.Completed(System.currentTimeMillis()))
+
+            _turnUi.update { current ->
+                current?.copy(
+                    finished = true,
+                    expanded = false,
+                    activeToolLabel = null
+                )
+            }
+
+            val convertedSteps = loopResult.steps.map { s ->
+                ToolChainStepData(
+                    round = s.round,
+                    toolName = s.toolName,
+                    pluginName = s.toolName,
+                    args = s.arguments,
+                    result = s.result,
+                    executionTimeMs = s.durationMs,
+                    success = s.success
+                )
+            }
+            _toolChainSteps.value = convertedSteps
+
+            val cleanResponse = loopResult.finalText.ifBlank {
+                loopResult.stoppedNotice ?: loopResult.systemError ?: ""
+            }
+            if (loopResult.systemError != null && loopResult.systemError != cleanResponse) {
+                reportError(loopResult.systemError)
+            }
+            _streamingAssistantMessage.value = cleanResponse
+            viewModelScope.launch { updateContextUsageState() }
+
+            if (convertedSteps.isNotEmpty()) {
+                _agentPhase.value = AgentPhase.Complete
+                _agentSummary.value = cleanResponse
+                persistAgentChat(prompt, isNewChat, "", convertedSteps, cleanResponse)
+            } else {
+                val chatId = _currentChatId.value
+                val pendingUserMsg = currentUserMessage
+                if (!userMessageAdded.get() && pendingUserMsg != null) {
+                    addMessageToState(pendingUserMsg)
+                    userMessageAdded.set(true)
+                }
+                if (chatId != null && cleanResponse.isNotBlank()) {
+                    val currentStepsUi = _thinkingUi.value?.takeIf { it.steps.isNotEmpty() }
+                    val assistantMessage = Messages(
+                        msgId = turnId,
+                        role = Role.Assistant,
+                        parentId = currentUserMessage?.msgId,
+                        content = MessageContent(contentType = ContentType.Text, content = cleanResponse),
+                        modelId = currentModelId,
+                        decodingMetrics = currentMetrics,
+                        ragResults = _currentRagResults.value.takeIf { it.isNotEmpty() }?.map {
+                            RagResultItem(ragName = it.ragName, content = it.content, score = it.score, nodeId = it.nodeId)
+                        },
+                        researchTrace = captureActiveResearchTrace(),
+                        executionSteps = currentStepsUi
+                    )
+                    addMessageToState(assistantMessage)
+                    chatManager.addMessage(chatId, assistantMessage)
+                    handlePostTurnMemoryExtraction(prompt, chatId)
+                    if (isNewChat) {
+                        generateChatTitleAsync(chatId, prompt, cleanResponse)
+                    }
+                }
+                AppStateManager.setGenerationComplete()
+                AppStateManager.chatRefreshed()
+                resetStreamingState()
+                viewModelScope.launch { autoSpeakIfEnabled(cleanResponse, _messages.lastOrNull { it.role == Role.Assistant }?.msgId) }
+            }
+            return
         }
 
         while (round < maxRounds) {
@@ -2255,11 +2445,7 @@ class ChatViewModel @Inject constructor(
 
             // Generate response (streaming)
             AppStateManager.setGeneratingText()
-            val result = if (activeProviderType == ProviderType.API) {
-                generateRemoteUnified(conversationMessages, steps, currentRoundHasTools, maxTokens, onThoughtDelta, onTextDelta)
-            } else {
-                generateGgufUnified(conversationMessages, hasTools = currentRoundHasTools, maxTokens = maxTokens, onThoughtDelta, onTextDelta)
-            }
+            val result = generateGgufUnified(conversationMessages, hasTools = currentRoundHasTools, maxTokens = maxTokens, onThoughtDelta, onTextDelta)
 
             result.metrics?.let { m ->
                 totalTokensAccumulated += m.tokensPredicted
@@ -2279,14 +2465,6 @@ class ChatViewModel @Inject constructor(
             var toolExecuted = false
             var hallucinatedText = ""
             for ((rawName, rawArgs) in result.toolCalls) {
-                val callKey = "${rawName.lowercase()}:${rawArgs.hashCode()}"
-                val repeatCount = seenCalls.getOrDefault(callKey, 0)
-                if (repeatCount >= maxToolCallRepeats) {
-                    Log.w(TAG, "Tool call exceeded repeat cap ($maxToolCallRepeats), skipping: $rawName")
-                    continue
-                }
-                seenCalls[callKey] = repeatCount + 1
-
                 val parsed = extractToolCallFromArgs(rawName, rawArgs)
                 if (parsed == null) {
                     Log.e(TAG, "Failed to parse tool call: $rawName")
@@ -2310,6 +2488,44 @@ class ChatViewModel @Inject constructor(
                     continue
                 }
 
+                val callKey = "${normalizedName.lowercase()}:${argsObj.toString().trim()}"
+                val repeatCount = seenCalls.getOrDefault(callKey, 0)
+                seenCalls[callKey] = repeatCount + 1
+
+                // Issue 1 Loop Guard: If an identical call repeats, don't re-execute.
+                // Return cached result with note: "Already ran this, use the previous output to answer."
+                if (executedToolCache.containsKey(callKey)) {
+                    Log.w(TAG, "Tool loop guard: repeated identical call $callKey, returning cached output.")
+                    val cachedResult = executedToolCache[callKey] ?: ""
+                    val cachedNotice = "Already ran this, use the previous output to answer:\n$cachedResult"
+                    val stepLabel = com.bit.agent.harness.event.labelForTool(normalizedName)
+                    val cachedStep = ToolChainStepData(
+                        round = steps.size + 1,
+                        toolName = normalizedName,
+                        pluginName = normalizedName,
+                        args = rawArgs.take(2000),
+                        result = cachedNotice,
+                        executionTimeMs = 0L,
+                        success = true
+                    )
+                    steps.add(cachedStep)
+                    _toolChainSteps.value = steps.toList()
+                    _turnUi.update { current ->
+                        val base = current ?: com.bit.agent.harness.event.TurnUi()
+                        base.copy(
+                            currentLabel = "Cached: $stepLabel",
+                            activeToolLabel = null
+                        )
+                    }
+                    toolExecuted = true
+                    continue
+                }
+
+                if (repeatCount >= maxToolCallRepeats) {
+                    Log.w(TAG, "Tool call exceeded repeat cap ($maxToolCallRepeats), skipping: $rawName")
+                    continue
+                }
+
                 // Show executing plugin in UI
                 AppStateManager.setExecutingPlugin("", normalizedName)
                 _agentPhase.value = AgentPhase.Executing
@@ -2325,31 +2541,39 @@ class ChatViewModel @Inject constructor(
                     label = toolLabelStr,
                     atMs = startTime
                 ))
-                val toolCall = ToolCall(name = normalizedName, arguments = argsObj)
-                val toolResult = PluginManager.executeToolForMultiTurn(toolCall, context = appContext, callId = callKey)
-                val executionTime = System.currentTimeMillis() - startTime
+                var underlyingToolResult: com.bit.plugins.MultiTurnToolResult? = null
+                val outcome = sharedToolExecutor.execute(normalizedName, rawArgs) {
+                    val toolCall = ToolCall(name = normalizedName, arguments = argsObj)
+                    val toolResult = PluginManager.executeToolForMultiTurn(toolCall, context = appContext, callId = callKey)
+                    underlyingToolResult = toolResult
+                    Pair(!toolResult.isError, toolResult.resultJson)
+                }
+                val executionTime = outcome.durationMs
+                val isSuccess = outcome.success
+                val resultJson = outcome.result
+                val pluginName = underlyingToolResult?.pluginName ?: "system"
 
-                val isSuccess = !toolResult.isError
                 AppStateManager.setPluginExecutionComplete(
-                    pluginName = toolResult.pluginName,
+                    pluginName = pluginName,
                     toolName = normalizedName,
                     success = isSuccess,
                     executionTimeMs = executionTime,
-                    errorMessage = if (isSuccess) null else toolResult.resultJson
+                    errorMessage = if (isSuccess) null else resultJson
                 )
 
-                val isSearchExecution = normalizedName in listOf("web_search", "search_web") || isSearchResultJson(toolResult.resultJson)
+                val isSearchExecution = (!outcome.isDenied) && (normalizedName in listOf("web_search", "search_web") || isSearchResultJson(resultJson))
                 val generatedChips = if (isSearchExecution && isSuccess) {
                     val searchChips = mutableListOf<com.bit.agent.harness.event.SourceChip>()
-                    val raw = toolResult.rawData
+                    val raw = underlyingToolResult?.rawData
                     if (raw is com.bit.plugins.WebSearchResponse) {
                         for (r in raw.results) {
                             val title = r.title.ifBlank { r.domain.ifBlank { r.url } }
-                            searchChips.add(com.bit.agent.harness.event.SourceChip(title = title, kind = com.bit.agent.harness.event.ChipKind.Web))
+                            val domain = r.domain.ifBlank { runCatching { java.net.URI(r.url).host?.removePrefix("www.") }.getOrNull() ?: "" }
+                            searchChips.add(com.bit.agent.harness.event.SourceChip(title = title, kind = com.bit.agent.harness.event.ChipKind.Web, url = r.url, domain = domain))
                         }
                     } else {
                         try {
-                            val json = JSONObject(toolResult.resultJson)
+                            val json = JSONObject(resultJson)
                             val arr = json.optJSONArray("results")
                             if (arr != null) {
                                 for (i in 0 until arr.length()) {
@@ -2357,33 +2581,37 @@ class ChatViewModel @Inject constructor(
                                     val title = item?.optString("title")?.ifBlank { null }
                                         ?: item?.optString("domain")?.ifBlank { null }
                                         ?: item?.optString("url")?.orEmpty()
+                                    val url = item?.optString("url")?.ifBlank { null }
+                                    val domain = item?.optString("domain")?.ifBlank { null }
+                                        ?: url?.let { runCatching { java.net.URI(it).host?.removePrefix("www.") }.getOrNull() }
                                     if (!title.isNullOrBlank()) {
-                                        searchChips.add(com.bit.agent.harness.event.SourceChip(title = title, kind = com.bit.agent.harness.event.ChipKind.Web))
+                                        searchChips.add(com.bit.agent.harness.event.SourceChip(title = title, kind = com.bit.agent.harness.event.ChipKind.Web, url = url, domain = domain))
                                     }
                                 }
                             }
                         } catch (_: Exception) {}
                     }
                     if (searchChips.isEmpty()) {
-                        listOf(com.bit.agent.harness.event.SourceChip(title = toolResult.pluginName.ifBlank { normalizedName }, kind = com.bit.agent.harness.event.ChipKind.Web))
+                        listOf(com.bit.agent.harness.event.SourceChip(title = pluginName.ifBlank { normalizedName }, kind = com.bit.agent.harness.event.ChipKind.Web))
                     } else {
-                        searchChips.take(5)
+                        searchChips.take(10)
                     }
                 } else {
                     val chipKind = when {
+                        outcome.isDenied -> com.bit.agent.harness.event.ChipKind.Note
                         normalizedName.contains("web", ignoreCase = true) -> com.bit.agent.harness.event.ChipKind.Web
                         normalizedName.contains("memory", ignoreCase = true) -> com.bit.agent.harness.event.ChipKind.Memory
                         normalizedName.contains("read", ignoreCase = true) || normalizedName.contains("file", ignoreCase = true) -> com.bit.agent.harness.event.ChipKind.File
                         else -> com.bit.agent.harness.event.ChipKind.Note
                     }
-                    val chipTitle = toolResult.pluginName.ifBlank { normalizedName }
+                    val chipTitle = pluginName.ifBlank { normalizedName }
                     listOf(com.bit.agent.harness.event.SourceChip(title = chipTitle, kind = chipKind))
                 }
 
                 val stepDetail = if (isSearchExecution && isSuccess && generatedChips.isNotEmpty()) {
                     null // Chips replace the "Web search completed successfully." text
                 } else {
-                    toolResult.resultJson.take(600)
+                    resultJson.take(600)
                 }
 
                 emitStepEvent(StepEvent.Finished(
@@ -2399,13 +2627,14 @@ class ChatViewModel @Inject constructor(
                 val step = ToolChainStepData(
                     round = steps.size + 1,
                     toolName = normalizedName,
-                    pluginName = toolResult.pluginName,
+                    pluginName = pluginName,
                     args = rawArgs.take(2000),
-                    result = toolResult.resultJson,
+                    result = resultJson,
                     executionTimeMs = executionTime,
                     success = isSuccess
                 )
                 steps.add(step)
+                executedToolCache[callKey] = resultJson
                 _toolChainSteps.value = steps.toList()
                 toolExecuted = true
 
@@ -2421,8 +2650,8 @@ class ChatViewModel @Inject constructor(
                         existingSteps[matchIdx] = old.copy(
                             repeatCount = old.repeatCount + 1,
                             status = if (isSuccess) com.bit.agent.harness.event.StepStatus.Done else com.bit.agent.harness.event.StepStatus.Failed,
-                            output = if (isSuccess) toolResult.resultJson else null,
-                            error = if (!isSuccess) toolResult.resultJson else null,
+                            output = if (isSuccess) resultJson else null,
+                            error = if (!isSuccess) resultJson else null,
                             durationMs = old.durationMs + executionTime
                         )
                     } else {
@@ -2432,8 +2661,8 @@ class ChatViewModel @Inject constructor(
                                 tool = normalizedName,
                                 label = stepLabel,
                                 status = if (isSuccess) com.bit.agent.harness.event.StepStatus.Done else com.bit.agent.harness.event.StepStatus.Failed,
-                                output = if (isSuccess) toolResult.resultJson else null,
-                                error = if (!isSuccess) toolResult.resultJson else null,
+                                output = if (isSuccess) resultJson else null,
+                                error = if (!isSuccess) resultJson else null,
                                 durationMs = executionTime,
                                 argsHash = callHash,
                                 repeatCount = 1
@@ -2449,13 +2678,13 @@ class ChatViewModel @Inject constructor(
 
                 val pendingUserMsg = currentUserMessage
                 if (!userMessageAdded.get() && pendingUserMsg != null) {
-                    _messages.add(pendingUserMsg)
+                    addMessageToState(pendingUserMsg)
                     userMessageAdded.set(true)
                 }
 
                 // Forced follow-up fetch gate: When web_search executes, enforce follow-up web_fetch on candidate URLs
                 if (isSearchExecution && isSuccess) {
-                    val candidateUrls = extractCandidateUrlsFromSearchResult(toolResult)
+                    val candidateUrls = underlyingToolResult?.let { extractCandidateUrlsFromSearchResult(it) } ?: emptyList()
                     for (targetUrl in candidateUrls) {
                         val fetchKey = "web_fetch:${targetUrl.hashCode()}"
                         if (seenCalls.getOrDefault(fetchKey, 0) < maxToolCallRepeats) {
@@ -2558,13 +2787,9 @@ class ChatViewModel @Inject constructor(
         if (steps.isNotEmpty() && textWithoutThoughts.isBlank()) {
             AppStateManager.setGeneratingText()
             _agentPhase.value = AgentPhase.Summarizing
-            val synthesisPrompt = "$fullPrompt\n\n[CRITICAL INSTRUCTION: All tools have finished execution. Synthesize a direct, complete, and helpful final response to the user based on the tool results above. Present the exact data and answer clearly. Do NOT call any tools or output empty thoughts.]"
+            val synthesisPrompt = "$fullPrompt\n\n[CRITICAL INSTRUCTION: All tools have finished execution. Using the tool results above, answer the user now. Present the exact data and answer clearly. Do NOT call any tools or output empty thoughts.]"
             val synthesisMessages = buildConversationMessagesWithSteps(synthesisPrompt, steps, isRegeneration, hasTools = false)
-            val synthResult = if (activeProviderType == ProviderType.API) {
-                generateRemoteUnified(synthesisMessages, steps, hasTools = false, maxTokens = maxTokens, onThoughtDelta, onTextDelta)
-            } else {
-                generateGgufUnified(synthesisMessages, hasTools = false, maxTokens = maxTokens, onThoughtDelta, onTextDelta)
-            }
+            val synthResult = generateGgufUnified(synthesisMessages, hasTools = false, maxTokens = maxTokens, onThoughtDelta, onTextDelta)
             synthResult.metrics?.let { m ->
                 totalTokensAccumulated += m.tokensPredicted
                 totalTimeMsAccumulated += m.totalTimeMs
@@ -2612,82 +2837,85 @@ class ChatViewModel @Inject constructor(
         }
 
         if (steps.isNotEmpty()) {
-            val finalSummary = if (stripThinkingTags(cleanResponse).isNotBlank()) {
+            val finalWithoutThoughts = stripThinkingTags(cleanResponse).trim()
+            val finalSummary = if (finalWithoutThoughts.isNotBlank()) {
                 cleanResponse
             } else {
-                val fallbackBody = buildString {
-                    appendLine("Here is the summary of the data retrieved:")
-                    steps.forEach { s ->
-                        val name = s.toolName.replace('_', ' ').replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-                        val snippet = runCatching {
-                            val json = JSONObject(s.result)
-                            when {
-                                json.has("branches") -> "Branches:\n" + json.getJSONArray("branches").let { arr -> (0 until arr.length()).map { "• ${arr.get(it)}" }.joinToString("\n") }
-                                json.has("content") && s.toolName.contains("read", ignoreCase = true) -> "Read file `${json.optString("path")}` (${json.optString("content").length} chars)"
-                                json.has("sizeBytes") && s.toolName.contains("write", ignoreCase = true) -> "Wrote file `${json.optString("path")}` (${json.optLong("sizeBytes", 0)} bytes)"
-                                json.has("path") && s.toolName.contains("edit", ignoreCase = true) -> "Edited file `${json.optString("path")}`"
-                                json.has("stdout") && json.getString("stdout").isNotBlank() -> json.getString("stdout").trim().take(500)
-                                json.has("output") -> json.getString("output").trim().take(500)
-                                json.has("stderr") && json.getString("stderr").isNotBlank() -> "Error: ${json.getString("stderr").trim().take(300)}"
-                                json.has("content") -> "Content: ${json.getString("content").trim().take(300)}"
-                                json.has("status") -> "Status: ${json.getString("status")}"
-                                else -> s.result.trim().take(500)
-                            }
-                        }.getOrDefault(s.result.trim().take(500))
-                        appendLine("\n**$name**:\n$snippet")
-                    }
-                }.trim()
-
-                if (cleanResponse.contains("</think>")) {
-                    cleanResponse.substringBefore("</think>") + "</think>\n\n" + fallbackBody
-                } else {
-                    fallbackBody
-                }
+                // If model response is empty, build a rich templated summary from tool results instead of a bare error
+                buildFallbackSummaryFromSteps(prompt, steps)
             }
             _streamingAssistantMessage.value = finalSummary
             _agentSummary.value = finalSummary
             persistAgentChat(prompt, isNewChat, _agentPlan.value.orEmpty(), steps, finalSummary)
         } else {
             // Simple flow path
-            if (isNewChat) {
-                createChatWithMessages(prompt, cleanResponse, currentMetrics)
-            } else {
-                val chatId = _currentChatId.value ?: return
-                val pendingUserMsg = currentUserMessage
-                if (!userMessageAdded.get() && pendingUserMsg != null) {
-                    _messages.add(pendingUserMsg)
-                    userMessageAdded.set(true)
-                }
+            val chatId = _currentChatId.value ?: return
+            val pendingUserMsg = currentUserMessage
+            if (!userMessageAdded.get() && pendingUserMsg != null) {
+                addMessageToState(pendingUserMsg)
+                userMessageAdded.set(true)
+            }
 
-                val ragResultItems = _currentRagResults.value.takeIf { it.isNotEmpty() }?.map { result ->
-                    RagResultItem(
-                        ragName = result.ragName,
-                        content = result.content,
-                        score = result.score,
-                        nodeId = result.nodeId
-                    )
-                }
+            val ragResultItems = _currentRagResults.value.takeIf { it.isNotEmpty() }?.map { result ->
+                RagResultItem(
+                    ragName = result.ragName,
+                    content = result.content,
+                    score = result.score,
+                    nodeId = result.nodeId
+                )
+            }
 
-                if (cleanResponse.isNotBlank()) {
-                    val currentStepsUi = _thinkingUi.value?.takeIf { it.steps.isNotEmpty() }
-                    val assistantMessage = Messages(
-                        msgId = turnId,
-                        role = Role.Assistant,
-                        content = MessageContent(contentType = ContentType.Text, content = cleanResponse),
-                        modelId = currentModelId,
-                        decodingMetrics = currentMetrics,
-                        ragResults = ragResultItems,
-                        researchTrace = captureActiveResearchTrace(),
-                        executionSteps = currentStepsUi
-                    )
-                    _messages.add(assistantMessage)
-                    chatManager.addMessage(chatId, assistantMessage)
-                    handlePostTurnMemoryExtraction(prompt, chatId)
+            if (cleanResponse.isNotBlank()) {
+                val currentStepsUi = _thinkingUi.value?.takeIf { it.steps.isNotEmpty() }
+                val assistantMessage = Messages(
+                    msgId = turnId,
+                    role = Role.Assistant,
+                    parentId = currentUserMessage?.msgId,
+                    content = MessageContent(contentType = ContentType.Text, content = cleanResponse),
+                    modelId = currentModelId,
+                    decodingMetrics = currentMetrics,
+                    ragResults = ragResultItems,
+                    researchTrace = captureActiveResearchTrace(),
+                    executionSteps = currentStepsUi
+                )
+                addMessageToState(assistantMessage)
+                chatManager.addMessage(chatId, assistantMessage)
+                handlePostTurnMemoryExtraction(prompt, chatId)
+                if (isNewChat) {
+                    generateChatTitleAsync(chatId, prompt, cleanResponse)
                 }
-                AppStateManager.setGenerationComplete()
-                AppStateManager.chatRefreshed()
-                resetStreamingState()
-                viewModelScope.launch { autoSpeakIfEnabled(cleanResponse, _messages.lastOrNull { it.role == Role.Assistant }?.msgId) }
+            }
+            AppStateManager.setGenerationComplete()
+            AppStateManager.chatRefreshed()
+            resetStreamingState()
+            viewModelScope.launch { autoSpeakIfEnabled(cleanResponse, _messages.lastOrNull { it.role == Role.Assistant }?.msgId) }
+        }
+    }
+
+    private fun buildFallbackSummaryFromSteps(prompt: String, steps: List<ToolChainStepData>): String {
+        if (steps.isEmpty()) return ""
+        val lastStep = steps.lastOrNull { it.success } ?: steps.last()
+        val toolName = lastStep.toolName.lowercase()
+        val rawResult = lastStep.result.trim()
+
+        return when {
+            toolName in listOf("web_search", "search_web") || isSearchResultJson(rawResult) -> {
+                val formatted = SearchResultFormatter.format(rawResult, appContext)
+                "Here are the search results for your query:\n\n$formatted"
+            }
+            toolName in listOf("workspace_shell", "proot_exec", "terminal_exec", "shell", "bash") -> {
+                val cleanOutput = rawResult.removePrefix("stdout:").trim()
+                val isAlpine = cleanOutput.contains("alpine", ignoreCase = true)
+                val isDebian = cleanOutput.contains("debian", ignoreCase = true) || cleanOutput.contains("ubuntu", ignoreCase = true)
+                val pkgHint = when {
+                    isAlpine -> "\n\nThis system runs Alpine Linux, which uses `apk` as its package manager (e.g., `apk add <package>`)."
+                    isDebian -> "\n\nThis system runs Debian/Ubuntu, which uses `apt` as its package manager (e.g., `apt install <package>`)."
+                    else -> ""
+                }
+                "Terminal execution result:\n```\n$cleanOutput\n```$pkgHint"
+            }
+            else -> {
+                "Tool '${lastStep.toolName}' result:\n\n${rawResult.take(1500)}"
             }
         }
     }
@@ -2738,11 +2966,32 @@ class ChatViewModel @Inject constructor(
                             ContentType.Text -> {
                                 if (!msg.toolChainSteps.isNullOrEmpty()) {
                                     for (histStep in msg.toolChainSteps) {
-                                        result.add(JSONObject().put("role", "assistant").put("content",
-                                            """{"name":"${histStep.toolName}","arguments":${histStep.args}}"""
-                                        ))
-                                        val histFormatted = SearchResultFormatter.format(histStep.result, appContext)
-                                        result.add(JSONObject().put("role", "tool").put("name", histStep.toolName).put("content", histFormatted))
+                                        val histCallId = "call_${histStep.round}_${histStep.toolName}"
+                                        val histCallsArray = JSONArray().apply {
+                                            put(JSONObject().apply {
+                                                put("id", histCallId)
+                                                put("type", "function")
+                                                put("function", JSONObject().apply {
+                                                    put("name", histStep.toolName)
+                                                    put("arguments", histStep.args)
+                                                })
+                                                put("name", histStep.toolName)
+                                                put("arguments", histStep.args)
+                                            })
+                                        }
+                                        result.add(JSONObject().apply {
+                                            put("role", "assistant")
+                                            put("content", """{"name":"${histStep.toolName}","arguments":${histStep.args}}""")
+                                            put("tool_calls", histCallsArray)
+                                        })
+                                        val histRaw = SearchResultFormatter.format(histStep.result, appContext)
+                                        val histFormatted = if (histRaw.length > 1500) histRaw.take(1500) + "\n...[output truncated]" else histRaw
+                                        result.add(JSONObject().apply {
+                                            put("role", "tool")
+                                            put("tool_call_id", histCallId)
+                                            put("name", histStep.toolName)
+                                            put("content", histFormatted)
+                                        })
                                     }
                                 }
                                 if (msg.content.content.isNotBlank()) {
@@ -2766,12 +3015,28 @@ class ChatViewModel @Inject constructor(
 
         // Add current steps' tool calls and results
         for (step in steps) {
-            result.add(JSONObject().put("role", "assistant").put("content",
-                """{"name":"${step.toolName}","arguments":${step.args}}"""
-            ))
+            val stepCallId = "call_${step.round}_${step.toolName}"
+            val stepCallsArray = JSONArray().apply {
+                put(JSONObject().apply {
+                    put("id", stepCallId)
+                    put("type", "function")
+                    put("function", JSONObject().apply {
+                        put("name", step.toolName)
+                        put("arguments", step.args)
+                    })
+                    put("name", step.toolName)
+                    put("arguments", step.args)
+                })
+            }
+            result.add(JSONObject().apply {
+                put("role", "assistant")
+                put("content", """{"name":"${step.toolName}","arguments":${step.args}}""")
+                put("tool_calls", stepCallsArray)
+            })
             
             // Format the search result or tool result using SearchResultFormatter!
-            val formattedResult = SearchResultFormatter.format(step.result, appContext)
+            val rawFormatted = SearchResultFormatter.format(step.result, appContext)
+            val formattedResult = if (rawFormatted.length > 1500) rawFormatted.take(1500) + "\n...[output truncated to conserve context]" else rawFormatted
             val isFailed = !step.success || step.result.contains("not found", ignoreCase = true) || step.result.startsWith("Error", ignoreCase = true)
             val contentText = when {
                 isFailed -> {
@@ -2785,7 +3050,12 @@ class ChatViewModel @Inject constructor(
                 }
             }
             
-            result.add(JSONObject().put("role", "tool").put("name", step.toolName).put("content", contentText))
+            result.add(JSONObject().apply {
+                put("role", "tool")
+                put("tool_call_id", stepCallId)
+                put("name", step.toolName)
+                put("content", contentText)
+            })
         }
 
         return sanitizeRoleAlternation(result)
@@ -2835,239 +3105,6 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private suspend fun generateRemoteUnified(
-        messages: List<JSONObject>,
-        steps: List<ToolChainStepData>,
-        hasTools: Boolean,
-        maxTokens: Int,
-        onThoughtDelta: ((thought: String, fullThoughts: String) -> Unit)? = null,
-        onTextDelta: ((String) -> Unit)? = null
-    ): GenerationResult {
-        val remoteCfg = getRemoteInferenceConfig() ?: throw IllegalStateException("Remote API model is missing endpoint configuration")
-
-        val provider = LlmProviderResolver.resolveProvider(remoteCfg.endpoint, remoteCfg.model)
-        val apiKey = LlmProviderResolver.cleanApiKey(remoteCfg.authHeader)
-        val baseUrl = LlmProviderResolver.cleanBaseUrl(remoteCfg.endpoint)
-
-        var sysPrompt: String? = null
-        val chatMessages = mutableListOf<ChatMessage>()
-        
-        // Add previous history
-        for (obj in messages) {
-            val role = obj.optString("role")
-            val content = obj.optString("content")
-            
-            if (role.equals("system", ignoreCase = true)) {
-                sysPrompt = content
-                continue
-            }
-            
-            // Skip the unstructured tool text that buildConversationMessagesWithSteps added
-            if (role == "assistant" && content.startsWith("{\"name\":")) continue
-            if (role == "user" && content.startsWith("Tool '")) continue
-            
-            val participant = if (role.lowercase() == "user") com.bit.api.Participant.USER else com.bit.api.Participant.MODEL
-            chatMessages.add(ChatMessage(text = content, participant = participant))
-        }
-        
-        // Add proper tool calls and results
-        for (step in steps) {
-            val tc = com.bit.api.ToolCallData(
-                toolName = step.toolName,
-                arguments = step.args,
-                result = step.result
-            )
-            val toolCallId = com.bit.api.util.buildToolCallId(step.toolName, step.args)
-            val tcWithId = tc.copy(toolCallId = toolCallId)
-            
-            chatMessages.add(ChatMessage(
-                id = com.bit.api.Constants.TOOL_MSG_PREFIX + java.util.UUID.randomUUID().toString(),
-                text = "",
-                participant = com.bit.api.Participant.MODEL,
-                toolCall = tcWithId
-            ))
-            
-            chatMessages.add(ChatMessage(
-                id = com.bit.api.Constants.RESULT_MSG_PREFIX + java.util.UUID.randomUUID().toString(),
-                text = "",
-                participant = com.bit.api.Participant.USER,
-                toolCall = tcWithId
-            ))
-        }
-
-        val jsonSerializer = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
-        val tools = if (hasTools) {
-            PluginManager.getEnabledToolDefinitions().map { toolDef ->
-                val toolJsonString = toolDef.build().toOpenAIFormat().toString()
-                jsonSerializer.decodeFromString<com.bit.api.ToolDefinition>(toolJsonString)
-            }
-        } else null
-
-        val safeMaxTokens = if (remoteCfg.maxTokens > 0) remoteCfg.maxTokens.coerceIn(1, 131072) else (if (maxTokens > 0) maxTokens.coerceIn(1, 131072) else 4096)
-        val config = ProviderConfig(
-            apiKey = apiKey,
-            modelId = remoteCfg.model,
-            systemPrompt = remoteCfg.customSystemPrompt?.takeIf { it.isNotBlank() } ?: sysPrompt,
-            baseUrl = baseUrl,
-            tools = tools,
-            thinkingEnabled = _thinkingModeEnabled.value || remoteCfg.thinkingEnabled,
-            thinkingBudgetTokens = remoteCfg.thinkingBudget,
-            temperature = remoteCfg.temperature,
-            topP = remoteCfg.topP,
-            maxTokens = safeMaxTokens
-        )
-
-        val startTimeMs = System.currentTimeMillis()
-        var firstTokenTimeMs = 0L
-        var streamChunkCount = 0
-        var promptTokens = 0
-        var completionTokens = 0
-        var reasoningTokens = 0
-        var totalTokens = 0
-        var cachedTokens = 0
-
-        val textBuilder = java.lang.StringBuilder()
-        val thinkBuilder = java.lang.StringBuilder()
-        val toolCalls = mutableListOf<Pair<String, String>>()
-        var lastEmitTime = 0L
-
-        provider.generateResponse(chatMessages, config).collect { event ->
-            when (event) {
-                is StreamEvent.Retrying -> {
-                    // Reset accumulators on retry so reconnecting does not duplicate text or thought blocks
-                    textBuilder.setLength(0)
-                    thinkBuilder.setLength(0)
-                    toolCalls.clear()
-                    streamChunkCount = 0
-                    promptTokens = 0
-                    completionTokens = 0
-                    reasoningTokens = 0
-                    totalTokens = 0
-                    cachedTokens = 0
-                    firstTokenTimeMs = 0L
-                }
-                is StreamEvent.TextChunk -> {
-                    if (firstTokenTimeMs == 0L) {
-                        firstTokenTimeMs = System.currentTimeMillis()
-                    }
-                    streamChunkCount++
-                    onTextDelta?.invoke(event.text)
-                    textBuilder.append(event.text)
-                    if (textBuilder.contains("<think>")) {
-                        val parsed = parseThinkingTags(textBuilder.toString())
-                        if (!parsed.thinkingContent.isNullOrBlank()) {
-                            _turnUi.update { current ->
-                                (current ?: com.bit.agent.harness.event.TurnUi()).copy(
-                                    reasoning = parsed.thinkingContent
-                                )
-                            }
-                        }
-                    }
-                    val now = System.currentTimeMillis()
-                    if (now - lastEmitTime >= STREAMING_THROTTLE_MS) {
-                        val hasThinkInText = textBuilder.contains("<think>") || textBuilder.contains("</think>")
-                        val output = if (thinkBuilder.isNotEmpty() && !hasThinkInText) {
-                            "<think>${thinkBuilder}</think>\n\n${textBuilder}"
-                        } else {
-                            textBuilder.toString()
-                        }
-                        _streamingAssistantMessage.value = output
-                        lastEmitTime = now
-                    }
-                }
-                is StreamEvent.ThoughtChunk -> {
-                    if (firstTokenTimeMs == 0L) {
-                        firstTokenTimeMs = System.currentTimeMillis()
-                    }
-                    streamChunkCount++
-                    thinkBuilder.append(event.thought)
-                    val currentThoughts = thinkBuilder.toString()
-                    onThoughtDelta?.invoke(event.thought, currentThoughts)
-                    _turnUi.update { current ->
-                        (current ?: com.bit.agent.harness.event.TurnUi()).copy(
-                            reasoning = currentThoughts
-                        )
-                    }
-                    val now = System.currentTimeMillis()
-                    if (now - lastEmitTime >= STREAMING_THROTTLE_MS) {
-                        val hasThinkInText = textBuilder.contains("<think>") || textBuilder.contains("</think>")
-                        val output = if (textBuilder.isEmpty()) {
-                            "<think>${thinkBuilder}"
-                        } else if (thinkBuilder.isNotEmpty() && !hasThinkInText) {
-                            "<think>${thinkBuilder}</think>\n\n${textBuilder}"
-                        } else {
-                            textBuilder.toString()
-                        }
-                        _streamingAssistantMessage.value = output
-                        lastEmitTime = now
-                    }
-                }
-                is StreamEvent.UsageUpdate -> {
-                    promptTokens = event.promptTokens
-                    completionTokens = event.completionTokens
-                    reasoningTokens = event.reasoningTokens
-                    totalTokens = event.totalTokens
-                    cachedTokens = event.cachedTokens
-                }
-                is StreamEvent.ToolCallRequest -> {
-                    toolCalls.add(Pair(event.name, event.arguments))
-                }
-                is StreamEvent.ToolCallsRequest -> {
-                    event.calls.forEach { call ->
-                        toolCalls.add(Pair(call.name, call.arguments))
-                    }
-                }
-                is StreamEvent.Error -> {
-                    throw Exception(event.message)
-                }
-                else -> {}
-            }
-        }
-
-        val hasThinkInText = textBuilder.contains("<think>") || textBuilder.contains("</think>")
-        val text = if (thinkBuilder.isNotEmpty() && !hasThinkInText) {
-            "<think>${thinkBuilder}</think>\n\n${textBuilder.toString().trim()}"
-        } else {
-            textBuilder.toString().trim()
-        }
-        if (text.isNotEmpty()) {
-            _streamingAssistantMessage.value = text
-        }
-        val finalToolCalls = mutableListOf<Pair<String, String>>()
-        finalToolCalls.addAll(toolCalls)
-
-        val totalTimeMs = (System.currentTimeMillis() - startTimeMs).toFloat()
-        val genTimeMs = if (firstTokenTimeMs > 0L) (System.currentTimeMillis() - firstTokenTimeMs).toFloat() else totalTimeMs
-        val actualCompletionTokens = if (completionTokens > 0) completionTokens else streamChunkCount
-        val tokensPerSec = if (genTimeMs > 0 && actualCompletionTokens > 0) {
-            (actualCompletionTokens / (genTimeMs / 1000f))
-        } else if (totalTimeMs > 0 && actualCompletionTokens > 0) {
-            (actualCompletionTokens / (totalTimeMs / 1000f))
-        } else 0f
-
-        Log.d("BitChat", "Metrics calculated: prompt=$promptTokens, completion=$actualCompletionTokens, reasoning=$reasoningTokens, cached=$cachedTokens, total=$totalTokens, tps=$tokensPerSec in ${totalTimeMs}ms (gen: ${genTimeMs}ms)")
-
-        val metrics = com.bit.models.engine_schema.DecodingMetrics(
-            tokensPerSecond = tokensPerSec,
-            timeToFirstTokenMs = if (firstTokenTimeMs > 0L) (firstTokenTimeMs - startTimeMs).toFloat() else totalTimeMs,
-            totalTimeMs = totalTimeMs,
-            tokensEvaluated = promptTokens,
-            tokensPredicted = actualCompletionTokens,
-            reasoningTokens = reasoningTokens,
-            totalTokens = if (totalTokens > 0) totalTokens else (promptTokens + actualCompletionTokens + reasoningTokens),
-            cachedTokens = cachedTokens
-        )
-        currentMetrics = metrics
-
-        if (finalToolCalls.isEmpty() && text.isNotBlank()) {
-            parseToolCallsFromText(text)?.let { parsed ->
-                finalToolCalls.addAll(parsed)
-            }
-        }
-
-        return GenerationResult(text = text, toolCalls = finalToolCalls, metrics = metrics)
-    }
-
     private suspend fun generateGgufUnified(
         messages: List<JSONObject>,
         hasTools: Boolean,
@@ -3114,15 +3151,15 @@ class ChatViewModel @Inject constructor(
                         },
                         onThought = { thought -> 
                             thinkBuilder.append(thought)
-                            val currentThoughts = thinkBuilder.toString()
-                            onThoughtDelta?.invoke(thought, currentThoughts)
-                            _turnUi.update { current ->
-                                (current ?: com.bit.agent.harness.event.TurnUi()).copy(
-                                    reasoning = currentThoughts
-                                )
-                            }
                             val now = System.currentTimeMillis()
                             if (now - lastEmitTime >= STREAMING_THROTTLE_MS) {
+                                val currentThoughts = thinkBuilder.toString()
+                                onThoughtDelta?.invoke(thought, currentThoughts)
+                                _turnUi.update { current ->
+                                    (current ?: com.bit.agent.harness.event.TurnUi()).copy(
+                                        reasoning = currentThoughts
+                                    )
+                                }
                                 val hasThink = textBuilder.contains("<think>") || textBuilder.contains("</think>")
                                 val output = if (textBuilder.isEmpty()) {
                                     "<think>${thinkBuilder}"
@@ -3259,6 +3296,7 @@ class ChatViewModel @Inject constructor(
         val currentStepsUi = _thinkingUi.value?.takeIf { it.steps.isNotEmpty() }
         val assistantMessage = Messages(
             msgId = _streamingTurnId.value ?: java.util.UUID.randomUUID().toString(),
+            parentId = currentUserMessage?.msgId,
             role = Role.Assistant,
             content = MessageContent(contentType = ContentType.Text, content = finalContent),
             modelId = currentModelId,
@@ -3278,8 +3316,7 @@ class ChatViewModel @Inject constructor(
 
         // Reload to sync with DB and ensure no duplicate consecutive user bubbles
         chatManager.getChatMessages(targetChatId).onSuccess { loadedMessages ->
-            _messages.clear()
-            _messages.addAll(sanitizeLoadedMessages(loadedMessages))
+            syncLoadedMessages(loadedMessages)
         }
 
         AppStateManager.setGenerationComplete()
@@ -3304,14 +3341,14 @@ class ChatViewModel @Inject constructor(
         val thinkingBudget: Int = 4096
     )
 
-    private suspend fun getRemoteInferenceConfig(): RemoteInferenceConfig? {
-        val modelId = ActiveModelSession.currentModelId.value.ifBlank { return null }
-        val config = AppContainer.getModelRepository().getConfigByModelId(modelId) ?: return null
-        val loading = config.modelLoadingParams?.takeIf { it.isNotBlank() } ?: return null
-        return try {
+    private suspend fun getRemoteInferenceConfig(): RemoteInferenceConfig? = withContext(Dispatchers.IO) {
+        val modelId = ActiveModelSession.currentModelId.value.ifBlank { return@withContext null }
+        val config = AppContainer.getModelRepository().getConfigByModelId(modelId) ?: return@withContext null
+        val loading = config.modelLoadingParams?.takeIf { it.isNotBlank() } ?: return@withContext null
+        try {
             val json = JSONObject(loading)
             val endpoint = json.optString("endpoint").trim()
-            if (endpoint.isBlank()) return null
+            if (endpoint.isBlank()) return@withContext null
 
             val model = json.optString("model").takeIf { it.isNotBlank() } ?: modelId
             val stream = json.optBoolean("stream", false)
@@ -3440,7 +3477,7 @@ class ChatViewModel @Inject constructor(
         val chatId = _currentChatId.value ?: return
         val pendingUserMsg = currentUserMessage
         if (!userMessageAdded.get() && pendingUserMsg != null) {
-            _messages.add(pendingUserMsg)
+            addMessageToState(pendingUserMsg)
             userMessageAdded.set(true)
         }
 
@@ -3450,11 +3487,12 @@ class ChatViewModel @Inject constructor(
             }
             val assistantMessage = Messages(
                 role = Role.Assistant,
+                parentId = currentUserMessage?.msgId,
                 content = MessageContent(contentType = ContentType.Text, content = finalResponse),
                 modelId = currentModelId,
                 ragResults = ragResultItems
             )
-            _messages.add(assistantMessage)
+            addMessageToState(assistantMessage)
             chatManager.addMessage(chatId, assistantMessage)
             AppStateManager.setGenerationComplete()
             AppStateManager.chatRefreshed()
@@ -3649,14 +3687,14 @@ class ChatViewModel @Inject constructor(
                             },
                             onThought = { thought -> 
                                 thinkResultBuilder.append(thought)
-                                val currentThoughts = thinkResultBuilder.toString()
-                                _turnUi.update { current ->
-                                    (current ?: com.bit.agent.harness.event.TurnUi()).copy(
-                                        reasoning = currentThoughts
-                                    )
-                                }
                                 val now = System.currentTimeMillis()
                                 if (now - lastEmitTime >= STREAMING_THROTTLE_MS) {
+                                    val currentThoughts = thinkResultBuilder.toString()
+                                    _turnUi.update { current ->
+                                        (current ?: com.bit.agent.harness.event.TurnUi()).copy(
+                                            reasoning = currentThoughts
+                                        )
+                                    }
                                     val hasThink = resultBuilder.contains("<think>") || resultBuilder.contains("</think>")
                                     val output = if (resultBuilder.isEmpty()) {
                                         "<think>${thinkResultBuilder}"
@@ -3876,6 +3914,7 @@ class ChatViewModel @Inject constructor(
         val jsonArray = JSONArray(messages)
         val thinkingActive = _thinkingModeEnabled.value
         val tcThinkParser = StreamingThinkTagParser(assumeThinking = false)
+        var lastEmitTime = 0L
 
         LlmModelWorker.ggufGenerateMultiTurnStreaming(
             jsonArray.toString(), maxTokens
@@ -3887,25 +3926,33 @@ class ChatViewModel @Inject constructor(
                         thinkingEnabled = thinkingActive,
                         onText = { text ->
                             textBuilder.append(text)
-                            val hasThink = textBuilder.contains("<think>") || textBuilder.contains("</think>")
-                            val output = if (thinkTextBuilder.isNotEmpty() && !hasThink) {
-                                "<think>${thinkTextBuilder}</think>\n\n${textBuilder}"
-                            } else {
-                                textBuilder.toString()
+                            val now = System.currentTimeMillis()
+                            if (now - lastEmitTime >= STREAMING_THROTTLE_MS) {
+                                val hasThink = textBuilder.contains("<think>") || textBuilder.contains("</think>")
+                                val output = if (thinkTextBuilder.isNotEmpty() && !hasThink) {
+                                    "<think>${thinkTextBuilder}</think>\n\n${textBuilder}"
+                                } else {
+                                    textBuilder.toString()
+                                }
+                                _streamingAssistantMessage.value = output
+                                lastEmitTime = now
                             }
-                            _streamingAssistantMessage.value = output
                         },
                         onThought = { thought -> 
                             thinkTextBuilder.append(thought)
-                            val hasThink = textBuilder.contains("<think>") || textBuilder.contains("</think>")
-                            val output = if (textBuilder.isEmpty()) {
-                                "<think>${thinkTextBuilder}"
-                            } else if (thinkTextBuilder.isNotEmpty() && !hasThink) {
-                                "<think>${thinkTextBuilder}</think>\n\n${textBuilder}"
-                            } else {
-                                textBuilder.toString()
+                            val now = System.currentTimeMillis()
+                            if (now - lastEmitTime >= STREAMING_THROTTLE_MS) {
+                                val hasThink = textBuilder.contains("<think>") || textBuilder.contains("</think>")
+                                val output = if (textBuilder.isEmpty()) {
+                                    "<think>${thinkTextBuilder}"
+                                } else if (thinkTextBuilder.isNotEmpty() && !hasThink) {
+                                    "<think>${thinkTextBuilder}</think>\n\n${textBuilder}"
+                                } else {
+                                    textBuilder.toString()
+                                }
+                                _streamingAssistantMessage.value = output
+                                lastEmitTime = now
                             }
-                            _streamingAssistantMessage.value = output
                         }
                     )
                 }
@@ -4054,19 +4101,7 @@ class ChatViewModel @Inject constructor(
             compiledPrompt = compiledPrompt.replace(key, value)
         }
 
-        val isSmall = modelId.contains("350m", ignoreCase = true) ||
-                modelId.contains("125m", ignoreCase = true) ||
-                modelId.contains("160m", ignoreCase = true) ||
-                modelId.contains("0.5b", ignoreCase = true) ||
-                modelId.contains("0.6b", ignoreCase = true) ||
-                modelId.contains("0.8b", ignoreCase = true) ||
-                modelId.contains("1b", ignoreCase = true) ||
-                modelId.contains("1.5b", ignoreCase = true) ||
-                modelId.contains("1.7b", ignoreCase = true) ||
-                modelId.contains("1.8b", ignoreCase = true) ||
-                modelId.contains("2b", ignoreCase = true) ||
-                modelId.contains("tiny", ignoreCase = true) ||
-                modelId.contains("mini", ignoreCase = true)
+        val isSmall = ActiveModelSession.isSmallModel.value
 
         if (isSmall && !hasTools) {
             compiledPrompt = compiledPrompt
@@ -4079,14 +4114,17 @@ class ChatViewModel @Inject constructor(
         // Progressive disclosure skill catalog: exposed to BOTH local GGUF models and Cloud API models.
         // Consumes only ~15 tokens per skill in <available_skills> XML, keeping local 2k-4k KV caches safe.
         val modelType = ActiveModelSession.currentModelType.value
+        val resolvedModelName = runCatching {
+            AppContainer.getModelRepository().getModelById(modelId)?.modelName
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: modelId
         val modelContextBudget = if (modelType == ProviderType.API) {
-            getRemoteInferenceConfig()?.contextSize ?: com.bit.models.ModelContextDefaults.resolve(modelId, ProviderType.API)
+            getRemoteInferenceConfig()?.contextSize ?: com.bit.models.ModelContextDefaults.resolve(resolvedModelName, ProviderType.API)
         } else {
             LlmModelWorker.lastLoadedGgufConfig?.let { cfg ->
                 runCatching {
                     GgufEngineSchema.fromJson(cfg.modelLoadingParams, cfg.modelInferenceParams).loadingParams.ctxSize
                 }.getOrNull()
-            } ?: com.bit.models.ModelContextDefaults.resolve(modelId, ProviderType.GGUF)
+            } ?: com.bit.models.ModelContextDefaults.resolve(resolvedModelName, ProviderType.GGUF)
         }
 
         val skillBudget = (modelContextBudget * 0.08).toInt().coerceIn(200, 1500)
@@ -4244,7 +4282,8 @@ class ChatViewModel @Inject constructor(
             val current = messages[i]
             val previous = result.last()
             if (current.getString("role") == previous.getString("role")
-                && current.getString("role") != "system") {
+                && current.getString("role") != "system"
+                && current.getString("role") != "tool") {
                 // Merge: append current content to previous
                 val merged = previous.getString("content") + "\n" + current.getString("content")
                 result[result.lastIndex] = JSONObject()
@@ -4945,6 +4984,7 @@ class ChatViewModel @Inject constructor(
                     val assistantMsg = Messages(
                         msgId = _streamingTurnId.value ?: java.util.UUID.randomUUID().toString(),
                         role = Role.Assistant,
+                        parentId = userMsg.msgId,
                         content = MessageContent(contentType = ContentType.Text, content = filteredResponse),
                         modelId = currentModelId,
                         decodingMetrics = metrics,
@@ -4956,8 +4996,7 @@ class ChatViewModel @Inject constructor(
                     handlePostTurnMemoryExtraction(userPrompt, newChatId)
                 }
                 chatManager.getChatMessages(newChatId).onSuccess { loadedMessages ->
-                    _messages.clear()
-                    _messages.addAll(loadedMessages)
+                    syncLoadedMessages(loadedMessages)
                     AppStateManager.setGenerationComplete()
                     AppStateManager.chatRefreshed()
                     val spokenMsgId = loadedMessages.lastOrNull { it.role == Role.Assistant }?.msgId
@@ -4988,10 +5027,11 @@ class ChatViewModel @Inject constructor(
                 modelId = diffusionModelId,
                 )
             chatManager.addMessage(newChatId, userMsg).onSuccess { userMessage ->
-                _messages.add(userMessage)
+                addMessageToState(userMessage)
                 userMessageAdded.set(true)
                 val imageMsg = Messages(
                     role = Role.Assistant,
+                    parentId = userMessage.msgId,
                     content = MessageContent(
                         contentType = ContentType.Image,
                         content = "Generated image for: $imagePrompt",
@@ -5003,7 +5043,7 @@ class ChatViewModel @Inject constructor(
                     imageMetrics = currentImageMetrics
                 )
                 chatManager.addMessage(newChatId, imageMsg).onSuccess { imageMessage ->
-                    _messages.add(imageMessage)
+                    addMessageToState(imageMessage)
                     AppStateManager.setGenerationComplete()
                     AppStateManager.chatRefreshed()
                     resetStreamingState()
@@ -5172,7 +5212,7 @@ class ChatViewModel @Inject constructor(
 
     // ==================== Generation Control ====================
 
-    fun stop() {
+    fun stop(isSwitchingChat: Boolean = false) {
         emitStepEvent(com.bit.agent.harness.event.StepEvent.Stopped(System.currentTimeMillis()))
         if (TTSManager.isPlaying.value) { TTSManager.stopPlayback() }
 
@@ -5195,6 +5235,8 @@ class ChatViewModel @Inject constructor(
         val snapshotImage = currentGeneratedImage
         val snapshotImageMetrics = currentImageMetrics
         val snapshotUserAdded = userMessageAdded.get()
+        val currentSteps = _toolChainSteps.value.takeIf { it.isNotEmpty() }
+        val currentExecutionSteps = _thinkingUi.value?.takeIf { it.steps.isNotEmpty() }
 
         // 2. Stop native generation (signal to engine)
         when (currentGenType) {
@@ -5211,23 +5253,29 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             when (currentGenType) {
                 ModelType.TEXT_GENERATION -> handleTextStop(
-                    snapshotChatId, snapshotUserMsg, snapshotContent, snapshotMetrics, snapshotUserAdded
+                    snapshotChatId, snapshotUserMsg, snapshotContent, snapshotMetrics, snapshotUserAdded,
+                    currentSteps, currentExecutionSteps, isSwitchingChat
                 )
                 ModelType.IMAGE_GENERATION -> handleImageStop(
-                    snapshotChatId, snapshotUserMsg, snapshotImage, snapshotImageMetrics, snapshotUserAdded
+                    snapshotChatId, snapshotUserMsg, snapshotImage, snapshotImageMetrics, snapshotUserAdded,
+                    isSwitchingChat
                 )
-                else -> resetStreamingState()
+                else -> if (!isSwitchingChat) resetStreamingState()
             }
             AppStateManager.setGenerationComplete()
+            AppStateManager.chatRefreshed()
         }
     }
 
-    private fun handleTextStop(
+    private suspend fun handleTextStop(
         chatId: String?,
         userMsg: Messages?,
         content: String,
         metrics: DecodingMetrics?,
-        wasUserAdded: Boolean
+        wasUserAdded: Boolean,
+        currentSteps: List<ToolChainStepData>? = null,
+        currentExecutionSteps: com.bit.agent.harness.event.ThinkingUi? = null,
+        isSwitchingChat: Boolean = false
     ) {
         // Pre-process the content to forcefully close any unclosed thinking tags
         var processedContent = content
@@ -5246,7 +5294,6 @@ class ChatViewModel @Inject constructor(
             if (lastOpen != -1) {
                 val lastClose = processedContent.lastIndexOf(close, ignoreCase = true)
                 if (lastClose < lastOpen) {
-                    // Tag is open!
                     if (lastOpen > unclosedIndex) {
                         unclosedIndex = lastOpen
                         expectedCloseTag = close
@@ -5259,82 +5306,94 @@ class ChatViewModel @Inject constructor(
             processedContent += expectedCloseTag
         }
         
-        processedContent += "\n\n_Stopped_"
+        if (processedContent.isNotBlank()) {
+            processedContent += "\n\n_Stopped_"
+        } else {
+            processedContent = "_Stopped_"
+        }
         
         val cleanContent = processedContent.trim()
-        val currentSteps = _toolChainSteps.value.takeIf { it.isNotEmpty() }
-        val currentExecutionSteps = _thinkingUi.value?.takeIf { it.steps.isNotEmpty() }
-        if (chatId != null && userMsg != null && cleanContent.isNotEmpty()) {
-            if (!wasUserAdded && !_messages.contains(userMsg)) {
-                _messages.add(userMsg)
+        val targetChatId = chatId ?: if (userMsg != null) chatManager.createNewChat().getOrNull() else null
+
+        if (targetChatId != null && userMsg != null) {
+            val existing = chatManager.getChatMessages(targetChatId).getOrNull() ?: emptyList()
+            if (existing.none { it.msgId == userMsg.msgId || (it.role == Role.User && it.content.content == userMsg.content.content) }) {
+                chatManager.addMessage(targetChatId, userMsg)
             }
 
-            val lastMsg = _messages.lastOrNull()
-            if (lastMsg != null && lastMsg.role == Role.Assistant && lastMsg.content.contentType == ContentType.Text) {
-                // Assistant message was already added during generation, update content cleanly
-                val updatedMsg = lastMsg.copy(
-                    content = lastMsg.content.copy(content = cleanContent),
-                    toolChainSteps = currentSteps ?: lastMsg.toolChainSteps,
-                    interrupted = true,
-                    executionSteps = currentExecutionSteps ?: lastMsg.executionSteps
-                )
-                val idx = _messages.indexOf(lastMsg)
-                if (idx >= 0) {
-                    _messages[idx] = updatedMsg
-                }
-                viewModelScope.launch { chatManager.addMessage(chatId, updatedMsg) }
-            } else {
-                val assistantMessage = Messages(
-                    msgId = _streamingTurnId.value ?: java.util.UUID.randomUUID().toString(),
-                    role = Role.Assistant,
-                    content = MessageContent(contentType = ContentType.Text, content = cleanContent),
-                    modelId = currentModelId,
-                    decodingMetrics = metrics,
-                    toolChainSteps = currentSteps,
-                    interrupted = true,
-                    executionSteps = currentExecutionSteps
-                )
-                _messages.add(assistantMessage)
-                regenerationSnapshot?.let { old ->
-                    regenerationSnapshot = null
-                    viewModelScope.launch { chatManager.deleteMessage(old.msgId) }
-                }
-                viewModelScope.launch { chatManager.addMessage(chatId, assistantMessage) }
+            if (!isSwitchingChat && !wasUserAdded && !_messages.contains(userMsg)) {
+                addMessageToState(userMsg)
             }
-        } else if (regenerationSnapshot != null) {
+
+            val assistantMessage = Messages(
+                msgId = _streamingTurnId.value ?: java.util.UUID.randomUUID().toString(),
+                parentId = userMsg.msgId,
+                role = Role.Assistant,
+                content = MessageContent(contentType = ContentType.Text, content = cleanContent),
+                modelId = currentModelId,
+                decodingMetrics = metrics,
+                toolChainSteps = currentSteps,
+                interrupted = true,
+                executionSteps = currentExecutionSteps
+            )
+
+            if (!isSwitchingChat) {
+                val lastMsg = _messages.lastOrNull()
+                if (lastMsg != null && lastMsg.role == Role.Assistant && lastMsg.content.contentType == ContentType.Text) {
+                    val updatedMsg = lastMsg.copy(
+                        content = lastMsg.content.copy(content = cleanContent),
+                        toolChainSteps = currentSteps ?: lastMsg.toolChainSteps,
+                        interrupted = true,
+                        executionSteps = currentExecutionSteps ?: lastMsg.executionSteps
+                    )
+                    addMessageToState(updatedMsg)
+                    chatManager.addMessage(targetChatId, updatedMsg)
+                } else {
+                    addMessageToState(assistantMessage)
+                    regenerationSnapshot = null
+                    chatManager.addMessage(targetChatId, assistantMessage)
+                }
+            } else {
+                chatManager.addMessage(targetChatId, assistantMessage)
+            }
+        } else if (regenerationSnapshot != null && !isSwitchingChat) {
             restoreRegenerationSnapshot()
-        } else if (userMsg != null && !wasUserAdded && !_messages.contains(userMsg)) {
-            _messages.add(userMsg)
         }
 
         try { PluginManager.restoreGrammar() } catch (_: Exception) {}
-        resetStreamingState()
+        if (!isSwitchingChat) {
+            resetStreamingState()
+        }
     }
 
-    private fun handleImageStop(
+    private suspend fun handleImageStop(
         chatId: String?,
         userMsg: Messages?,
         image: Bitmap?,
         imgMetrics: ImageGenerationMetrics?,
-        wasUserAdded: Boolean
+        wasUserAdded: Boolean,
+        isSwitchingChat: Boolean = false
     ) {
-        if (chatId != null && userMsg != null && image != null) {
-            if (!wasUserAdded) { _messages.add(userMsg) }
+        val targetChatId = chatId ?: if (userMsg != null) chatManager.createNewChat().getOrNull() else null
+        if (targetChatId != null && userMsg != null && image != null) {
+            if (!isSwitchingChat && !wasUserAdded) { addMessageToState(userMsg) }
             val imageBase64 = LlmModelWorker.bitmapToBase64(image)
             val imageMessage = Messages(
                 role = Role.Assistant,
+                parentId = userMsg.msgId,
                 content = MessageContent(contentType = ContentType.Image, content = "Image generation stopped", imageData = imageBase64),
                 modelId = LlmModelWorker.currentDiffusionModelId.value,
                 imageMetrics = imgMetrics
             )
-            _messages.add(imageMessage)
-            // Persist to DB async
-            viewModelScope.launch { chatManager.addMessage(chatId, imageMessage) }
-        } else if (userMsg != null && !wasUserAdded) {
-            _messages.add(userMsg)
+            if (!isSwitchingChat) { addMessageToState(imageMessage) }
+            chatManager.addMessage(targetChatId, imageMessage)
+        } else if (userMsg != null && !wasUserAdded && !isSwitchingChat) {
+            addMessageToState(userMsg)
         }
 
-        resetStreamingState()
+        if (!isSwitchingChat) {
+            resetStreamingState()
+        }
     }
 
     // ==================== TTS Controls ====================
@@ -5695,7 +5754,7 @@ class ChatViewModel @Inject constructor(
         private const val TAG = "ChatViewModel"
         private const val PLAN_MAX_TOKENS = 150
         private const val SUMMARY_MAX_TOKENS = 512
-        private const val STREAMING_THROTTLE_MS = 16L
+        private const val STREAMING_THROTTLE_MS = 50L
         private const val REPETITION_CHECK_INTERVAL = 200
         private const val REPETITION_MIN_PATTERN_LEN = 30
         private const val REPETITION_MIN_REPEATS = 4
@@ -5772,6 +5831,73 @@ class ChatViewModel @Inject constructor(
                 }
             }
             return result
+        }
+
+        /**
+         * Resolves the active visible path through a conversation tree based on selected child choices.
+         * For unbranched/linear chats (and legacy chats without parentId), all messages are returned.
+         * When sibling versions exist for a parentId, only the active branch (or latest sibling) and its
+         * descendants are included.
+         */
+        fun resolveActivePath(
+            all: List<Messages>,
+            selectedBranches: Map<String, String>
+        ): List<Messages> {
+            if (all.isEmpty()) return emptyList()
+
+            // Find parents that have multiple child messages of the same role
+            val branchingParents = all
+                .filter { it.parentId != null }
+                .groupBy { it.parentId!! }
+                .filter { (_, children) -> children.groupBy { it.role }.any { it.value.size > 1 } }
+
+            if (branchingParents.isEmpty()) return all
+
+            val inactiveIds = mutableSetOf<String>()
+            for ((parentId, children) in branchingParents) {
+                val childrenByRole = children.groupBy { it.role }
+                for ((_, siblings) in childrenByRole) {
+                    if (siblings.size > 1) {
+                        val activeId = selectedBranches[parentId]?.takeIf { id -> siblings.any { it.msgId == id } } ?: siblings.last().msgId
+                        for (sib in siblings) {
+                            if (sib.msgId != activeId) {
+                                inactiveIds.add(sib.msgId)
+                            }
+                        }
+                    }
+                }
+            }
+
+            var changed = true
+            while (changed) {
+                changed = false
+                for (msg in all) {
+                    if (msg.parentId != null && msg.parentId in inactiveIds && msg.msgId !in inactiveIds) {
+                        inactiveIds.add(msg.msgId)
+                        changed = true
+                    }
+                }
+            }
+
+            return all.filter { it.msgId !in inactiveIds }
+        }
+
+        /**
+         * Computes version metadata for a message among its siblings sharing the same parentId.
+         */
+        fun getVersionInfo(message: Messages, all: List<Messages>): com.bit.models.messages.MessageVersionInfo? {
+            val parentId = message.parentId ?: return null
+            val siblings = all.filter { it.parentId == parentId && it.role == message.role }
+            if (siblings.size <= 1) return null
+
+            val currentIndex = siblings.indexOfFirst { it.msgId == message.msgId }
+            if (currentIndex == -1) return null
+
+            return com.bit.models.messages.MessageVersionInfo(
+                currentVersion = currentIndex + 1,
+                totalVersions = siblings.size,
+                siblingIds = siblings.map { it.msgId }
+            )
         }
     }
 }

@@ -3,6 +3,7 @@ package com.bit.engine
 import android.content.Context
 import android.util.Log
 import com.dark.gguf_lib.GGMLEngine
+import com.dark.gguf_lib.BitNetEngine
 import com.dark.gguf_lib.toolcalling.GrammarMode
 import com.dark.gguf_lib.toolcalling.ToolCallingConfig
 import com.dark.gguf_lib.toolcalling.ToolDefinitionBuilder
@@ -31,14 +32,9 @@ class GGUFEngine {
 
     val isLoaded: Boolean get() = engine.isLoaded
 
-    private fun isSmallModel(modelId: String, modelName: String): Boolean {
-        val id = modelId.lowercase()
-        val name = modelName.lowercase()
-        return id.contains("350m") || name.contains("350m") ||
-               id.contains("125m") || name.contains("125m") ||
-               id.contains("160m") || name.contains("160m") ||
-               id.contains("tiny") || name.contains("tiny") ||
-               id.contains("mini") || name.contains("mini")
+    private fun isCompactModel(fileSize: Long?): Boolean {
+        // Models under 500 MB correspond to sub-1B parameter models
+        return fileSize != null && fileSize in 1 until 500_000_000L
     }
 
     suspend fun load(model: Model, config: ModelConfig?): Boolean = withContext(Dispatchers.IO) {
@@ -52,7 +48,7 @@ class GGUFEngine {
         val loading = schema.loadingParams
         var inference = schema.inferenceParams
 
-        if (isSmallModel(model.id, model.modelName)) {
+        if (isCompactModel(model.fileSize)) {
             inference = inference.copy(
                 temperature = if (inference.temperature == 0.7f) 0.4f else inference.temperature,
                 maxTokens = if (inference.maxTokens == 4096) 256 else inference.maxTokens,
@@ -126,6 +122,13 @@ class GGUFEngine {
         }
 
         if (success) {
+            val modelInfoJson = engine.getModelInfoJson()
+            val isBitNet = BitNetEngine.isBitNetFromMetadata(modelInfoJson)
+            if (isBitNet) {
+                val info = BitNetEngine.getInfo()
+                Log.i(TAG, "BitNet ternary LUT acceleration active (NEON accelerated: ${info?.neonAccelerated == true})")
+            }
+
             try {
                 engine.warmUp()
             } catch (e: Throwable) {
@@ -189,7 +192,7 @@ class GGUFEngine {
             }
         }
 
-        if (model != null && isSmallModel(model.id, model.modelName)) {
+        if (model != null && isCompactModel(model.fileSize)) {
             inference = inference.copy(
                 temperature = if (inference.temperature == 0.7f) 0.4f else inference.temperature,
                 maxTokens = if (inference.maxTokens == 4096) 256 else inference.maxTokens,
@@ -263,6 +266,13 @@ class GGUFEngine {
         }
 
         if (success) {
+            val modelInfoJson = engine.getModelInfoJson()
+            val isBitNet = BitNetEngine.isBitNetFromMetadata(modelInfoJson)
+            if (isBitNet) {
+                val info = BitNetEngine.getInfo()
+                Log.i(TAG, "BitNet ternary LUT acceleration active on FD load (NEON accelerated: ${info?.neonAccelerated == true})")
+            }
+
             try {
                 engine.warmUp()
             } catch (e: Throwable) {

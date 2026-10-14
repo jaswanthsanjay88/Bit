@@ -22,9 +22,10 @@ jobs:
       KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
     steps:
-      - name: Checkout exact tagged commit
+      - name: Checkout exact tagged commit with submodules
         uses: actions/checkout@v4
         with:
+          submodules: recursive
           fetch-depth: 0
 
       - name: Set up Java
@@ -49,11 +50,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-ndk-cxx-
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install exact pinned NDK
-        run: sdkmanager --install "ndk;28.2.13676358"
+      - name: Install exact pinned NDK & CMake
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "ndk;28.2.13676358" "cmake;3.22.1"
 
       - name: Make gradlew executable
         run: chmod +x gradlew
@@ -63,8 +63,8 @@ jobs:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
-          test -n "${RELEASE_KEYSTORE_BASE64:-}" || { echo "::error::Missing RELEASE_KEYSTORE_BASE64 secret"; exit 1; }
-          python3 -c "
+          if [ -n "${RELEASE_KEYSTORE_BASE64:-}" ]; then
+            python3 -c "
           import os, base64, re
           raw = os.environ['RELEASE_KEYSTORE_BASE64']
           raw = re.sub(r'-----BEGIN [^-]+-----', '', raw)
@@ -74,10 +74,19 @@ jobs:
           if pad: clean += '=' * (4 - pad)
           with open('release-key.jks', 'wb') as f: f.write(base64.b64decode(clean))
           "
-          test -s release-key.jks || { echo "::error::Keystore decode produced empty file"; exit 1; }
-          echo "✅ Keystore restored ($(wc -c < release-key.jks) bytes)"
+            test -s release-key.jks || { echo "::error::Keystore decode produced empty file"; exit 1; }
+            echo "✅ Keystore restored ($(wc -c < release-key.jks) bytes)"
+          else
+            echo "⚠️ RELEASE_KEYSTORE_BASE64 not set; app/build.gradle.kts will fallback to debug signing"
+          fi
 
-      - name: Assemble release APK
+      - name: Run unit tests
+        run: |
+          ./gradlew testDebugUnitTest \
+            -Dorg.gradle.parallel=true \
+            -Dorg.gradle.workers.max=4
+
+      - name: Assemble release APKs
         run: |
           ./gradlew assembleRelease \
             -Dorg.gradle.parallel=true \
@@ -85,22 +94,41 @@ jobs:
             -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m" \
             -Dandroid.r8.maxWorkers=4
 
-      - name: Locate output APK
-        id: apk
+      - name: Stage Release Artifacts
         run: |
-          APK_PATH=$(find app/build/outputs/apk/release -name "*universal-release.apk" | head -n 1)
-          echo "path=$APK_PATH" >> "$GITHUB_OUTPUT"
+          mkdir -p release-artifacts
+          cp app/build/outputs/apk/release/*.apk release-artifacts/
+          ls -la release-artifacts/
 
       - name: Verify signing
         run: |
           BUILD_TOOLS_DIR=$(find $ANDROID_HOME/build-tools -maxdepth 1 -mindepth 1 | sort -V | tail -n 1)
-          $BUILD_TOOLS_DIR/apksigner verify --print-certs "${{ steps.apk.outputs.path }}" || true
+          for apk in release-artifacts/*.apk; do
+            echo "Verifying $apk..."
+            $BUILD_TOOLS_DIR/apksigner verify --print-certs "$apk" || true
+          done
+
+      - name: Generate Release Summary
+        if: always()
+        run: |
+          echo "### 🚀 BIT Release Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Ref:** \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          if [ -d release-artifacts ] && [ "$(ls -A release-artifacts 2>/dev/null)" ]; then
+            echo "#### 📦 Built Artifacts:" >> $GITHUB_STEP_SUMMARY
+            for f in release-artifacts/*; do
+              echo "- \`$(basename "$f")\` ($(ls -lh "$f" | awk '{print $5}'))" >> $GITHUB_STEP_SUMMARY
+            done
+          else
+            echo "❌ No release artifacts produced. Check failed step logs above." >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          files: ${{ steps.apk.outputs.path }}
+          files: release-artifacts/*.apk
           tag_name: ${{ github.ref_name }}
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
+          generate_release_notes: true
