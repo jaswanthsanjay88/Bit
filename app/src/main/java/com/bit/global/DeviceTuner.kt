@@ -73,10 +73,8 @@ object DeviceTuner {
         // ── Context size ──
         // For mobile devices, cap context size based on model parameter size.
         // Models <= 3B suffer severe memory bandwidth throttling if context exceeds 4096 on mobile CPU.
-        val isSmallMobileModel = modelSizeMB in 1..2500 || modelName.contains("1.7b", ignoreCase = true) ||
-                modelName.contains("1.5b", ignoreCase = true) || modelName.contains("2b", ignoreCase = true) ||
-                modelName.contains("1b", ignoreCase = true) || modelName.contains("3b", ignoreCase = true) ||
-                modelName.contains("qwen3", ignoreCase = true)
+        val isSmallMobileModel = (modelSizeMB in 1..2500) ||
+                (com.bit.worker.ActiveModelSession.isSmallModel.value)
         val ctxCap = when (mode) {
             PerformanceMode.PERFORMANCE -> if (isSmallMobileModel) 8192 else 32768
             PerformanceMode.BALANCED -> if (isSmallMobileModel) 4096 else 16384
@@ -129,10 +127,8 @@ object DeviceTuner {
         val afterModel = (availMB - modelSizeMB).coerceAtLeast(256)
         val quant = QuantLevel.fromModelName(modelName)
         val kvBudgetKB = afterModel * 0.50 * 1024
-        val isSmallMobileModel = modelSizeMB in 1..2500 || modelName.contains("1.7b", ignoreCase = true) ||
-                modelName.contains("1.5b", ignoreCase = true) || modelName.contains("2b", ignoreCase = true) ||
-                modelName.contains("1b", ignoreCase = true) || modelName.contains("3b", ignoreCase = true) ||
-                modelName.contains("qwen3", ignoreCase = true)
+        val isSmallMobileModel = (modelSizeMB in 1..2500) ||
+                (com.bit.worker.ActiveModelSession.isSmallModel.value)
         val maxCap = if (isSmallMobileModel) 4096 else 32768
         val raw = (kvBudgetKB / quant.kvBytesPerToken).toInt().coerceIn(512, maxCap)
         return (raw / 512) * 512
