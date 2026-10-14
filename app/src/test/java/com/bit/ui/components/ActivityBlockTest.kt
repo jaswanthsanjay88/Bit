@@ -105,6 +105,33 @@ class ActivityBlockTest {
     }
 
     @Test
+    fun testSummarizeActivityWhileRunningNonSearchDoesNotSaySearching() {
+        // When running with thought only and no search
+        val thoughtSteps = listOf(
+            TraceStep.Thought("Analyzing problem space")
+        )
+        val thoughtSummary = summarizeActivity(thoughtSteps, elapsedMs = 500L, isRunning = true)
+        assertEquals("Thinking…", thoughtSummary.title)
+        assertEquals(TnIcons.BrainCircuit, thoughtSummary.icon)
+        assertTrue(thoughtSummary.isRunning)
+
+        // When running with empty steps
+        val emptySummary = summarizeActivity(emptyList(), elapsedMs = 500L, isRunning = true)
+        assertEquals("Thinking…", emptySummary.title)
+        assertEquals(TnIcons.BrainCircuit, emptySummary.icon)
+        assertTrue(emptySummary.isRunning)
+
+        // When running with workspace tool
+        val toolSteps = listOf(
+            TraceStep.Tool(name = "workspace_shell", args = "ls")
+        )
+        val toolSummary = summarizeActivity(toolSteps, elapsedMs = 500L, isRunning = true)
+        assertEquals("Exploring the workspace", toolSummary.title)
+        assertEquals(TnIcons.Wrench, toolSummary.icon)
+        assertTrue(toolSummary.isRunning)
+    }
+
+    @Test
     fun testBuildTraceStepsFromMessageWithResearchTrace() {
         val trace = ResearchTrace(
             phases = listOf(

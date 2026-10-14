@@ -13,6 +13,7 @@ import java.util.UUID
 @Serializable
 data class Messages(
     val msgId: String = UUID.randomUUID().toString(),
+    val parentId: String? = null,
     val role: Role = Role.Assistant,
     val content: MessageContent = MessageContent(),
     val timestamp: Long = System.currentTimeMillis(),
@@ -24,9 +25,11 @@ data class Messages(
     val ragResults: List<RagResultItem>? = null,
     val pluginMetrics: PluginExecutionMetrics? = null,
     val toolChainSteps: List<ToolChainStepData>? = null,
+    val executionSteps: com.bit.agent.harness.event.ThinkingUi? = null,
     val agentPlan: String? = null,
     val agentSummary: String? = null,
-    val researchTrace: com.bit.agent.harness.model.ResearchTrace? = null
+    val researchTrace: com.bit.agent.harness.model.ResearchTrace? = null,
+    val interrupted: Boolean = false
 )
 
 @Serializable
@@ -95,3 +98,12 @@ enum class Role {
     User,
     Assistant
 }
+
+@Immutable
+@Serializable
+data class MessageVersionInfo(
+    val currentVersion: Int,
+    val totalVersions: Int,
+    val siblingIds: List<String> = emptyList()
+)
+

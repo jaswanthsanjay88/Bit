@@ -172,7 +172,7 @@ class OllamaProvider : LlmProvider {
                 headers["Authorization"] = "Bearer ${config.apiKey}"
             }
             val requestBodyJson = json.encodeToString(OllamaChatRequest.serializer(), requestBody)
-            Log.d("AgoraAPI", "[Ollama] REQ → $baseUrl/api/chat | model=${config.modelId} | msgs=${apiMessages.size} | tools=${config.tools?.size ?: 0}")
+            Log.d("BitAPI", "[Ollama] REQ → $baseUrl/api/chat | model=${config.modelId} | msgs=${apiMessages.size} | tools=${config.tools?.size ?: 0}")
             val maxAttempts = 3
             val retryableCodes = setOf(401, 429, 502, 503, 504)
             var attempt = 0
@@ -256,7 +256,7 @@ class OllamaProvider : LlmProvider {
                                 val prompt = response.promptEvalCount ?: 0
                                 val completion = response.evalCount ?: 0
                                 val total = prompt + completion
-                                Log.d("AgoraAPI", "Ollama Usage: prompt=$prompt, completion=$completion, total=$total")
+                                Log.d("BitAPI", "Ollama Usage: prompt=$prompt, completion=$completion, total=$total")
                                 emit(
                                     StreamEvent.UsageUpdate(
                                         promptTokens = prompt,
@@ -267,7 +267,7 @@ class OllamaProvider : LlmProvider {
                                 )
                             }
                         } catch (e: Exception) {
-                            Log.e("AgoraAPI", "Parse error: ${e.message}")
+                            Log.e("BitAPI", "Parse error: ${e.message}")
                         }
                     }
                     if (!currentCoroutineContext().isActive) {
@@ -275,10 +275,10 @@ class OllamaProvider : LlmProvider {
                     }
                 } else {
                     val errorRaw = handle.errorBody ?: "Unknown error"
-                    Log.e("AgoraAPI", "[Ollama] ERR ${handle.code}: $errorRaw")
+                    Log.e("BitAPI", "[Ollama] ERR ${handle.code}: $errorRaw")
 
                     if (handle.code in retryableCodes && attempt < maxAttempts) {
-                        Log.w("AgoraAPI", "[Ollama] Transient error ${handle.code} on attempt $attempt/$maxAttempts, retrying in ${1000 * attempt}ms...")
+                        Log.w("BitAPI", "[Ollama] Transient error ${handle.code} on attempt $attempt/$maxAttempts, retrying in ${1000 * attempt}ms...")
                         emit(StreamEvent.Retrying(attempt, maxAttempts))
                         delay(1000L * attempt)
                     } else {
@@ -312,13 +312,13 @@ class OllamaProvider : LlmProvider {
         try {
             val effectiveBaseUrl = baseUrl?.trimEnd('/') ?: "http://localhost:11434"
             val responseText = HttpClient.fetchModels("$effectiveBaseUrl/api/tags") ?: run {
-                Log.e("AgoraAPI", "Failed to fetch Ollama models: empty response")
+                Log.e("BitAPI", "Failed to fetch Ollama models: empty response")
                 return@withContext emptyList()
             }
             val json = Json { ignoreUnknownKeys = true }
             json.decodeFromString<OllamaTagsResponse>(responseText).models.map { it.name }
         } catch (e: Exception) {
-            Log.e("AgoraAPI", "Ollama fetch failed: ${e.message}", e)
+            Log.e("BitAPI", "Ollama fetch failed: ${e.message}", e)
             emptyList()
         }
     }

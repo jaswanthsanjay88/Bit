@@ -25,6 +25,46 @@ import me.rerere.workspace.RootfsPatchOptions
 import me.rerere.workspace.RootfsPatcher
 import me.rerere.workspace.hasUsableRootfs
 import java.io.File
+import kotlin.io.OnErrorAction
+
+internal fun safePrepareSessionSkillsDir(masterSkillsDir: File, sessionSkillsDir: File) {
+    try {
+        if (sessionSkillsDir.exists()) {
+            // Must make all files and directories writable bottom-up before deleting,
+            // otherwise File.delete() on files inside a read-only directory fails with EACCES
+            sessionSkillsDir.walkBottomUp().forEach { file ->
+                try {
+                    file.setWritable(true, false)
+                    file.delete()
+                } catch (_: Exception) {}
+            }
+        }
+        sessionSkillsDir.mkdirs()
+        sessionSkillsDir.setReadable(true, false)
+        sessionSkillsDir.setWritable(true, false)
+        sessionSkillsDir.setExecutable(true, false)
+
+        if (masterSkillsDir.exists() && masterSkillsDir.isDirectory) {
+            masterSkillsDir.copyRecursively(sessionSkillsDir, overwrite = true) { file, exception ->
+                Log.w("WorkspaceTerminal", "Skipped skill file on copy error: ${file.path}", exception)
+                OnErrorAction.SKIP
+            }
+            // Protect skill files from modification in terminal, but KEEP directories writable
+            // so they can be cleaned up or refreshed later without permission errors!
+            sessionSkillsDir.walk().forEach { file ->
+                if (file.isFile) {
+                    file.setReadOnly()
+                } else if (file.isDirectory) {
+                    file.setWritable(true, false)
+                    file.setReadable(true, false)
+                    file.setExecutable(true, false)
+                }
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("WorkspaceTerminal", "Failed to prepare session skills directory", e)
+    }
+}
 
 internal fun createWorkspaceTerminalSession(
     context: Context,
@@ -42,7 +82,12 @@ internal fun createWorkspaceTerminalSession(
         setWritable(true, true)
         setExecutable(true, true)
     }
-    val skillsDir = File(appContext.filesDir, "skills").apply { mkdirs() }
+    val masterSkillsDir = File(appContext.filesDir, "skills").apply { mkdirs() }
+    val sessionSkillsDir = File(tempDir, "skills_session")
+    safePrepareSessionSkillsDir(masterSkillsDir, sessionSkillsDir)
+    if (client is WorkspaceTerminalSessionClient) {
+        client.sessionSkillsDir = sessionSkillsDir
+    }
 
     val args = mutableListOf<String>()
     if (launch.mode.useAshmemMemfd && launch.runtime.supportsAshmemMemfd) {
@@ -60,7 +105,7 @@ internal fun createWorkspaceTerminalSession(
         "-b",
         "${filesDir.absolutePath}:$WORKSPACE_DIR",
         "-b",
-        "${skillsDir.absolutePath}:$SKILLS_DIR",
+        "${sessionSkillsDir.absolutePath}:$SKILLS_DIR",
     )
     listOf("/dev", "/proc", "/sys").forEach { path ->
         if (File(path).exists()) {
@@ -70,10 +115,10 @@ internal fun createWorkspaceTerminalSession(
     }
 
     // Mock /proc compatibility files (required for Ubuntu 24.04 libgcrypt, apt, procps on Android)
-    val fipsFile = File(tempDir, "fips_enabled").apply { if (!exists()) writeText("0\n") }
-    val statFile = File(tempDir, "stat").apply { if (!exists()) writeText("cpu  0 0 0 0 0 0 0 0 0 0\n") }
-    val versionFile = File(tempDir, "version").apply { if (!exists()) writeText("Linux version 6.1.0-android-bit (proot@bit) #1 SMP PREEMPT\n") }
-    val loadavgFile = File(tempDir, "loadavg").apply { if (!exists()) writeText("0.00 0.00 0.00 1/100 1000\n") }
+    val fipsFile = File(tempDir, "fips_enabled").apply { runCatching { if (!exists()) writeText("0\n") } }
+    val statFile = File(tempDir, "stat").apply { runCatching { if (!exists()) writeText("cpu  0 0 0 0 0 0 0 0 0 0\n") } }
+    val versionFile = File(tempDir, "version").apply { runCatching { if (!exists()) writeText("Linux version 6.1.0-android-bit (proot@bit) #1 SMP PREEMPT\n") } }
+    val loadavgFile = File(tempDir, "loadavg").apply { runCatching { if (!exists()) writeText("0.00 0.00 0.00 1/100 1000\n") } }
 
     args += listOf(
         "-b", "${fipsFile.absolutePath}:/proc/sys/crypto/fips_enabled",
@@ -137,7 +182,6 @@ internal fun prepareWorkspaceTerminalSession(context: Context, root: String): Wo
         setWritable(true, true)
         setExecutable(true, true)
     }
-    File(appContext.filesDir, "skills").mkdirs()
     RootfsPatcher().patch(
         linuxDir,
         RootfsPatchOptions(nameservers = appContext.activeDnsServers())
@@ -155,6 +199,7 @@ internal fun workspaceRootfsReady(context: Context, root: String): Boolean {
 
 internal class WorkspaceTerminalSessionClient(
     private val context: Context,
+    var sessionSkillsDir: File? = null,
     private val onFinished: () -> Unit,
 ) : TerminalSessionClient {
     var terminalView: TerminalView? = null
@@ -167,6 +212,14 @@ internal class WorkspaceTerminalSessionClient(
 
     override fun onSessionFinished(finishedSession: TerminalSession) {
         terminalView?.onScreenUpdated()
+        sessionSkillsDir?.let { dir ->
+            try {
+                dir.walkBottomUp().forEach { file ->
+                    file.setWritable(true, false)
+                    file.delete()
+                }
+            } catch (_: Exception) {}
+        }
         onFinished()
     }
 

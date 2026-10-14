@@ -263,11 +263,13 @@ class AgentHarnessEngineTest {
 
     private fun buildEngine(
         results: MutableList<ToolObservation>,
-        planner: ((String) -> String?)? = { goal -> oneStepPlanJson() }
+        planner: ((String) -> String?)? = { goal -> oneStepPlanJson() },
+        toolRegistry: com.bit.agent.harness.tools.AgentToolRegistry? = null
     ): Pair<AgentHarnessEngine, FakeToolBridge> {
         val bridge = FakeToolBridge(results)
         val engine = com.bit.agent.harness.engine.AgentHarnessEngine(
             toolBridge = bridge,
+            toolRegistry = toolRegistry,
             gateChecker = StepGateChecker(),
             correctionPlanner = SelfCorrectionPlanner(),
             planGenerator = planner?.let { f ->
@@ -544,6 +546,7 @@ class AgentHarnessEngineTest {
         val tempFile = java.io.File.createTempFile("test_version", ".txt")
         tempFile.deleteOnExit()
         tempFile.writeText("Original text")
+        com.bit.agent.harness.coding.FileReadTracker.recordRead(tempFile)
 
         val editorTool = com.bit.agent.harness.tools.StrReplaceEditorTool()
 
@@ -696,5 +699,138 @@ class AgentHarnessEngineTest {
         assertNotNull(execState)
         assertEquals("web_search", execState!!.toolName)
         assertEquals(listOf("web_search"), bridge.executedTools)
+    }
+
+    @Test
+    fun testDecomposeGoalRoutesMemoryInspection() {
+        val (engine, _) = buildEngine(results = mutableListOf())
+        val plan = engine.decomposeGoal("check your memory about me", 5)
+
+        assertEquals(1, plan.steps.size)
+        assertEquals("direct_answer", plan.steps[0].toolName)
+        assertEquals("step_1_memory", plan.steps[0].id)
+        val args = org.json.JSONObject(plan.steps[0].toolArguments)
+        assertTrue(args.has("answer"))
+    }
+
+    @Test
+    fun testDecomposeGoalRoutesMemoryFilesDocumentQuery() {
+        val (engine, _) = buildEngine(results = mutableListOf())
+        val plan = engine.decomposeGoal("use the document from memory files", 5)
+
+        assertEquals(2, plan.steps.size)
+        assertEquals("vault_query", plan.steps[0].toolName)
+        assertEquals("query_memory", plan.steps[1].toolName)
+    }
+
+    @Test
+    fun testDecomposeGoalRoutesMcpAndPortfolioWebsite() {
+        val stubMcpTool = object : com.bit.agent.harness.tools.AgentTool {
+            override val definition = com.bit.api.ToolDefinition(
+                type = "function",
+                function = com.bit.api.ToolFunction(
+                    name = "mcp_list_skills",
+                    description = "List MCP UI skills",
+                    parameters = com.bit.api.ToolParameters(properties = emptyMap())
+                )
+            )
+            override suspend fun execute(argumentsJson: String) =
+                com.bit.agent.harness.model.ToolObservation.success("skills listed", "[\"portfolio-generator\"]")
+        }
+        val registry = com.bit.agent.harness.tools.AgentToolRegistry(customTools = listOf(stubMcpTool))
+        val (engine, _) = buildEngine(results = mutableListOf(), toolRegistry = registry)
+
+        val plan = engine.decomposeGoal("using both mcp skills make portfolio website for me", 5)
+
+        assertTrue(plan.steps.size >= 3)
+        assertEquals("mcp_list_skills", plan.steps[0].toolName)
+        assertEquals("invoke_subagent", plan.steps[1].toolName)
+        assertEquals("workspace_read_file", plan.steps[2].toolName)
+        val verifyArgs = org.json.JSONObject(plan.steps[2].toolArguments)
+        assertEquals("index.html", verifyArgs.getString("path"))
+    }
+
+    @Test
+    fun testPlanLeakGuard_detectsLeaks() {
+        val plan = TaskPlan(
+            goal = "explain recursion",
+            steps = mutableListOf(
+                TaskStep(
+                    id = "step_1",
+                    description = "Direct response: explain recursion",
+                    toolName = "direct_answer",
+                    toolArguments = "{}",
+                    expectedOutcome = "Direct conversational answer"
+                )
+            ),
+            mode = com.bit.agent.harness.state.PlanMode.DIRECT
+        )
+
+        // Blank or whitespace answers are leaks
+        assertTrue(com.bit.agent.harness.engine.PlanLeakGuard.isPlanLeak("", plan))
+        assertTrue(com.bit.agent.harness.engine.PlanLeakGuard.isPlanLeak("   ", plan))
+
+        // Leaked dummy phrases are leaks
+        assertTrue(com.bit.agent.harness.engine.PlanLeakGuard.isPlanLeak("Direct conversational answer", plan))
+        assertTrue(com.bit.agent.harness.engine.PlanLeakGuard.isPlanLeak("direct conversational answer.", plan))
+
+        // Step description or expected outcome matches are leaks
+        assertTrue(com.bit.agent.harness.engine.PlanLeakGuard.isPlanLeak("Direct response: explain recursion", plan))
+        assertTrue(com.bit.agent.harness.engine.PlanLeakGuard.isPlanLeak("direct response: explain recursion!", plan))
+
+        // Legitimate model responses pass
+        assertFalse(com.bit.agent.harness.engine.PlanLeakGuard.isPlanLeak("Recursion is a method of solving problems where a function calls itself.", plan))
+    }
+
+    @Test
+    fun testTaskPlan_isDirect() {
+        val directPlan = TaskPlan(
+            goal = "hi",
+            steps = mutableListOf(),
+            mode = com.bit.agent.harness.state.PlanMode.DIRECT
+        )
+        assertTrue(directPlan.isDirect)
+
+        val greetingPlan = TaskPlan(
+            goal = "hello",
+            steps = mutableListOf(
+                TaskStep(
+                    id = "step_1",
+                    description = "Direct response",
+                    toolName = "direct_answer",
+                    toolArguments = "{}",
+                    expectedOutcome = "Answer"
+                )
+            ),
+            mode = com.bit.agent.harness.state.PlanMode.DIRECT
+        )
+        assertTrue(greetingPlan.isDirect)
+
+        val toolPlan = TaskPlan(
+            goal = "search news",
+            steps = mutableListOf(
+                TaskStep(
+                    id = "step_1",
+                    description = "Search web",
+                    toolName = "web_search",
+                    toolArguments = "{}",
+                    expectedOutcome = "Results"
+                )
+            ),
+            mode = com.bit.agent.harness.state.PlanMode.TOOLS
+        )
+        assertFalse(toolPlan.isDirect)
+    }
+
+    @Test
+    fun testDecomposeGoal_directMode_forGreetingAndConceptual() {
+        val (engine, _) = buildEngine(results = mutableListOf())
+        val greetingPlan = engine.decomposeGoal("hello how are you", 5)
+        assertTrue(greetingPlan.isDirect)
+        assertEquals(com.bit.agent.harness.state.PlanMode.DIRECT, greetingPlan.mode)
+
+        val conceptualPlan = engine.decomposeGoal("explain polymorphism in kotlin", 5)
+        assertTrue(conceptualPlan.isDirect)
+        assertEquals(com.bit.agent.harness.state.PlanMode.DIRECT, conceptualPlan.mode)
     }
 }

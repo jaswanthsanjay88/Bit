@@ -55,7 +55,7 @@ private fun ChatMessage.isNormalAssistantMessage(): Boolean =
     participant == Participant.MODEL && !isToolProtocolMessage()
 
 private fun ChatMessage.isToolProtocolMessage(): Boolean =
-    id.startsWith(Constants.TOOL_MSG_PREFIX) || id.startsWith(Constants.RESULT_MSG_PREFIX)
+    id.startsWith(Constants.TOOL_MSG_PREFIX) || id.startsWith(Constants.RESULT_MSG_PREFIX) || toolCall != null
 
 private fun addGeneratedImageContextNote(text: String, imageCount: Int): String {
     val note = if (imageCount == 1) {
@@ -72,8 +72,7 @@ fun mergeConsecutiveSameRole(messages: List<ChatMessage>): List<ChatMessage> {
     var i = 0
     while (i < messages.size) {
         val current = messages[i]
-        val isTool = current.id.startsWith(Constants.TOOL_MSG_PREFIX) ||
-            current.id.startsWith(Constants.RESULT_MSG_PREFIX)
+        val isTool = current.isToolProtocolMessage()
         if (isTool) {
             result.add(current)
             i++
@@ -82,8 +81,7 @@ fun mergeConsecutiveSameRole(messages: List<ChatMessage>): List<ChatMessage> {
         var j = i + 1
         while (j < messages.size) {
             val next = messages[j]
-            val nextIsTool = next.id.startsWith(Constants.TOOL_MSG_PREFIX) ||
-                next.id.startsWith(Constants.RESULT_MSG_PREFIX)
+            val nextIsTool = next.isToolProtocolMessage()
             if (nextIsTool || next.participant != current.participant) break
             j++
         }
@@ -105,11 +103,13 @@ fun validateToolMessages(messages: List<ChatMessage>): List<ChatMessage> {
     var i = 0
     while (i < messages.size) {
         val msg = messages[i]
+        val isToolCall = msg.id.startsWith(Constants.TOOL_MSG_PREFIX) || (msg.participant == Participant.MODEL && msg.toolCall != null)
+        val isToolResult = msg.id.startsWith(Constants.RESULT_MSG_PREFIX) || (msg.participant == Participant.USER && msg.toolCall != null)
         when {
-            msg.id.startsWith(Constants.TOOL_MSG_PREFIX) -> {
+            isToolCall -> {
                 val resultMessages = mutableListOf<ChatMessage>()
                 var j = i + 1
-                while (j < messages.size && messages[j].id.startsWith(Constants.RESULT_MSG_PREFIX)) {
+                while (j < messages.size && (messages[j].id.startsWith(Constants.RESULT_MSG_PREFIX) || (messages[j].participant == Participant.USER && messages[j].toolCall != null))) {
                     resultMessages.add(messages[j])
                     j++
                 }
@@ -121,7 +121,7 @@ fun validateToolMessages(messages: List<ChatMessage>): List<ChatMessage> {
                     i++ // orphan tool_ — drop
                 }
             }
-            msg.id.startsWith(Constants.RESULT_MSG_PREFIX) -> {
+            isToolResult -> {
                 i++ // orphan result_ — drop
             }
             else -> {

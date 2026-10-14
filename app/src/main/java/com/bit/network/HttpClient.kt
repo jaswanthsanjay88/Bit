@@ -150,7 +150,7 @@ object HttpClient {
     val client: OkHttpClient = OkHttpClient.Builder()
         .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(300, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
         .retryOnConnectionFailure(true)
@@ -214,7 +214,7 @@ object HttpClient {
      * - Sends `Accept: text/event-stream` to signal SSE support, some providers
      *   start flushing chunks earlier when they see this header.
      * - Transport errors (connect timeout, TLS failure) are retried up to 2 times
-     *   before propagating, matching Agora's retry-on-connect pattern.
+     *   before propagating, using a robust retry-on-connect pattern.
      */
     fun streamPost(url: String, jsonBody: String, headers: Map<String, String> = emptyMap()): StreamHandle {
         guardCleartextCredentials(url, headers)

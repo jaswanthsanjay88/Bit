@@ -27,6 +27,12 @@ class SystemPromptAssembler @Inject constructor(
                 appendLine(baseRolePrompt.trim())
                 appendLine()
             }
+            val mcpPrompt = toolRegistry.mcpManager?.getLiveMcpCapabilityPrompt().orEmpty()
+            if (mcpPrompt.isNotBlank()) {
+                appendLine("## Connected MCP Servers")
+                appendLine(mcpPrompt)
+                appendLine()
+            }
             if (toolSections.isNotEmpty()) {
                 appendLine("## Tool Guidelines")
                 toolSections.forEach { section ->

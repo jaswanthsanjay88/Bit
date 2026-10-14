@@ -64,21 +64,21 @@ object OneDarkTheme : SyntaxHighlightTheme {
 
 object OneLightTheme : SyntaxHighlightTheme {
     override val name = "One Light"
-    override val background = Color(0xFFFAFAFA)
-    override val lineNumberColor = Color(0xFF9D9D9F)
-    override val defaultColor = Color(0xFF383A42)
+    override val background = Color(0xFFF6F8FA)
+    override val lineNumberColor = Color(0xFF8C959F)
+    override val defaultColor = Color(0xFF24292F)
 
     override fun colorFor(token: CodeTokenType): Color = when (token) {
-        CodeTokenType.Keyword -> Color(0xFFA626A4)
-        CodeTokenType.String -> Color(0xFF50A14F)
-        CodeTokenType.Comment -> Color(0xFFA0A1A7)
-        CodeTokenType.Number -> Color(0xFF986801)
-        CodeTokenType.Function -> Color(0xFF4078F2)
-        CodeTokenType.Type -> Color(0xFFC18401)
-        CodeTokenType.Operator -> Color(0xFF0184BC)
-        CodeTokenType.Annotation -> Color(0xFFE45649)
-        CodeTokenType.Punctuation -> Color(0xFF696C77)
-        CodeTokenType.Property -> Color(0xFFE45649)
+        CodeTokenType.Keyword -> Color(0xFFCF222E)   // Deep crimson (or rich purple)
+        CodeTokenType.String -> Color(0xFF0A7E39)    // Rich dark green
+        CodeTokenType.Comment -> Color(0xFF6E7781)   // Distinct slate gray
+        CodeTokenType.Number -> Color(0xFF953800)    // Dark amber / brown
+        CodeTokenType.Function -> Color(0xFF8250DF)  // Deep purple
+        CodeTokenType.Type -> Color(0xFF0550AE)      // Deep cobalt blue
+        CodeTokenType.Operator -> Color(0xFF0969DA)  // Crisp blue
+        CodeTokenType.Annotation -> Color(0xFF953800)// Amber
+        CodeTokenType.Punctuation -> Color(0xFF24292F)// Charcoal
+        CodeTokenType.Property -> Color(0xFF0550AE)  // Blue
         CodeTokenType.Default -> defaultColor
     }
 }
@@ -88,8 +88,8 @@ val LocalSyntaxTheme = staticCompositionLocalOf<SyntaxHighlightTheme?> { null }
 @Composable
 fun resolveSyntaxTheme(): SyntaxHighlightTheme {
     LocalSyntaxTheme.current?.let { return it }
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f || isSystemInDarkTheme()
-    return if (isDark) OneDarkTheme else OneLightTheme
+    val isAppDark = com.bit.ui.theme.LocalDarkMode.current
+    return if (isAppDark) OneDarkTheme else OneLightTheme
 }
 
 // ── Language definitions ──

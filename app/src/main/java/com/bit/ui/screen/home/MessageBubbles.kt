@@ -3,6 +3,7 @@ package com.bit.ui.screen.home
 import android.graphics.BitmapFactory
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -144,11 +146,14 @@ private fun UserMessageContent(
         val matches = remember(text) { slashCommandRegex.findAll(text).toList() }
         val primary = MaterialTheme.colorScheme.primary
         val primaryContainer = MaterialTheme.colorScheme.primaryContainer
-        val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
-        val inlineColors = remember(surfaceVariant, primary) {
+        val isDark = com.bit.ui.theme.LocalDarkMode.current
+        val surfaceContainer = MaterialTheme.colorScheme.surfaceContainerHighest
+        val onSurface = MaterialTheme.colorScheme.onSurface
+        val inlineColors = remember(isDark, surfaceContainer, onSurface, primary) {
             InlineColors(
-                codeBg = surfaceVariant.copy(alpha = 0.5f),
-                highlightBg = primary.copy(alpha = 0.3f),
+                codeBg = if (isDark) surfaceContainer.copy(alpha = 0.65f) else surfaceContainer.copy(alpha = 0.85f),
+                codeTextColor = onSurface,
+                highlightBg = primary.copy(alpha = 0.25f),
                 mathColor = primary
             )
         }
@@ -245,6 +250,7 @@ internal fun AssistantStreamingBubble(
     message: Messages? = null,
     text: String,
     thinkingEnabled: Boolean = false,
+    suppressThinking: Boolean = false,
     onLongClick: ((Messages) -> Unit)? = null
 ) {
     var revealedLen by remember { mutableIntStateOf(0) }
@@ -287,7 +293,9 @@ internal fun AssistantStreamingBubble(
     val displayed = if (revealedLen < text.length) text.substring(0, revealedLen) else text
 
     if (displayed.isEmpty()) {
-        GeneratingIndicator(thinkingEnabled = thinkingEnabled)
+        if (!suppressThinking) {
+            GeneratingIndicator(thinkingEnabled = thinkingEnabled)
+        }
     } else {
         val parsedMessage = remember(displayed) { parseThinkingTags(displayed) }
         val streamingState = remember { com.bit.ui.components.markdown.StreamingMarkdownRenderState() }
@@ -302,7 +310,7 @@ internal fun AssistantStreamingBubble(
                 .padding(vertical = Standards.SpacingSm),
             verticalArrangement = Arrangement.spacedBy(Standards.SpacingSm)
         ) {
-            if (parsedMessage.thinkingContent != null || parsedMessage.isThinkingInProgress) {
+            if (!suppressThinking && (parsedMessage.thinkingContent != null || parsedMessage.isThinkingInProgress)) {
                 ThinkingBlock(
                     thinkingText = parsedMessage.thinkingContent ?: "",
                     isStreaming = parsedMessage.isThinkingInProgress
@@ -615,47 +623,72 @@ internal fun ThinkingBlock(
 
     val elapsedSeconds = (elapsedMs / 1000f)
 
+    val labelText = when {
+        isStreaming && elapsedSeconds > 0.5f -> "Thinking (${String.format(java.util.Locale.US, "%.1fs", elapsedSeconds)})"
+        isStreaming -> "Thinking"
+        elapsedSeconds > 0.5f -> "Thought for ${String.format(java.util.Locale.US, "%.1fs", elapsedSeconds)}"
+        else -> "Thinking"
+    }
+
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (isExpanded) 90f else 0f,
+        label = "thinking_chevron"
+    )
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 2.dp)
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
     ) {
-        Row(
-            modifier = Modifier
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    haptics.selection()
-                    isExpanded = !isExpanded
-                }
-                .padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Surface(
+            modifier = Modifier.wrapContentWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.65f),
+            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
         ) {
-            Text(
-                text = when {
-                    isStreaming && elapsedSeconds > 0.5f -> "Thinking (${String.format(java.util.Locale.US, "%.1fs", elapsedSeconds)})…"
-                    isStreaming -> "Thinking…"
-                    elapsedSeconds > 0.5f -> "Thought for ${String.format(java.util.Locale.US, "%.1fs", elapsedSeconds)}"
-                    else -> "Thoughts"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Normal,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
-            )
-            Spacer(Modifier.width(4.dp))
-            Icon(
-                imageVector = if (isExpanded) TnIcons.ChevronDown else TnIcons.ChevronRight,
-                contentDescription = if (isExpanded) "Collapse" else "Expand",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
-                modifier = Modifier.size(15.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        haptics.selection()
+                        isExpanded = !isExpanded
+                    }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = TnIcons.BrainCircuit,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                )
+
+                Text(
+                    text = labelText,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+                )
+
+                Icon(
+                    imageVector = TnIcons.ChevronRight,
+                    contentDescription = if (isExpanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier
+                        .size(13.dp)
+                        .rotate(chevronRotation)
+                )
+            }
         }
 
         AnimatedVisibility(
             visible = isExpanded,
-            enter = Motion.Enter,
-            exit = Motion.Exit
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
         ) {
             Text(
                 text = thinkingText,
@@ -663,7 +696,7 @@ internal fun ThinkingBlock(
                     lineHeight = 20.sp
                 ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                modifier = Modifier.padding(start = 2.dp, top = 2.dp, bottom = 6.dp)
+                modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 6.dp)
             )
         }
     }

@@ -62,7 +62,7 @@ fun AgentHarnessThinkingView(
             is AgentHarnessState.Decomposing -> "Planning & Decomposing Task..."
             is AgentHarnessState.Executing -> "Executing Plan · Step ${state.stepIndex} of ${state.totalSteps}"
             is AgentHarnessState.AwaitingApproval -> "Awaiting Approval · Step '${state.activeStep.id}' (${state.toolName})"
-            is AgentHarnessState.SubagentRunning -> "Subagent [${state.subagentTask.role}] Executing · Step ${state.parentStepIndex} of ${state.totalParentSteps}"
+            is AgentHarnessState.SubagentRunning -> "Subagent [${state.subagentTask.role}] Executing…"
             is AgentHarnessState.GateChecking -> "Verifying Step Outcome..."
             is AgentHarnessState.SelfCorrecting -> "Self-Correcting · Step '${state.failedStep.id}' (Attempt ${state.retryCount}/${state.maxRetries})"
             is AgentHarnessState.Completed -> {
@@ -177,7 +177,7 @@ fun AgentHarnessThinkingView(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "Analyzing task and decomposing into executable steps...",
+                            text = "Planning execution steps…",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )

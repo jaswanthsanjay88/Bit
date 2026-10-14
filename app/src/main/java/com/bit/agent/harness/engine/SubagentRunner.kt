@@ -87,12 +87,17 @@ class SubagentRunner(
 
             val maxSteps = task.maxSteps.coerceIn(1, MAX_SUB_STEPS)
             val jsonSerializer = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+            val subagentAllowedTools = setOf(
+                "read_slice", "search_code", "list_dir", "outline_symbols", "git_diff", "git_status",
+                "workspace_read_file", "workspace_list_files", "workspace_read_document", "workspace_read_pdf",
+                "vault_query", "query_memory", "read_memory_file", "list_memory_files"
+            )
             val tools = PluginManager.getEnabledToolDefinitions()
                 .mapNotNull { builder ->
                     runCatching {
                         val defJson = builder.build().toOpenAIFormat()
-                        val fnName = defJson.optJSONObject("function")?.optString("name").orEmpty()
-                        if (fnName.isBlank() || fnName.equals(FORBIDDEN_TOOL, ignoreCase = true)) {
+                        val fnName = defJson.optJSONObject("function")?.optString("name").orEmpty().lowercase()
+                        if (fnName.isBlank() || fnName == FORBIDDEN_TOOL || fnName !in subagentAllowedTools) {
                             null
                         } else {
                             jsonSerializer.decodeFromString<com.bit.api.ToolDefinition>(defJson.toString())
@@ -118,7 +123,7 @@ class SubagentRunner(
                     systemPrompt = systemPrompt,
                     baseUrl = baseUrl,
                     tools = tools.ifEmpty { null },
-                    thinkingEnabled = false,
+                    thinkingEnabled = true,
                     maxTokens = 2048
                 )
 
@@ -248,7 +253,7 @@ class SubagentRunner(
                     baseUrl = baseUrl,
                     tools = null,
                     thinkingEnabled = false,
-                    maxTokens = 1024
+                    maxTokens = 250
                 )
                 val synthBuilder = StringBuilder()
                 runCatching {

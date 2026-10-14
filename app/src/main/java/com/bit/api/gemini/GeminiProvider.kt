@@ -233,7 +233,7 @@ class GeminiProvider : LlmProvider {
                         parts.add(ApiRequestPart(inlineData = ApiInlineData(mimeType = mimeType, data = base64)))
                     }
                 } catch (e: Exception) {
-                    Log.e("AgoraAPI", "Failed to encode image: $imagePath", e)
+                    Log.e("BitAPI", "Failed to encode image: $imagePath", e)
                 }
             }
             if (parts.isEmpty()) parts.add(ApiRequestPart(text = ""))
@@ -343,7 +343,7 @@ class GeminiProvider : LlmProvider {
                 "x-goog-api-key" to config.apiKey
             )
             val requestJson = json.encodeToString(ApiGenerateContentRequest.serializer(), requestBody)
-            Log.d("AgoraAPI", "[Gemini] REQ → $finalUrlString | model=$cleanModelName | msgs=${apiContents.size} | thinking=${config.thinkingEnabled} | tools=${tools.size}")
+            Log.d("BitAPI", "[Gemini] REQ → $finalUrlString | model=$cleanModelName | msgs=${apiContents.size} | thinking=${config.thinkingEnabled} | tools=${tools.size}")
             val maxAttempts = 3
             val retryableCodes = setOf(401, 429, 502, 503, 504)
             var attempt = 0
@@ -437,7 +437,7 @@ class GeminiProvider : LlmProvider {
                                         val total = metadata.totalTokenCount ?: (prompt + candidates)
                                         val reasoning = metadata.thoughtsTokenCount ?: 0
                                         val cached = metadata.cachedContentTokenCount ?: 0
-                                        Log.d("AgoraAPI", "Gemini Usage: prompt=$prompt, completion=$candidates, reasoning=$reasoning, cached=$cached, total=$total")
+                                        Log.d("BitAPI", "Gemini Usage: prompt=$prompt, completion=$candidates, reasoning=$reasoning, cached=$cached, total=$total")
                                         emit(
                                             StreamEvent.UsageUpdate(
                                                 promptTokens = prompt,
@@ -451,7 +451,7 @@ class GeminiProvider : LlmProvider {
                                         )
                                     }
                                 } catch (e: Exception) {
-                                    Log.e("AgoraAPI", "Parse error: ${e.message}", e)
+                                    Log.e("BitAPI", "Parse error: ${e.message}", e)
                                 }
                             }
                         }
@@ -461,10 +461,10 @@ class GeminiProvider : LlmProvider {
                     }
                 } else {
                     val errorRaw = handle.errorBody ?: "Unknown error (Code: ${handle.code})"
-                    Log.e("AgoraAPI", "[Gemini] ERR ${handle.code}: $errorRaw")
+                    Log.e("BitAPI", "[Gemini] ERR ${handle.code}: $errorRaw")
 
                     if (handle.code in retryableCodes && attempt < maxAttempts) {
-                        Log.w("AgoraAPI", "[Gemini] Transient error ${handle.code} on attempt $attempt/$maxAttempts, retrying in ${1000 * attempt}ms...")
+                        Log.w("BitAPI", "[Gemini] Transient error ${handle.code} on attempt $attempt/$maxAttempts, retrying in ${1000 * attempt}ms...")
                         emit(StreamEvent.Retrying(attempt, maxAttempts))
                         delay(1000L * attempt)
                     } else {
@@ -511,7 +511,7 @@ class GeminiProvider : LlmProvider {
                 finalUrlString,
                 mapOf("x-goog-api-key" to apiKey)
             ) ?: run {
-                Log.e("AgoraAPI", "Failed to fetch Gemini models: empty response")
+                Log.e("BitAPI", "Failed to fetch Gemini models: empty response")
                 return@withContext emptyList()
             }
             val json = Json { ignoreUnknownKeys = true }

@@ -1,8 +1,8 @@
 package com.bit.ui.screen.settings
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.*
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -10,14 +10,17 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.bit.BuildConfig
 import com.bit.global.Standards
 import com.bit.ui.icons.TnIcons
-import kotlinx.coroutines.delay
+import com.bit.update.UpdateCheckResult
+import com.bit.update.UpdateChecker
+import com.bit.update.UpdateInfo
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -25,20 +28,24 @@ fun UpdateScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
-    
-    // Simulate checking for update or downloading
-    var isDownloading by remember { mutableStateOf(true) }
-    var downloadProgress by remember { mutableStateOf(0f) }
-    
-    LaunchedEffect(Unit) {
-        while (downloadProgress < 1f) {
-            delay(300)
-            downloadProgress += 0.1f
-            if (downloadProgress >= 1f) {
-                isDownloading = false
-            }
+    val updateChecker = remember { UpdateChecker(context) }
+
+    var isChecking by remember { mutableStateOf(true) }
+    var updateResult by remember { mutableStateOf<UpdateCheckResult?>(null) }
+
+    fun checkUpdate() {
+        scope.launch {
+            isChecking = true
+            updateResult = updateChecker.checkForUpdate()
+            isChecking = false
         }
+    }
+
+    LaunchedEffect(Unit) {
+        checkUpdate()
     }
 
     Scaffold(
@@ -51,6 +58,11 @@ fun UpdateScreen(
                         Icon(imageVector = TnIcons.ArrowLeft, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    IconButton(onClick = { checkUpdate() }, enabled = !isChecking) {
+                        Icon(imageVector = TnIcons.Refresh, contentDescription = "Check for updates")
+                    }
+                },
                 scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
@@ -58,185 +70,236 @@ fun UpdateScreen(
                 )
             )
         },
-        containerColor = MaterialTheme.colorScheme.surface
-    ) { innerPadding ->
+        contentWindowInsets = WindowInsets.safeDrawing
+    ) { paddingValues ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = Standards.SpacingMd),
-            verticalArrangement = Arrangement.spacedBy(Standards.SpacingLg)
+                .padding(paddingValues)
+                .padding(horizontal = Standards.SpacingLg),
+            verticalArrangement = Arrangement.spacedBy(Standards.SpacingLg),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             item {
-                Spacer(modifier = Modifier.height(Standards.SpacingSm))
-                // Hero Section with Version Info
+                Spacer(modifier = Modifier.height(Standards.SpacingXl))
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(
-                        imageVector = TnIcons.Sparkles,
-                        contentDescription = "Update Available",
+                        imageVector = TnIcons.Download,
+                        contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(64.dp)
                     )
                     Spacer(modifier = Modifier.height(Standards.SpacingMd))
                     Text(
-                        text = "BIT Version 2.4.0",
+                        text = "BIT Version ${BuildConfig.VERSION_NAME}",
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "A new update is ready to install",
-                        style = MaterialTheme.typography.bodyLarge,
+                        text = "Build ${BuildConfig.VERSION_CODE}",
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
             item {
-                // Loading / Download Status
-                AnimatedContent(targetState = isDownloading, label = "downloadState") { downloading ->
-                    if (downloading) {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.medium, // 12dp
-                            color = MaterialTheme.colorScheme.surfaceContainerLow
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "Downloading...",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = "${(downloadProgress * 100).toInt()}%",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                LinearProgressIndicator(
-                                    progress = { downloadProgress },
-                                    modifier = Modifier.fillMaxWidth().height(8.dp),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                                    strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
-                                )
-                            }
-                        }
-                    } else {
-                        Button(
-                            onClick = { /* Simulate Install */ },
+                if (isChecking) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.surfaceContainerLow
+                    ) {
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(56.dp),
-                            shape = RoundedCornerShape(28.dp), // Pill shape for standard M3 Button
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
-                            )
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp
+                            )
                             Text(
-                                text = "Install Update",
-                                style = MaterialTheme.typography.titleMedium
+                                text = "Checking for updates...",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
-                }
-            }
-
-            item {
-                Text(
-                    text = "What's New",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-
-                // MD3 Surface Container for Changelog
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large, // 16dp
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        ChangelogItem(
-                            icon = TnIcons.BrainCircuit,
-                            title = "Enhanced AI Reasoning",
-                            description = "The assistant now utilizes a multi-step thinking process to resolve complex queries natively on your device."
-                        )
-                        ChangelogItem(
-                            icon = TnIcons.Palette,
-                            title = "Material Design 3 Overhaul",
-                            description = "We've upgraded the visual language to use expressive shapes, tonal surfaces, and dynamic color."
-                        )
-                        ChangelogItem(
-                            icon = TnIcons.Sparkles,
-                            title = "Performance Improvements",
-                            description = "Faster inference speeds and optimized memory usage when running models locally."
-                        )
+                } else {
+                    when (val result = updateResult) {
+                        is UpdateCheckResult.UpdateAvailable -> {
+                            UpdateAvailableCard(info = result.info)
+                        }
+                        is UpdateCheckResult.UpToDate -> {
+                            StatusCard(
+                                title = "Up to Date",
+                                subtitle = "You are running the latest version of BIT.",
+                                isSuccess = true
+                            )
+                        }
+                        is UpdateCheckResult.DisabledForStoreInstall -> {
+                            StatusCard(
+                                title = "Managed by Store",
+                                subtitle = "Updates are managed automatically by your app store.",
+                                isSuccess = null
+                            )
+                        }
+                        is UpdateCheckResult.Error -> {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                StatusCard(
+                                    title = "Check Failed",
+                                    subtitle = result.message,
+                                    isSuccess = false
+                                )
+                                Button(
+                                    onClick = { checkUpdate() },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Retry")
+                                }
+                            }
+                        }
+                        null -> {}
                     }
                 }
-            }
-            
-            item {
-                Spacer(modifier = Modifier.height(48.dp))
             }
         }
     }
 }
 
 @Composable
-private fun ChangelogItem(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+private fun StatusCard(
     title: String,
-    description: String
+    subtitle: String,
+    isSuccess: Boolean?
 ) {
-    Row(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
-        Surface(
-            shape = MaterialTheme.shapes.small, // 8dp
-            color = MaterialTheme.colorScheme.primaryContainer,
-            modifier = Modifier.size(40.dp)
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Box(contentAlignment = Alignment.Center) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Icon(
-                    imageVector = icon,
+                    imageVector = when (isSuccess) {
+                        true -> TnIcons.Check
+                        false -> TnIcons.AlertTriangle
+                        null -> TnIcons.Package
+                    },
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    tint = when (isSuccess) {
+                        true -> MaterialTheme.colorScheme.primary
+                        false -> MaterialTheme.colorScheme.error
+                        null -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     modifier = Modifier.size(20.dp)
                 )
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
             }
-        }
-        
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = description,
+                text = subtitle,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@Composable
+private fun UpdateAvailableCard(
+    info: UpdateInfo
+) {
+    val context = LocalContext.current
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "New Version Available: ${info.version}",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                if (info.title.isNotBlank()) {
+                    Text(
+                        text = info.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+
+            if (info.changelog.isNotBlank()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.surfaceContainer
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "Changelog",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = info.changelog.take(500) + if (info.changelog.length > 500) "..." else "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Button(
+                onClick = {
+                    val url = if (info.downloadUrl.isNotBlank()) info.downloadUrl else info.releasePageUrl
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    context.startActivity(intent)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(24.dp)
+            ) {
+                Icon(
+                    imageVector = TnIcons.Download,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Get Update")
+            }
         }
     }
 }

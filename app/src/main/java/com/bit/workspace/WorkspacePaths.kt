@@ -43,7 +43,30 @@ object WorkspacePaths {
 
         val filesDir = File(active, "files")
         filesDir.mkdirs()
+        ensureBundledReferences(appFilesDir, filesDir)
         return filesDir.canonicalFile
+    }
+
+    /**
+     * Ensures bundled references (e.g. Alpine & Debian command manuals) exist inside /workspace/references.
+     */
+    fun ensureBundledReferences(appFilesDir: File, rootDir: File) {
+        try {
+            val skillsRefDir = File(appFilesDir, "skills/bit-workspace-shell/references")
+            if (skillsRefDir.exists() && skillsRefDir.isDirectory) {
+                val files = skillsRefDir.listFiles()?.filter { it.isFile }.orEmpty()
+                if (files.isNotEmpty()) {
+                    val targetRefsDir = File(rootDir, "references")
+                    targetRefsDir.mkdirs()
+                    files.forEach { src ->
+                        val dest = File(targetRefsDir, src.name)
+                        if (!dest.exists() || dest.length() != src.length()) {
+                            src.copyTo(dest, overwrite = true)
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
     }
 
     /**
@@ -51,8 +74,40 @@ object WorkspacePaths {
      * Enforces canonical jail: candidate path must reside inside rootDir.
      * Throws SecurityException on traversal attempts or unauthorized host access.
      */
-    fun resolveFile(ctx: Context, path: String, rootName: String? = null): File {
-        return resolveFile(ctx.applicationContext.filesDir, path, rootName)
+    fun resolveFile(ctx: Context?, path: String, rootName: String? = null): File {
+        if (ctx != null) {
+            return resolveFile(ctx.applicationContext.filesDir, path, rootName)
+        }
+        // Headless / Context-free mode (e.g. unit tests)
+        val clean = path.trim().replace('\\', '/')
+        val f = File(clean)
+
+        // Block attempts to escape to system sensitive locations or memory vault
+        val sensitivePrefixes = listOf("/etc", "/system", "/proc", "/sys", "/dev", "vault", ".ssh")
+        if (sensitivePrefixes.any { clean.startsWith(it) || clean.contains("/$it") }) {
+            throw SecurityException("Access denied: path traverses outside workspace root ('$path')")
+        }
+
+        if (f.isAbsolute) {
+            val canonical = try { f.canonicalPath } catch (_: Exception) { f.absolutePath }
+            val tmpDir = System.getProperty("java.io.tmpdir")
+            val isTempOrWorkspace = (tmpDir != null && canonical.startsWith(File(tmpDir).canonicalPath)) ||
+                    canonical.contains("workspace")
+            if (isTempOrWorkspace) {
+                return f.canonicalFile
+            }
+            throw SecurityException("Access denied: path traverses outside workspace root ('$path')")
+        }
+
+        // Relative path: resolve against working workspace directory
+        val baseDir = File("workspace").canonicalFile
+        val target = File(baseDir, clean.removePrefix("workspace/").removePrefix("/workspace/").trimStart('/')).canonicalFile
+        val basePath = baseDir.canonicalPath
+        val targetPath = target.canonicalPath
+        if (targetPath != basePath && !targetPath.startsWith(basePath + File.separator)) {
+            throw SecurityException("Access denied: path traverses outside workspace root ('$path')")
+        }
+        return target
     }
 
     /**
@@ -114,6 +169,13 @@ object WorkspacePaths {
         }
 
         target.parentFile?.mkdirs()
+        if (!canonicalTarget.exists()) {
+            val fileName = canonicalTarget.name
+            val bundledRef = File(appFilesDir, "skills/bit-workspace-shell/references/$fileName")
+            if (bundledRef.exists() && bundledRef.isFile) {
+                try { bundledRef.copyTo(canonicalTarget, overwrite = true) } catch (_: Exception) {}
+            }
+        }
         return canonicalTarget
     }
 

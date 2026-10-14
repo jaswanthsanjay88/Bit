@@ -199,7 +199,63 @@ class UseSkillTool(
                 }
             }
 
+            val rawName = args.optString("name").trim()
+            val cleanName = rawName.removePrefix("/").removePrefix("skills/")
+            val deviceSkillsDir = context?.filesDir?.resolve("skills")
+
+            fun tryReadFromDisk(path: String): String? {
+                if (deviceSkillsDir == null) return null
+                val file = deviceSkillsDir.resolve(path)
+                return if (file.exists() && file.isFile) file.readText() else null
+            }
+
+            fun tryReadFromAssets(path: String): String? {
+                if (context == null) return null
+                val assetPath = if (path.startsWith("skills/")) path else "skills/$path"
+                return try {
+                    context.assets.open(assetPath).bufferedReader().use { it.readText() }
+                } catch (_: Exception) {
+                    null
+                }
+            }
+
+            fun resolveSkillContent(name: String): String? {
+                val candidatePaths = listOf(
+                    name,
+                    "$name.md",
+                    "$name/SKILL.md",
+                    "bit-workspace-shell/$name",
+                    "bit-workspace-shell/$name.md",
+                    "bit-workspace-shell/references/$name",
+                    "bit-workspace-shell/references/$name.md",
+                    "bit-workspace-shell/references/${name.substringAfterLast('/')}",
+                    "bit-workspace-shell/references/${name.substringAfterLast('/')}.md"
+                ).distinct()
+
+                for (cand in candidatePaths) {
+                    val diskContent = tryReadFromDisk(cand)
+                    if (diskContent != null) return diskContent
+                    val assetContent = tryReadFromAssets(cand)
+                    if (assetContent != null) return assetContent
+                }
+                return null
+            }
+
+            val isSpecificFileRequest = cleanName.endsWith(".md", ignoreCase = true) ||
+                    cleanName.contains("/") ||
+                    cleanName.equals("alpine", ignoreCase = true) ||
+                    cleanName.equals("debian", ignoreCase = true)
+
+            val resolvedFileContent = if (isSpecificFileRequest || matchedSkill == null) {
+                resolveSkillContent(cleanName)
+            } else {
+                null
+            }
+
             val content = when {
+                resolvedFileContent != null -> {
+                    compactSkillInstructions(resolvedFileContent)
+                }
                 matchedSkill != null && matchedSkill.instructions.isNotBlank() -> {
                     compactSkillInstructions(matchedSkill.instructions)
                 }
@@ -207,33 +263,12 @@ class UseSkillTool(
                     "Skill '${matchedSkill.name}': ${matchedSkill.description}"
                 }
                 else -> {
-                    // Fallback to on-device storage or assets
-                    val deviceSkillsDir = context?.filesDir?.resolve("skills")
-                    val fileCandidates = listOfNotNull(
-                        deviceSkillsDir?.resolve("$skillName/SKILL.md"),
-                        deviceSkillsDir?.resolve("$skillName.md")
-                    )
-                    val skillFile = fileCandidates.firstOrNull { it.exists() && it.isFile }
-                    if (skillFile != null) {
-                        compactSkillInstructions(skillFile.readText())
-                    } else {
-                        // Check app assets
-                        val assetContent = try {
-                            context?.assets?.open("skills/$skillName/SKILL.md")?.bufferedReader()?.use { it.readText() }
-                        } catch (_: Exception) {
-                            null
-                        }
-                        if (assetContent != null) {
-                            compactSkillInstructions(assetContent)
-                        } else {
-                            "Skill '$skillName' active with standard specialized patterns and directives."
-                        }
-                    }
+                    "Skill '$skillName' active with standard specialized patterns and directives."
                 }
             }
 
-            val finalPayload = if (content.length > 1500) {
-                content.take(1400) + "\n\n... [Content truncated for local SLM context safety]"
+            val finalPayload = if (content.length > 4000) {
+                content.take(3800) + "\n\n... [Content truncated for local SLM context safety]"
             } else {
                 content
             }
@@ -269,7 +304,7 @@ class UseSkillTool(
      * Compacts verbose SKILL.md guidelines into a concise instruction set
      * tailored for local small language models (SLMs) with 2k-4k context limits.
      */
-    private fun compactSkillInstructions(rawMarkdown: String, maxChars: Int = 1200): String {
+    private fun compactSkillInstructions(rawMarkdown: String, maxChars: Int = 3500): String {
         if (rawMarkdown.length <= maxChars) return rawMarkdown
 
         val lines = rawMarkdown.lines()
@@ -277,6 +312,7 @@ class UseSkillTool(
 
         var inFrontmatter = false
         var frontmatterDesc = ""
+        var inCodeBlock = false
         val ruleLines = mutableListOf<String>()
 
         for (line in lines) {
@@ -292,8 +328,21 @@ class UseSkillTool(
                 continue
             }
 
-            // Prioritize key directives, bullets, and section headers
-            if (trimmed.startsWith("#") || trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("1.") || trimmed.startsWith("2.")) {
+            if (trimmed.startsWith("```")) {
+                inCodeBlock = !inCodeBlock
+                ruleLines.add(line)
+                continue
+            }
+
+            if (inCodeBlock) {
+                ruleLines.add(line)
+                continue
+            }
+
+            // Prioritize key directives, bullets, headers, and code lines
+            if (trimmed.startsWith("#") || trimmed.startsWith("- ") || trimmed.startsWith("* ") ||
+                trimmed.startsWith("1.") || trimmed.startsWith("2.") || trimmed.startsWith("3.") ||
+                trimmed.startsWith("4.") || trimmed.startsWith("5.") || trimmed.startsWith("`")) {
                 ruleLines.add(line)
             }
         }
@@ -305,7 +354,7 @@ class UseSkillTool(
         builder.appendLine("**Core Guidelines & Directives**:")
         for (r in ruleLines) {
             if (builder.length + r.length + 1 >= maxChars) {
-                builder.appendLine("\n... [Remaining guidelines truncated for local context efficiency]")
+                builder.appendLine("\n... [Remaining guidelines truncated for context efficiency]")
                 break
             }
             builder.appendLine(r)

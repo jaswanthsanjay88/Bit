@@ -103,22 +103,132 @@ object SkillExportImport {
     }
 
     /**
-     * Import a skill from a content Uri.
+     * Import a skill from a content Uri (supports SKILL.md, JSON, and .skill / .zip packages).
      */
     fun importFromUri(context: Context, uri: Uri): ImportResult {
         return try {
-            val inputStream = context.contentResolver.openInputStream(uri)
+            val contentResolver = context.contentResolver
+            val inputStream = contentResolver.openInputStream(uri)
                 ?: return ImportResult.Error("Could not open file")
 
-            val content = inputStream.use { input ->
-                BufferedReader(InputStreamReader(input, StandardCharsets.UTF_8)).use { reader ->
+            val buffered = java.io.BufferedInputStream(inputStream)
+            buffered.mark(8)
+            val header = ByteArray(4)
+            val bytesRead = buffered.read(header)
+            buffered.reset()
+
+            val isZip = bytesRead >= 4 && header[0] == 0x50.toByte() && header[1] == 0x4B.toByte()
+
+            if (isZip) {
+                val skillsDir = com.bit.skills.SkillManager.getInstance(context).getSkillsDir()
+                importFromZip(buffered, skillsDir)
+            } else {
+                val content = BufferedReader(InputStreamReader(buffered, StandardCharsets.UTF_8)).use { reader ->
                     reader.readText()
                 }
+                importFromString(content)
             }
-
-            importFromString(content)
         } catch (e: Exception) {
             ImportResult.Error("Failed to read file: ${e.message}")
+        }
+    }
+
+    /**
+     * Import a skill package (.skill or .zip archive).
+     * Extracts files into targetSkillsDir while preventing Zip Slip vulnerabilities,
+     * parses SKILL.md, and returns the configured Skill model.
+     */
+    fun importFromZip(inputStream: java.io.InputStream, targetSkillsDir: java.io.File): ImportResult {
+        return try {
+            if (!targetSkillsDir.exists()) {
+                targetSkillsDir.mkdirs()
+            }
+            var skillMdContent: String? = null
+            var detectedSkillName: String? = null
+            val extractedFiles = mutableListOf<java.io.File>()
+
+            val zis = java.util.zip.ZipInputStream(inputStream)
+            var entry = zis.nextEntry
+            while (entry != null) {
+                val name = entry.name
+                // Guard against Zip Slip vulnerability
+                val targetFile = java.io.File(targetSkillsDir, name)
+                val canonicalTarget = targetFile.canonicalPath
+                val canonicalRoot = targetSkillsDir.canonicalPath
+                if (!canonicalTarget.startsWith(canonicalRoot + java.io.File.separator) && canonicalTarget != canonicalRoot) {
+                    zis.closeEntry()
+                    entry = zis.nextEntry
+                    continue
+                }
+
+                if (entry.isDirectory) {
+                    targetFile.mkdirs()
+                } else {
+                    targetFile.parentFile?.mkdirs()
+                    val bytes = zis.readBytes()
+                    targetFile.writeBytes(bytes)
+                    extractedFiles.add(targetFile)
+
+                    if (name.equals("SKILL.md", ignoreCase = true) || name.endsWith("/SKILL.md", ignoreCase = true)) {
+                        skillMdContent = String(bytes, StandardCharsets.UTF_8)
+                        val folder = name.substringBeforeLast("/", "")
+                        if (folder.isNotBlank()) {
+                            detectedSkillName = folder.substringAfterLast("/")
+                        }
+                    }
+                }
+                zis.closeEntry()
+                entry = zis.nextEntry
+            }
+
+            if (skillMdContent != null) {
+                val parsed = importFromString(skillMdContent)
+                if (parsed is ImportResult.Success) {
+                    val baseSkill = parsed.skill
+                    val effectiveName = if ((baseSkill.name == "Imported Skill" || baseSkill.name.isBlank()) && !detectedSkillName.isNullOrBlank()) {
+                        detectedSkillName
+                    } else {
+                        baseSkill.name
+                    }
+                    val isWorkspaceRelated = effectiveName.contains("workspace", ignoreCase = true) ||
+                            effectiveName.contains("shell", ignoreCase = true) ||
+                            baseSkill.description.contains("workspace_shell", ignoreCase = true) ||
+                            baseSkill.instructions.contains("workspace_shell", ignoreCase = true)
+
+                    val updatedSkill = baseSkill.copy(
+                        name = effectiveName,
+                        requiresWorkspace = baseSkill.requiresWorkspace || isWorkspaceRelated,
+                        tools = if (isWorkspaceRelated && !baseSkill.tools.contains("workspace_shell")) {
+                            baseSkill.tools + "workspace_shell"
+                        } else {
+                            baseSkill.tools
+                        },
+                        skillType = if (isWorkspaceRelated) com.bit.models.SkillType.EXECUTABLE else baseSkill.skillType,
+                        icon = if (isWorkspaceRelated && (baseSkill.icon == null || baseSkill.icon == "sparkles")) {
+                            "terminal"
+                        } else {
+                            baseSkill.icon
+                        }
+                    )
+                    ImportResult.Success(updatedSkill, format = "skill_package")
+                } else {
+                    parsed
+                }
+            } else {
+                val mdFile = extractedFiles.firstOrNull { it.name.endsWith(".md", ignoreCase = true) }
+                if (mdFile != null) {
+                    val parsed = importFromString(mdFile.readText())
+                    if (parsed is ImportResult.Success) {
+                        ImportResult.Success(parsed.skill, format = "skill_package")
+                    } else {
+                        parsed
+                    }
+                } else {
+                    ImportResult.Error("Archive does not contain a valid SKILL.md file")
+                }
+            }
+        } catch (e: Exception) {
+            ImportResult.Error("Failed to extract skill archive: ${e.message}")
         }
     }
 
@@ -215,15 +325,33 @@ object SkillExportImport {
 
         val name = yamlMap["name"] ?: "Imported Skill"
         val desc = yamlMap["description"] ?: ""
-        val icon = yamlMap["icon"]
-        val requiresWs = yamlMap["requires_workspace"]?.equals("true", ignoreCase = true) == true
+        val toolsRaw = yamlMap["tools"]
+        val toolsList = mutableListOf<String>()
+        if (!toolsRaw.isNullOrBlank()) {
+            toolsRaw.removeSurrounding("[", "]").split(",").forEach {
+                val t = it.trim().removeSurrounding("\"").removeSurrounding("'")
+                if (t.isNotBlank()) toolsList.add(t)
+            }
+        }
+
+        val requiresWs = yamlMap["requires_workspace"]?.equals("true", ignoreCase = true) == true ||
+                yamlMap["requiresworkspace"]?.equals("true", ignoreCase = true) == true ||
+                name.contains("workspace-shell", ignoreCase = true) ||
+                desc.contains("workspace_shell", ignoreCase = true) ||
+                body.contains("workspace_shell", ignoreCase = true)
+
+        if (requiresWs && !toolsList.contains("workspace_shell")) {
+            toolsList.add("workspace_shell")
+        }
+
         val typeStr = yamlMap["type"]?.uppercase() ?: if (requiresWs) "EXECUTABLE" else "INSTRUCTIONAL"
         val skillType = try {
             com.bit.models.SkillType.valueOf(typeStr)
         } catch (_: Exception) {
-            com.bit.models.SkillType.INSTRUCTIONAL
+            if (requiresWs) com.bit.models.SkillType.EXECUTABLE else com.bit.models.SkillType.INSTRUCTIONAL
         }
         val scriptPath = yamlMap["script"] ?: yamlMap["script_path"]
+        val icon = yamlMap["icon"] ?: if (requiresWs) "terminal" else null
 
         return ImportResult.Success(
             Skill(
@@ -233,6 +361,7 @@ object SkillExportImport {
                 instructions = body,
                 skillType = skillType,
                 requiresWorkspace = requiresWs,
+                tools = toolsList,
                 scriptPath = scriptPath,
                 enabled = true,
                 isBuiltIn = false

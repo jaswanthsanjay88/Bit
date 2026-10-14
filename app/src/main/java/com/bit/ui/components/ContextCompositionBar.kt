@@ -52,7 +52,7 @@ data class ContextUsageState(
 )
 
 /**
- * Token budget formatting utilities matching Agora's compact representation.
+ * Token budget formatting utilities matching compact representation.
  */
 object ContextBudget {
     const val DEFAULT_BUDGET = 4096
@@ -257,7 +257,7 @@ private fun LegendChip(color: Color, label: String, tokens: Int) {
 }
 
 /**
- * Top Context circular progress indicator button and Agora-style dropdown composition breakdown.
+ * Top Context circular progress indicator button and dropdown composition breakdown.
  */
 @Composable
 fun TopContextIndicator(
@@ -302,24 +302,37 @@ fun TopContextIndicator(
         Surface(
             onClick = { expanded = !expanded },
             interactionSource = interactionSource,
-            shape = CircleShape,
-            color = Color.Transparent,
-            modifier = Modifier.size(28.dp)
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            modifier = Modifier.height(20.dp)
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                // Background track ring
-                CircularProgressIndicator(
-                    progress = { 1f },
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                )
-                // Active context usage ring
-                CircularProgressIndicator(
-                    progress = { animatedProgress },
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                    color = progressColor
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(horizontal = 6.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.size(11.dp)) {
+                    // Background track ring
+                    CircularProgressIndicator(
+                        progress = { 1f },
+                        modifier = Modifier.size(11.dp),
+                        strokeWidth = 1.5.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                    )
+                    // Active context usage ring
+                    CircularProgressIndicator(
+                        progress = { animatedProgress },
+                        modifier = Modifier.size(11.dp),
+                        strokeWidth = 1.5.dp,
+                        color = progressColor
+                    )
+                }
+                Text(
+                    text = "${usagePercent}%",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

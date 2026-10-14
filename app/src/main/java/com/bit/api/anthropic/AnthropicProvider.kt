@@ -263,7 +263,7 @@ class AnthropicProvider : LlmProvider {
             headers["x-api-key"] = config.apiKey
             headers["anthropic-version"] = "2023-06-01"
             val requestBodyJson = json.encodeToString(AnthropicRequest.serializer(), requestBody)
-            Log.d("AgoraAPI", "[Anthropic] REQ → $baseUrl/messages | model=$modelName | msgs=${apiMessages.size} | thinking=${thinking != null} | tools=${anthropicTools?.size ?: 0}")
+            Log.d("BitAPI", "[Anthropic] REQ → $baseUrl/messages | model=$modelName | msgs=${apiMessages.size} | thinking=${thinking != null} | tools=${anthropicTools?.size ?: 0}")
             val maxAttempts = ProviderRetryPolicy.MAX_ATTEMPTS
             val retryableCodes = setOf(429, 502, 503, 504)
             var attempt = 0
@@ -278,7 +278,7 @@ class AnthropicProvider : LlmProvider {
                 } catch (e: Exception) {
                     val retryable = e.asRetryableTransportError()
                     if (retryable != null && attempt < maxAttempts) {
-                        Log.w("AgoraAPI", "[Anthropic] Transport error on attempt $attempt/$maxAttempts (${e.javaClass.simpleName}), retrying...")
+                        Log.w("BitAPI", "[Anthropic] Transport error on attempt $attempt/$maxAttempts (${e.javaClass.simpleName}), retrying...")
                         emit(StreamEvent.Retrying(attempt, ProviderRetryPolicy.MAX_RETRIES))
                         delay(ProviderRetryPolicy.delayMillis(attempt))
                         continue
@@ -372,7 +372,7 @@ class AnthropicProvider : LlmProvider {
                                             val promptTokens = messageInputTokens + (u.inputTokens ?: 0)
                                             val total = promptTokens + outputTokens
                                             val cached = u.cacheReadInputTokens ?: 0
-                                            Log.d("AgoraAPI", "Anthropic Usage: prompt=$promptTokens, completion=$outputTokens, cached=$cached, total=$total")
+                                            Log.d("BitAPI", "Anthropic Usage: prompt=$promptTokens, completion=$outputTokens, cached=$cached, total=$total")
                                             emit(
                                                 StreamEvent.UsageUpdate(
                                                     promptTokens = promptTokens,
@@ -386,7 +386,7 @@ class AnthropicProvider : LlmProvider {
                                     }
                                 }
                             } catch (e: Exception) {
-                                Log.e("AgoraAPI", "Parse error: ${e.message}", e)
+                                Log.e("BitAPI", "Parse error: ${e.message}", e)
                             }
                         }
                     }
@@ -395,10 +395,10 @@ class AnthropicProvider : LlmProvider {
                     }
                 } else {
                     val errorRaw = handle.errorBody ?: "Unknown error"
-                    Log.e("AgoraAPI", "[Anthropic] ERR ${handle.code}: $errorRaw")
+                    Log.e("BitAPI", "[Anthropic] ERR ${handle.code}: $errorRaw")
 
                     if (handle.code in retryableCodes && attempt < maxAttempts) {
-                        Log.w("AgoraAPI", "[Anthropic] Transient error ${handle.code} on attempt $attempt/$maxAttempts, retrying in ${ProviderRetryPolicy.delayMillis(attempt)}ms...")
+                        Log.w("BitAPI", "[Anthropic] Transient error ${handle.code} on attempt $attempt/$maxAttempts, retrying in ${ProviderRetryPolicy.delayMillis(attempt)}ms...")
                         emit(StreamEvent.Retrying(attempt, ProviderRetryPolicy.MAX_RETRIES))
                         delay(ProviderRetryPolicy.delayMillis(attempt))
                     } else {
@@ -490,12 +490,12 @@ class AnthropicProvider : LlmProvider {
                 "$effectiveBaseUrl/messages",
                 mapOf("x-api-key" to apiKey, "anthropic-version" to "2023-06-01")
             ) ?: run {
-                Log.e("AgoraAPI", "Failed to fetch Anthropic models: empty response")
+                Log.e("BitAPI", "Failed to fetch Anthropic models: empty response")
                 return@withContext emptyList()
             }
             json.decodeFromString<AnthropicModelsResponse>(responseText).data.map { it.id }
         } catch (e: Exception) {
-            Log.e("AgoraAPI", "Failed to fetch Anthropic models", e)
+            Log.e("BitAPI", "Failed to fetch Anthropic models", e)
             emptyList()
         }
     }

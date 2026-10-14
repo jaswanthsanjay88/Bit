@@ -22,6 +22,7 @@ import com.bit.worker.LlmModelWorker
  */
 fun interface PlanGenerator {
     suspend fun generatePlanJson(goal: String): String?
+    suspend fun generatePlanJson(goal: String, onThoughtChunk: ((String) -> Unit)?): String? = generatePlanJson(goal)
 }
 
 /**
@@ -39,7 +40,9 @@ class LlmGoalPlanner(
         private const val MAX_PLAN_TOKENS = 4096
     }
 
-    override suspend fun generatePlanJson(goal: String): String? {
+    override suspend fun generatePlanJson(goal: String): String? = generatePlanJson(goal, null)
+
+    override suspend fun generatePlanJson(goal: String, onThoughtChunk: ((String) -> Unit)?): String? {
         // 1. Try local GGUF model if loaded
         if (LlmModelWorker.isGgufModelLoaded.value) {
             try {
@@ -55,11 +58,24 @@ class LlmGoalPlanner(
                     })
                 }
                 val builder = StringBuilder()
+                val thinkParser = com.bit.api.util.StreamingThinkTagParser(assumeThinking = false)
                 LlmModelWorker.ggufGenerateMultiTurnStreaming(messages.toString(), maxTokens = MAX_PLAN_TOKENS).collect { event ->
                     if (event is GenerationEvent.Token) {
                         builder.append(event.text)
+                        thinkParser.feed(
+                            content = event.text,
+                            thinkingEnabled = true,
+                            onText = { /* json */ },
+                            onThought = { thought ->
+                                onThoughtChunk?.invoke(thought)
+                            }
+                        )
                     }
                 }
+                thinkParser.flush(
+                    onText = {},
+                    onThought = { thought -> onThoughtChunk?.invoke(thought) }
+                )
                 val text = builder.toString().trim()
                 if (text.isNotBlank()) {
                     val cleanJson = cleanSlmPlanJson(text)
@@ -80,14 +96,30 @@ class LlmGoalPlanner(
                 )
                 val textBuilder = StringBuilder()
                 val thoughtBuilder = StringBuilder()
-                cfg.provider.generateResponse(messages, cfg.config).collect { event ->
+                val thinkParser = com.bit.api.util.StreamingThinkTagParser(assumeThinking = false)
+                cfg.provider.generateResponse(messages, cfg.config.copy(thinkingEnabled = true)).collect { event ->
                     when (event) {
-                        is StreamEvent.TextChunk -> textBuilder.append(event.text)
-                        is StreamEvent.ThoughtChunk -> thoughtBuilder.append(event.thought)
+                        is StreamEvent.TextChunk -> {
+                            textBuilder.append(event.text)
+                            thinkParser.feed(
+                                content = event.text,
+                                thinkingEnabled = true,
+                                onText = {},
+                                onThought = { thought -> onThoughtChunk?.invoke(thought) }
+                            )
+                        }
+                        is StreamEvent.ThoughtChunk -> {
+                            thoughtBuilder.append(event.thought)
+                            onThoughtChunk?.invoke(event.thought)
+                        }
                         is StreamEvent.Error -> logger.w(TAG, "Planning stream error: ${event.message}")
                         else -> Unit
                     }
                 }
+                thinkParser.flush(
+                    onText = {},
+                    onThought = { thought -> onThoughtChunk?.invoke(thought) }
+                )
                 val raw = if (textBuilder.isNotBlank()) textBuilder.toString() else thoughtBuilder.toString()
                 val clean = cleanSlmPlanJson(raw)
                 clean ?: raw.takeIf { it.isNotBlank() }
@@ -166,7 +198,7 @@ class LlmGoalPlanner(
 
     private fun buildSlmPlanningPrompt(goal: String): String {
         val currentDate = getFormattedCurrentDate()
-        val toolNames = (toolRegistry?.names().orEmpty() + "direct_answer").distinct()
+        val toolNames = toolRegistry?.names().orEmpty().distinct()
         val toolList = toolNames.joinToString(", ")
         return buildString {
             appendLine("Decompose this user task into actionable tool steps.")
@@ -186,8 +218,8 @@ class LlmGoalPlanner(
             appendLine("No markdown fences, no conversational prose, only the raw JSON array.")
             appendLine()
             appendLine("PLANNING RULES:")
-            appendLine("- CRITICAL: NEVER use 'direct_answer' for questions asking for latest news, current events, recent developments, live prices, weather, real-world facts, or anything requiring temporal context. You MUST use 'web_search'.")
-            appendLine("- If the user goal is a conceptual explanation (e.g. 'explain recursion'), greeting, or casual chat requiring no tools or real-world info, return a single step with 'toolName': 'direct_answer', arguments: {'query': '$goal'}, and expectedOutcome: 'Direct conversational answer'.")
+            appendLine("- CRITICAL: NEVER omit tools for questions asking for latest news, current events, recent developments, live prices, weather, real-world facts, or anything requiring temporal context. You MUST use 'web_search'.")
+            appendLine("- If the user goal is a conceptual explanation (e.g. 'explain recursion'), greeting, or casual chat requiring no tools or real-world info, return an empty array [] to answer directly without tools.")
             appendLine("- For research, facts, or external info, use 'web_search'. You can pass 1 to 3 targeted queries in 'queries': [\"query 1\", \"query 2\"] (or a single 'query') to explore multiple facets in parallel. Web search automatically fetches and scrapes top sources, followed by report synthesis, so emit ONLY a 1-step plan with 'web_search' for pure research tasks.")
             appendLine("- For coding, building files, or multi-step execution, use 'workspace_write_file', 'workspace_shell', or 'invoke_subagent'.")
             appendLine()
@@ -224,7 +256,7 @@ class LlmGoalPlanner(
             modelId = model,
             baseUrl = LlmProviderResolver.cleanBaseUrl(endpoint),
             maxTokens = MAX_PLAN_TOKENS,
-            thinkingEnabled = false
+            thinkingEnabled = true
         )
         return InferenceSetup(provider, config)
     }
@@ -258,8 +290,8 @@ class LlmGoalPlanner(
 ]""")
             appendLine()
             appendLine("PLANNING GUIDELINES:")
-            appendLine("- CRITICAL: NEVER use 'direct_answer' for questions asking for latest news, current events, recent developments, live prices, weather, real-world facts, or anything requiring temporal context. You MUST use 'web_search'.")
-            appendLine("- If the user goal is a conceptual explanation, direct conversational question, or greeting that requires no file modifications, PRoot shell execution, or web search, emit a 1-step plan with 'toolName': 'direct_answer', arguments: {'query': '$goal'}, and expectedOutcome: 'Direct conversational answer'.")
+            appendLine("- CRITICAL: NEVER omit tools for questions asking for latest news, current events, recent developments, live prices, weather, real-world facts, or anything requiring temporal context. You MUST use 'web_search'.")
+            appendLine("- If the user goal is a conceptual explanation, direct conversational question, or greeting that requires no file modifications, PRoot shell execution, or web search, return an empty array [] to answer directly without tools.")
             appendLine("- For research, facts, discoveries, or current information, start with 'web_search'. Decompose multi-facet research topics into 1 to 3 parallel queries using 'queries': [\"query 1\", \"query 2\", \"query 3\"] (and primary in 'query'). For pure research tasks, emit ONLY a 1-step plan with 'web_search' because web_search automatically scrapes sources and is followed by report synthesis.")
             appendLine("- For coding, building web pages, writing software, or creative workspace tasks, delegate to 'invoke_subagent' with a descriptive 'role' and comprehensive 'goal', OR write directly with 'workspace_write_file'.")
             appendLine("- Subagents launched via 'invoke_subagent' operate autonomously in the workspace with access to all tools (read/write/edit/shell) and automatically receive prior research findings.")
@@ -268,7 +300,7 @@ class LlmGoalPlanner(
             appendLine("- Keep plans concise and effective (typically 1 to 4 steps).")
             appendLine()
             appendLine("""Example verification step:
-  {"id": "step_2", "description": "Verify findings with an independent reviewer", "toolName": "invoke_subagent", "arguments": {"role": "Verification Reviewer", "goal": "Cross-check the research findings about <topic> using web_search and web_fetch; flag unsupported claims.", "max_steps": 8}, "expectedOutcome": "Findings verified"}""")
+  {"id": "step_2", "description": "Verify findings with an independent reviewer", "toolName": "invoke_subagent", "arguments": {"role": "Verification Reviewer", "goal": "Cross-check the research findings about <topic> using web_search and web_fetch; flag unsupported claims.", "max_steps": 50}, "expectedOutcome": "Findings verified"}""")
             appendLine()
             appendLine("User Goal: $goal")
         }

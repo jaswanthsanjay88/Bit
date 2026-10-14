@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.bit.ui.theme.Glass
 import com.bit.models.messages.ContentType
 import com.bit.models.messages.Messages
+import com.bit.models.messages.MessageVersionInfo
 import com.bit.models.ui.ActionIcon
 import com.bit.models.ui.ActionItem
 import com.bit.ui.components.ActivityBlock
@@ -51,18 +52,6 @@ internal fun AssistantMessageHeader(message: Messages, imageBlurEnabled: Boolean
             }
         }
 
-        val activitySteps = remember(message) {
-            buildTraceStepsFromMessage(message)
-        }
-        if (activitySteps.isNotEmpty()) {
-            val durationMs = message.researchTrace?.durationMs ?: (message.toolChainSteps?.sumOf { it.executionTimeMs } ?: 0L)
-            ActivityBlock(
-                steps = activitySteps,
-                elapsedMs = durationMs,
-                isRunning = false,
-                isStreamingAnswer = false
-            )
-        }
 
         // Non-text content types
         when (message.content.contentType) {
@@ -86,7 +75,10 @@ internal fun AssistantMessageFooter(
     onStopTTS: () -> Unit,
     onRegenerate: (() -> Unit)?,
     isRegenerateEnabled: Boolean,
-    onEdit: ((Messages) -> Unit)? = null
+    onContinue: (() -> Unit)? = null,
+    onEdit: ((Messages) -> Unit)? = null,
+    versionInfo: MessageVersionInfo? = null,
+    onSelectVersion: ((String) -> Unit)? = null
 ) {
     val showMetrics = remember(message.decodingMetrics) {
         message.decodingMetrics?.tokensPerSecond?.let { it > 0 } ?: false
@@ -136,7 +128,10 @@ internal fun AssistantMessageFooter(
                     onStopTTS = onStopTTS,
                     onRegenerate = onRegenerate,
                     isRegenerateEnabled = isRegenerateEnabled,
-                    onEdit = onEdit
+                    onContinue = onContinue,
+                    onEdit = onEdit,
+                    versionInfo = versionInfo,
+                    onSelectVersion = onSelectVersion
                 )
             }
         }
@@ -216,7 +211,10 @@ internal fun MessageActionRow(
     onStopTTS: () -> Unit,
     onRegenerate: (() -> Unit)? = null,
     isRegenerateEnabled: Boolean = true,
-    onEdit: ((Messages) -> Unit)? = null
+    onContinue: (() -> Unit)? = null,
+    onEdit: ((Messages) -> Unit)? = null,
+    versionInfo: MessageVersionInfo? = null,
+    onSelectVersion: ((String) -> Unit)? = null
 ) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
@@ -232,8 +230,8 @@ internal fun MessageActionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, top = 4.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // 1. Copy Action
@@ -261,7 +259,7 @@ internal fun MessageActionRow(
             tint = if (isPlaying || isSynthesizing) Color.White else Glass.TextMuted
         )
 
-        // 4. Regenerate Action (Replacing vertical dots)
+        // 3. Regenerate Action
         if (onRegenerate != null) {
             SmallActionButton(
                 icon = TnIcons.Refresh,
@@ -269,6 +267,38 @@ internal fun MessageActionRow(
                 contentDescription = "Regenerate",
                 tint = Glass.TextMuted,
                 enabled = isRegenerateEnabled
+            )
+        }
+
+        // 4. Continue Action (for stopped turns)
+        if (onContinue != null) {
+            SmallActionButton(
+                icon = TnIcons.PlayerPlay,
+                onClick = onContinue,
+                contentDescription = "Continue",
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        // 4. Agora / ChatGPT style Version Pager (< 1 / 2 >)
+        if (versionInfo != null && versionInfo.totalVersions > 1 && onSelectVersion != null) {
+            Spacer(Modifier.weight(1f))
+            val curr = versionInfo.currentVersion
+            val total = versionInfo.totalVersions
+            val siblings = versionInfo.siblingIds
+            com.bit.ui.components.VersionPager(
+                currentVersion = curr,
+                totalVersions = total,
+                onPrevious = {
+                    if (curr > 1 && curr - 2 in siblings.indices) {
+                        onSelectVersion(siblings[curr - 2])
+                    }
+                },
+                onNext = {
+                    if (curr < total && curr in siblings.indices) {
+                        onSelectVersion(siblings[curr])
+                    }
+                }
             )
         }
     }

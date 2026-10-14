@@ -38,10 +38,10 @@ fun TopBlurScrim(
             .background(
                 brush = Brush.verticalGradient(
                     colorStops = arrayOf(
-                        0.00f to scrimColor.copy(alpha = 0.98f),
-                        0.35f to scrimColor.copy(alpha = 0.88f),
-                        0.65f to scrimColor.copy(alpha = 0.55f),
-                        0.85f to scrimColor.copy(alpha = 0.20f),
+                        0.00f to scrimColor,
+                        0.40f to scrimColor.copy(alpha = 0.95f),
+                        0.70f to scrimColor.copy(alpha = 0.60f),
+                        0.88f to scrimColor.copy(alpha = 0.25f),
                         1.00f to Color.Transparent
                     )
                 )

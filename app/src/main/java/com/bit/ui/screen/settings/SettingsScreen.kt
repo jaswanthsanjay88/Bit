@@ -25,7 +25,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.AltRoute
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.automirrored.filled.AltRoute
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -38,9 +37,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.bit.ui.components.GuardedAnimatedContent
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -69,9 +70,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Surface
 import com.bit.ui.screen.model_config.ConfigEditorPanel
-import com.bit.ui.screen.workspace.WorkspacePage
-import com.bit.ui.screen.workspace.WorkspaceDetailPage
-import com.bit.ui.screen.workspace.WorkspaceTerminalPage
 
 data class SettingsSearchEntry(
     val title: String,
@@ -383,29 +381,19 @@ fun SettingsScreen(
     configEditorViewModel: ModelConfigEditorViewModel = hiltViewModel()
 ) {
     var selectedCategory by remember { mutableStateOf<String?>(null) }
-    var detailWorkspaceId by remember { mutableStateOf<String?>(null) }
-    var terminalWorkspace by remember { mutableStateOf<com.bit.models.table_schema.WorkspaceEntity?>(null) }
-    var targetTerminalProcessId by remember { mutableStateOf<String?>(null) }
-    var isEditingWorkspaceFile by remember { mutableStateOf(false) }
     var editorModel by remember { mutableStateOf<com.bit.models.table_schema.Model?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showCredits by remember { mutableStateOf(false) }
     var isSearching by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
-    val hideSettingsTopBar = selectedCategory == "workspaces" && (terminalWorkspace != null || isEditingWorkspaceFile)
+    val hideSettingsTopBar = selectedCategory == "workspaces"
 
     // Intercept back actions to close search or go back to category list
     BackHandler {
         if (isSearching) {
             isSearching = false
             searchQuery = ""
-        } else if (terminalWorkspace != null) {
-            terminalWorkspace = null
-            targetTerminalProcessId = null
-        } else if (detailWorkspaceId != null) {
-            detailWorkspaceId = null
-            isEditingWorkspaceFile = false
         } else if (selectedCategory != null) {
             selectedCategory = null
         } else {
@@ -589,11 +577,7 @@ fun SettingsScreen(
                     IconButton(
                         onClick = {
                             haptics.selection()
-                            if (terminalWorkspace != null) {
-                                terminalWorkspace = null
-                            } else if (detailWorkspaceId != null) {
-                                detailWorkspaceId = null
-                            } else if (selectedCategory != null) {
+                            if (selectedCategory != null) {
                                 selectedCategory = null
                             } else {
                                 onNavigateBack()
@@ -609,8 +593,6 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.width(Standards.SpacingMd))
                     Text(
                         text = when {
-                            terminalWorkspace != null -> "Terminal: ${terminalWorkspace!!.name}"
-                            detailWorkspaceId != null -> "Workspace Details"
                             selectedCategory == "services" -> "Services & Models"
                             selectedCategory == "web_access" -> "Web Access (BIT in Browser)"
                             selectedCategory == "mcp" -> "MCP Servers"
@@ -786,31 +768,10 @@ fun SettingsScreen(
                 }
             }
         } else {
-            AnimatedContent(
+            GuardedAnimatedContent(
                 targetState = selectedCategory,
-                transitionSpec = {
-                    if (targetState != null) {
-                        (slideInHorizontally(
-                            animationSpec = androidx.compose.animation.core.tween(350, easing = com.bit.ui.theme.Motion.EmphasizedDecelerate),
-                            initialOffsetX = { (it * 0.22f).toInt() }
-                        ) + fadeIn(androidx.compose.animation.core.tween(250, delayMillis = 30, easing = com.bit.ui.theme.Motion.EmphasizedDecelerate))) togetherWith
-                        (slideOutHorizontally(
-                            animationSpec = androidx.compose.animation.core.tween(280, easing = com.bit.ui.theme.Motion.EmphasizedAccelerate),
-                            targetOffsetX = { -(it * 0.12f).toInt() }
-                        ) + fadeOut(androidx.compose.animation.core.tween(180, easing = com.bit.ui.theme.Motion.EmphasizedAccelerate)))
-                    } else {
-                        (slideInHorizontally(
-                            animationSpec = androidx.compose.animation.core.tween(350, easing = com.bit.ui.theme.Motion.EmphasizedDecelerate),
-                            initialOffsetX = { -(it * 0.18f).toInt() }
-                        ) + fadeIn(androidx.compose.animation.core.tween(250, delayMillis = 30, easing = com.bit.ui.theme.Motion.EmphasizedDecelerate))) togetherWith
-                        (slideOutHorizontally(
-                            animationSpec = androidx.compose.animation.core.tween(280, easing = com.bit.ui.theme.Motion.EmphasizedAccelerate),
-                            targetOffsetX = { (it * 0.22f).toInt() }
-                        ) + fadeOut(androidx.compose.animation.core.tween(180, easing = com.bit.ui.theme.Motion.EmphasizedAccelerate)))
-                    }
-                },
-                modifier = Modifier.padding(effectivePadding).background(MaterialTheme.colorScheme.background),
-                label = "settings_navigation"
+                forward = selectedCategory != null,
+                modifier = Modifier.padding(effectivePadding).background(MaterialTheme.colorScheme.background)
             ) { category ->
                 when (category) {
                     "skills" -> {
@@ -827,76 +788,9 @@ fun SettingsScreen(
                         )
                     }
                     "workspaces" -> {
-                        val wsSubScreen = when {
-                            terminalWorkspace != null -> "terminal"
-                            detailWorkspaceId != null -> "detail"
-                            else -> "list"
-                        }
-                        AnimatedContent(
-                            targetState = wsSubScreen,
-                            transitionSpec = {
-                                if (initialState == "list" && (targetState == "detail" || targetState == "terminal") ||
-                                    initialState == "detail" && targetState == "terminal") {
-                                    (slideInHorizontally(
-                                        animationSpec = androidx.compose.animation.core.tween(350, easing = com.bit.ui.theme.Motion.EmphasizedDecelerate),
-                                        initialOffsetX = { (it * 0.22f).toInt() }
-                                    ) + fadeIn(androidx.compose.animation.core.tween(250, delayMillis = 30, easing = com.bit.ui.theme.Motion.EmphasizedDecelerate))) togetherWith
-                                    (slideOutHorizontally(
-                                        animationSpec = androidx.compose.animation.core.tween(280, easing = com.bit.ui.theme.Motion.EmphasizedAccelerate),
-                                        targetOffsetX = { -(it * 0.12f).toInt() }
-                                    ) + fadeOut(androidx.compose.animation.core.tween(180, easing = com.bit.ui.theme.Motion.EmphasizedAccelerate)))
-                                } else {
-                                    (slideInHorizontally(
-                                        animationSpec = androidx.compose.animation.core.tween(350, easing = com.bit.ui.theme.Motion.EmphasizedDecelerate),
-                                        initialOffsetX = { -(it * 0.18f).toInt() }
-                                    ) + fadeIn(androidx.compose.animation.core.tween(250, delayMillis = 30, easing = com.bit.ui.theme.Motion.EmphasizedDecelerate))) togetherWith
-                                    (slideOutHorizontally(
-                                        animationSpec = androidx.compose.animation.core.tween(280, easing = com.bit.ui.theme.Motion.EmphasizedAccelerate),
-                                        targetOffsetX = { (it * 0.22f).toInt() }
-                                    ) + fadeOut(androidx.compose.animation.core.tween(180, easing = com.bit.ui.theme.Motion.EmphasizedAccelerate)))
-                                }
-                            },
-                            label = "workspace_navigation"
-                        ) { subScreen ->
-                            when (subScreen) {
-                                "terminal" -> terminalWorkspace?.let { ws ->
-                                    WorkspaceTerminalPage(
-                                        workspace = ws,
-                                        targetProcessId = targetTerminalProcessId,
-                                        onBack = {
-                                            terminalWorkspace = null
-                                            targetTerminalProcessId = null
-                                        },
-                                    )
-                                }
-                                "detail" -> detailWorkspaceId?.let { id ->
-                                    WorkspaceDetailPage(
-                                        workspaceId = id,
-                                        onBack = { 
-                                            detailWorkspaceId = null 
-                                            isEditingWorkspaceFile = false
-                                        },
-                                        onOpenTerminal = { ws, procId ->
-                                            terminalWorkspace = ws
-                                            targetTerminalProcessId = procId
-                                        },
-                                        onEditingFileChanged = { isEditing ->
-                                            isEditingWorkspaceFile = isEditing
-                                        }
-                                    )
-                                }
-                                else -> {
-                                    WorkspacePage(
-                                        onBack = { selectedCategory = null },
-                                        onOpenWorkspace = { ws -> detailWorkspaceId = ws.id },
-                                        onOpenTerminal = { ws ->
-                                            terminalWorkspace = ws
-                                            targetTerminalProcessId = null
-                                        },
-                                    )
-                                }
-                            }
-                        }
+                        com.bit.ui.screen.workspace.WorkspaceHostScreen(
+                            onBack = { selectedCategory = null }
+                        )
                     }
                 else -> {
                     LazyColumn(
@@ -1073,8 +967,6 @@ fun SettingsScreen(
                                     icon = TnIcons.Terminal,
                                     onClick = {
                                         selectedCategory = "workspaces"
-                                        detailWorkspaceId = null
-                                        terminalWorkspace = null
                                     }
                                 )
                             }

@@ -343,8 +343,14 @@ class GlobalRagOrchestrator @Inject constructor(
                     graph.addText(note.content, note.title, note.id)
                 }
             }
+            // Also restore all memories from UMS (Single Source of Truth)
+            val memoryRepo = runCatching { AppContainer.getMemoryRepo() }.getOrNull()
+            val memories = memoryRepo?.getAllOnce().orEmpty()
+            for (mem in memories) {
+                graph.addText(mem.fact, "Memory (${mem.category.name})", mem.id)
+            }
             updateGraphState(graph)
-            Log.d(TAG, "Rebuilt global graph from disk with ${notes.size} notes.")
+            Log.d(TAG, "Rebuilt global graph from disk with ${notes.size} notes and ${memories.size} UMS memories.")
         } catch (e: Exception) {
             Log.e(TAG, "Error rebuilding global graph from disk", e)
         }

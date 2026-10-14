@@ -17,7 +17,12 @@ class StreamingThinkTagParser(
         "<think>" to "</think>",
         "[THINK]" to "[/THINK]",
         "<reasoning>" to "</reasoning>",
-        "<|channel>thought" to "<|channel>"
+        "<|channel|>analysis<|message|>" to "<|channel|>final<|message|>",
+        "<|channel|>thought<|message|>" to "<|channel|>final<|message|>",
+        "<|channel|>analysis" to "<|channel|>",
+        "<|channel|>thought" to "<|channel|>",
+        "<|channel>thought" to "<|channel>",
+        "<|thought|>" to "</|thought|>"
     )
     private var activeCloseTag: String = "</think>"
 
@@ -103,13 +108,33 @@ class StreamingThinkTagParser(
                     pendingBuffer = ""
                 }
             } else {
-                val endIdx = pendingBuffer.indexOf(activeCloseTag)
+                var endIdx = pendingBuffer.indexOf(activeCloseTag)
+                var matchedCloseLen = activeCloseTag.length
+
+                if (activeCloseTag.startsWith("<|channel")) {
+                    val harmonyCloseTags = listOf(
+                        "<|channel|>final<|message|>",
+                        "<|channel|>final",
+                        "<|channel|>",
+                        "<|call|>",
+                        "<|return|>",
+                        "<|end|>"
+                    )
+                    for (hClose in harmonyCloseTags) {
+                        val hIdx = pendingBuffer.indexOf(hClose)
+                        if (hIdx != -1 && (endIdx == -1 || hIdx < endIdx)) {
+                            endIdx = hIdx
+                            matchedCloseLen = hClose.length
+                        }
+                    }
+                }
+
                 if (endIdx != -1) {
                     val thought = pendingBuffer.substring(0, endIdx)
                     if (thought.isNotEmpty()) onThought(thought)
                     inThinkingBlock = false
                     hasExitedThinkBlock = true
-                    pendingBuffer = pendingBuffer.substring(endIdx + activeCloseTag.length)
+                    pendingBuffer = pendingBuffer.substring(endIdx + matchedCloseLen)
                 } else {
                     // Check if the end of pendingBuffer is a prefix of activeCloseTag
                     val firstChar = activeCloseTag.first()

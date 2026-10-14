@@ -53,21 +53,7 @@ import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
-fun LazyListScope.skillsSection(
-    skillManager: SkillManager
-) {
-    item {
-        SkillsContent(skillManager = skillManager)
-    }
-}
 
-@Composable
-fun SkillsContent(
-    skillManager: SkillManager,
-    onUseSkillInChat: ((String) -> Unit)? = null
-) {
-    SkillsScreen(skillManager = skillManager, onUseSkillInChat = onUseSkillInChat)
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

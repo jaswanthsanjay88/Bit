@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -255,14 +256,21 @@ fun summarizeActivity(
             steps.any { it is TraceStep.Search } -> "Searching the web…"
             steps.any { it is TraceStep.Tool } -> {
                 val lastTool = steps.filterIsInstance<TraceStep.Tool>().lastOrNull()
-                if (lastTool != null) "Running ${lastTool.name}…" else "Executing tool…"
+                if (lastTool != null) {
+                    com.bit.agent.harness.event.labelForTool(lastTool.name)
+                } else "Executing tool…"
             }
             steps.any { it is TraceStep.Thought } -> "Thinking…"
-            else -> "Searching the web…"
+            else -> "Thinking…"
+        }
+        val icon = when {
+            steps.any { it is TraceStep.Search } -> TnIcons.Search
+            steps.any { it is TraceStep.Tool } -> TnIcons.Wrench
+            else -> TnIcons.BrainCircuit
         }
         return ActivitySummary(
             title = label,
-            icon = TnIcons.Search,
+            icon = icon,
             isRunning = true
         )
     }
@@ -353,7 +361,11 @@ fun buildTraceStepsFromMessage(message: Messages): List<TraceStep> {
             ?: searchToolSteps.mapNotNull {
                 try { JSONObject(it.args).optString("query") } catch (_: Exception) { null }
             }.filter { it.isNotBlank() }
-        val sources = trace?.phases?.flatMap { it.sources }?.distinctBy { it.url } ?: emptyList()
+        val sources = if (trace?.phases?.any { it.sources.isNotEmpty() } == true) {
+            trace.phases.flatMap { it.sources }.distinctBy { it.url }
+        } else {
+            extractSourcesFromToolSteps(searchToolSteps)
+        }
         val searchDuration = trace?.durationMs?.takeIf { it > 0 }
             ?: searchToolSteps.sumOf { it.executionTimeMs }.coerceAtLeast(1000L)
 
@@ -364,18 +376,20 @@ fun buildTraceStepsFromMessage(message: Messages): List<TraceStep> {
             ?.replace("`", "")?.trim()
         val initialThoughtText = when {
             cleanThink.isNotBlank() -> cleanThink
-            !planDesc.isNullOrBlank() -> "Analyzing task: $planDesc"
-            queries.isNotEmpty() -> "Planning search strategy for current information regarding: ${queries.joinToString(", ")}"
-            else -> "Analyzing task and planning execution steps"
+            !planDesc.isNullOrBlank() -> planDesc
+            queries.isNotEmpty() -> "Searching: ${queries.joinToString(", ")}"
+            else -> null
         }
-        val t1Duration = 1000L
-        result.add(
-            TraceStep.Thought(
-                text = initialThoughtText,
-                startMs = 0L,
-                endMs = t1Duration
+        val t1Duration = if (initialThoughtText != null) 1000L else 0L
+        if (initialThoughtText != null) {
+            result.add(
+                TraceStep.Thought(
+                    text = initialThoughtText,
+                    startMs = 0L,
+                    endMs = t1Duration
+                )
             )
-        )
+        }
 
         // 2. Search Step
         val searchStart = t1Duration
@@ -390,15 +404,21 @@ fun buildTraceStepsFromMessage(message: Messages): List<TraceStep> {
         )
 
         // 3. Post-search Thought (Synthesis / Evaluation)
-        val synthesisText = "Evaluating retrieved sources, verifying facts, and synthesizing findings into response."
-        val t2Duration = 1000L
-        result.add(
-            TraceStep.Thought(
-                text = synthesisText,
-                startMs = searchEnd,
-                endMs = searchEnd + t2Duration
+        val synthesisText = when {
+            cleanThink.isNotBlank() && cleanThink != initialThoughtText -> cleanThink
+            sources.isNotEmpty() -> "Synthesizing findings from ${sources.size} retrieved source${if (sources.size != 1) "s" else ""}."
+            else -> null
+        }
+        if (synthesisText != null) {
+            val t2Duration = 1000L
+            result.add(
+                TraceStep.Thought(
+                    text = synthesisText,
+                    startMs = searchEnd,
+                    endMs = searchEnd + t2Duration
+                )
             )
-        )
+        }
     } else {
         // Non-search tools or thinking-only
         if (cleanThink.isNotBlank()) {
@@ -427,6 +447,40 @@ fun buildTraceStepsFromMessage(message: Messages): List<TraceStep> {
     }
 
     return result.mergeConsecutive()
+}
+
+fun extractSourcesFromJson(jsonStr: String): List<ResearchSourceItem> {
+    if (jsonStr.isBlank()) return emptyList()
+    val items = mutableListOf<ResearchSourceItem>()
+    try {
+        val json = JSONObject(jsonStr)
+        val arr = json.optJSONArray("results")
+        if (arr != null) {
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val title = obj.optString("title", "").ifBlank { obj.optString("domain", "") }
+                val url = obj.optString("url", "")
+                val domain = obj.optString("domain", "").ifBlank {
+                    runCatching { java.net.URI(url).host?.removePrefix("www.") }.getOrNull().orEmpty()
+                }
+                val snippet = obj.optString("snippet", "").ifBlank { obj.optString("content", "").take(150) }
+                val isHttps = url.startsWith("https://", ignoreCase = true)
+                if (url.isNotBlank()) {
+                    items.add(ResearchSourceItem(title = title, domain = domain, url = url, isHttps = isHttps, fetched = true, snippet = snippet))
+                }
+            }
+        }
+    } catch (_: Exception) {}
+    return items.distinctBy { it.url }
+}
+
+fun extractSourcesFromToolSteps(steps: List<ToolChainStepData>): List<ResearchSourceItem> {
+    val items = mutableListOf<ResearchSourceItem>()
+    for (step in steps) {
+        val fromResult = extractSourcesFromJson(step.result)
+        items.addAll(fromResult)
+    }
+    return items.distinctBy { it.url }
 }
 
 /** Extension property for direct access on Messages. */
@@ -459,28 +513,34 @@ fun buildLiveTraceSteps(
         it.toolName.equals("direct_response", ignoreCase = true)
     }
 
-    val isResearchActive = liveResearchTrace.isRunning || liveResearchTrace.phases.isNotEmpty() || searchToolSteps.isNotEmpty()
+    val hasActualSearch = searchToolSteps.isNotEmpty() ||
+            liveResearchTrace.phases.any { it.queries.isNotEmpty() || it.sources.isNotEmpty() }
 
-    if (isResearchActive) {
+    if (hasActualSearch) {
         val queries = liveResearchTrace.phases.flatMap { it.queries }.filter { it.isNotBlank() }.distinct().ifEmpty {
             searchToolSteps.mapNotNull {
                 try { JSONObject(it.args).optString("query") } catch (_: Exception) { null }
             }.filter { it.isNotBlank() }
         }
-        val sources = liveResearchTrace.phases.flatMap { it.sources }.distinctBy { it.url }
+        val sources = if (liveResearchTrace.phases.any { it.sources.isNotEmpty() }) {
+            liveResearchTrace.phases.flatMap { it.sources }.distinctBy { it.url }
+        } else {
+            extractSourcesFromToolSteps(searchToolSteps)
+        }
 
-        // Phase 1: Planning thought is finished once search is running or has occurred
+        // Phase 1: Search planning
         val t1Duration = 1000L
+        val searchThought = if (queries.isNotEmpty()) "Searching: ${queries.joinToString(", ")}" else "Searching the web"
         result.add(
             TraceStep.Thought(
-                text = "Analyzing task and formulating search queries for current information.",
+                text = searchThought,
                 startMs = 0L,
                 endMs = t1Duration
             )
         )
 
         // Phase 2: Search step
-        val isSearchRunning = liveResearchTrace.isRunning
+        val isSearchRunning = liveResearchTrace.isRunning && searchToolSteps.none { it.success }
         val searchDuration = liveResearchTrace.durationMs.coerceAtLeast(searchToolSteps.sumOf { it.executionTimeMs })
         val searchStart = t1Duration
         val searchEnd = if (isSearchRunning) null else (searchStart + searchDuration.coerceAtLeast(1000L))
@@ -493,25 +553,26 @@ fun buildLiveTraceSteps(
             )
         )
 
-        // Phase 3: Synthesis thought (running after search completes, finished once generation completes)
+        // Phase 3: Synthesis thought
         if (!isSearchRunning) {
             val synthStart = searchEnd ?: (searchStart + 1000L)
             val synthEnd = if (agentPhase == AgentPhase.Complete) synthStart + 1000L else null
+            val synthLabel = if (sources.isNotEmpty()) "Synthesizing findings from ${sources.size} retrieved source${if (sources.size != 1) "s" else ""}." else "Synthesizing findings."
             result.add(
                 TraceStep.Thought(
-                    text = "Synthesizing research findings, evaluating source consensus, and compiling response.",
+                    text = synthLabel,
                     startMs = synthStart,
                     endMs = synthEnd
                 )
             )
         }
     } else {
-        if (agentPhase == AgentPhase.Planning) {
+        if (agentPhase == AgentPhase.Planning || (otherToolSteps.isEmpty() && agentPhase != AgentPhase.Complete)) {
             result.add(
                 TraceStep.Thought(
-                    text = "Analyzing task and planning execution steps...",
+                    text = "Thinking…",
                     startMs = 0L,
-                    endMs = null
+                    endMs = if (agentPhase == AgentPhase.Complete) 1000L else null
                 )
             )
         }
@@ -546,6 +607,7 @@ fun buildLiveTraceSteps(
 @Composable
 fun StepTimeline(
     steps: List<TraceStep>,
+    elapsedMs: Long = 0L,
     isRunning: Boolean = false,
     runningPhase: String? = null,
     isStreamingAnswer: Boolean = false,
@@ -555,38 +617,124 @@ fun StepTimeline(
     val mergedSteps = remember(steps) { steps.mergeConsecutive() }
     if (mergedSteps.isEmpty() && !isRunning) return
 
-    var expandedIndex by remember { mutableStateOf<Int?>(null) }
+    var isExpanded by remember { mutableStateOf(false) }
     var internalSheetSources by remember { mutableStateOf<List<ResearchSourceItem>?>(null) }
 
-    // Auto-collapse all rows when the answer starts streaming
+    // Auto-collapse when answer starts streaming
     LaunchedEffect(isStreamingAnswer) {
         if (isStreamingAnswer) {
-            expandedIndex = null
+            isExpanded = false
         }
     }
+
+    val summary = remember(mergedSteps, elapsedMs, isRunning, runningPhase) {
+        summarizeActivity(mergedSteps, elapsedMs, isRunning, runningPhase)
+    }
+
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (isExpanded) 90f else 0f,
+        label = "chevron_rotation"
+    )
+    val haptics = com.bit.ui.theme.LocalBitHaptics.current
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 2.dp)
+            .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
     ) {
-        mergedSteps.forEachIndexed { index, step ->
-            StepRow(
-                step = step,
-                index = index,
-                totalSteps = mergedSteps.size,
-                isExpanded = expandedIndex == index,
-                onToggleExpand = {
-                    expandedIndex = if (expandedIndex == index) null else index
-                },
-                onOpenSourcesSheet = { s ->
-                    if (onOpenSourcesSheet != null) {
-                        onOpenSourcesSheet(s)
-                    } else {
-                        internalSheetSources = s
+        val cleanTitle = remember(summary.title, isRunning) {
+            val t = summary.title.trim()
+            if (isRunning && t.startsWith("Thinking", ignoreCase = true)) {
+                "Thinking"
+            } else {
+                t.removeSuffix("…")
+            }
+        }
+
+        // Compact inline pill: wrapContentWidth, chevron sits immediately next to label (e.g. "Thinking >")
+        Surface(
+            modifier = Modifier
+                .wrapContentWidth()
+                .padding(horizontal = 16.dp, vertical = 3.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.65f),
+            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+        ) {
+            Row(
+                modifier = Modifier
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        haptics.selection()
+                        isExpanded = !isExpanded
+                    }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = summary.icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                )
+
+                Text(
+                    text = cleanTitle,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Icon(
+                    imageVector = TnIcons.ChevronRight,
+                    contentDescription = if (isExpanded) "Collapse" else "Expand",
+                    modifier = Modifier
+                        .size(13.dp)
+                        .rotate(chevronRotation),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            }
+        }
+
+        // Expanded content: shows thoughts/steps with smooth fluid expansion
+        androidx.compose.animation.AnimatedVisibility(
+            visible = isExpanded,
+            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp)
+            ) {
+                if (mergedSteps.size == 1 && mergedSteps[0] is TraceStep.Thought) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 6.dp)
+                    ) {
+                        ExpandedThoughtContent(step = mergedSteps[0] as TraceStep.Thought)
+                    }
+                } else {
+                    mergedSteps.forEachIndexed { index, step ->
+                        StepRow(
+                            step = step,
+                            index = index,
+                            totalSteps = mergedSteps.size,
+                            isExpanded = true,
+                            onToggleExpand = {},
+                            onOpenSourcesSheet = { s ->
+                                if (onOpenSourcesSheet != null) onOpenSourcesSheet(s) else internalSheetSources = s
+                            }
+                        )
                     }
                 }
-            )
+            }
         }
     }
 
@@ -611,10 +759,45 @@ fun ActivityBlock(
 ) {
     StepTimeline(
         steps = steps,
+        elapsedMs = elapsedMs,
         isRunning = isRunning,
         runningPhase = runningPhase,
         isStreamingAnswer = isStreamingAnswer,
         onOpenSourcesSheet = onOpenSourcesSheet,
+        modifier = modifier
+    )
+}
+
+/**
+ * Direct composable for rendering a [TurnUi] event-driven trace.
+ */
+@Composable
+fun TurnTraceView(
+    turnUi: com.bit.agent.harness.event.TurnUi,
+    onToggleExpand: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val steps = remember(turnUi) {
+        val list = mutableListOf<TraceStep>()
+        if (turnUi.reasoning.isNotBlank()) {
+            list.add(TraceStep.Thought(text = turnUi.reasoning, durationMs = turnUi.thinkMs))
+        }
+        turnUi.steps.forEach { s ->
+            if (s.tool.contains("search", ignoreCase = true)) {
+                val sources = extractSourcesFromJson(s.output.orEmpty())
+                list.add(TraceStep.Search(query = s.label, sources = sources, durationMs = s.durationMs))
+            } else {
+                list.add(TraceStep.Tool(name = s.tool, output = s.summary, success = s.success, durationMs = s.durationMs))
+            }
+        }
+        list
+    }
+    StepTimeline(
+        steps = steps,
+        elapsedMs = turnUi.thinkMs,
+        isRunning = !turnUi.finished,
+        runningPhase = turnUi.activeToolLabel,
+        isStreamingAnswer = turnUi.answer.isNotEmpty(),
         modifier = modifier
     )
 }
@@ -820,7 +1003,7 @@ private fun ExpandedThoughtContent(step: TraceStep.Thought) {
 @Composable
 private fun ExpandedSearchContent(
     step: TraceStep.Search,
-    onOpenSourcesSheet: (List<ResearchSourceItem>) -> Unit
+    onOpenSourcesSheet: (List<ResearchSourceItem>) -> Unit = {}
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -886,6 +1069,30 @@ private fun ExpandedSearchContent(
 
 @Composable
 private fun ExpandedToolRunContent(step: TraceStep.Tool) {
+    val isSearchTool = step.name.equals("web_search", ignoreCase = true) ||
+            step.name.equals("search_web", ignoreCase = true)
+    val parsedSources = remember(step.output) {
+        if (isSearchTool && !step.output.isNullOrBlank()) {
+            extractSourcesFromJson(step.output)
+        } else emptyList()
+    }
+
+    if (isSearchTool && parsedSources.isNotEmpty()) {
+        val query = remember(step.args) {
+            try { JSONObject(step.args).optString("query") } catch (_: Exception) { "" }
+        }
+        ExpandedSearchContent(
+            step = TraceStep.Search(
+                query = query,
+                sources = parsedSources,
+                startMs = step.startMs,
+                endMs = step.endMs
+            ),
+            onOpenSourcesSheet = {}
+        )
+        return
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -985,11 +1192,22 @@ private fun ResearchSourceRow(source: ResearchSourceItem) {
             Text(
                 text = source.title.ifBlank { source.domain },
                 fontSize = 12.sp,
-                fontWeight = FontWeight.Normal,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurface
             )
+
+            if (source.snippet.isNotBlank()) {
+                Text(
+                    text = source.snippet,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 14.sp
+                )
+            }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (source.isHttps) {
@@ -1018,7 +1236,9 @@ private fun SourceAvatar(source: ResearchSourceItem) {
     val initial = remember(source.domain) {
         source.domain.removePrefix("www.").firstOrNull()?.uppercaseChar()?.toString() ?: "W"
     }
-    if (source.fetched && source.domain.isNotBlank()) {
+    var loadFailed by remember(source.domain) { mutableStateOf(false) }
+
+    if (source.domain.isNotBlank() && !loadFailed) {
         val faviconUrl = "https://${source.domain}/favicon.ico"
         Box(
             modifier = Modifier
@@ -1030,7 +1250,8 @@ private fun SourceAvatar(source: ResearchSourceItem) {
             AsyncImage(
                 model = faviconUrl,
                 contentDescription = null,
-                modifier = Modifier.size(14.dp)
+                modifier = Modifier.size(14.dp),
+                onError = { loadFailed = true }
             )
         }
     } else {

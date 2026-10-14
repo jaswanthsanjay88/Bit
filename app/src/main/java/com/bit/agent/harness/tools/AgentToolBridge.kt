@@ -129,7 +129,10 @@ open class AgentToolBridge @Inject constructor(
 
     private fun generateSuccessSummary(toolName: String, resultJson: String): String {
         return when (toolName.lowercase()) {
-            "web_search", "search_web" -> "Web search completed successfully."
+            "web_search", "search_web" -> {
+                val formatted = com.bit.util.SearchResultFormatter.format(resultJson)
+                if (formatted.isNotBlank()) formatted else "Web search completed with results."
+            }
             "web_fetch", "scrape_web" -> "Web page fetched and parsed."
             "workspace_read_file", "read_memory_file" -> "File read successfully."
             "workspace_write_file", "create_memory_file" -> "File written successfully."

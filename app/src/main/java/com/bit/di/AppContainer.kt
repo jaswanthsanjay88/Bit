@@ -102,6 +102,9 @@ object AppContainer {
         return VaultManager.memoryRepo ?: error("VaultManager not initialized — cannot access MemoryRepository")
     }
 
+    /** Provides application context if initialized. */
+    fun getContext(): Context? = if (::appContext.isInitialized) appContext else null
+
     /** Provides the HuggingFace API client (with auth interceptor when used via Hilt). */
     val huggingFaceApi: com.bit.network.HuggingFaceApi
         get() = com.bit.network.HuggingFaceClient.api

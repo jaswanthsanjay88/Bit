@@ -3,6 +3,7 @@
 # -- Core App Classes --
 -keep class com.bit.model.** { *; }
 -keep class com.bit.models.** { *; }
+-keep class com.bit.agent.** { *; }
 -keep class com.bit.network.** { *; }
 -keep class com.bit.activity.** { *; }
 -keep class com.bit.viewmodel.** { *; }
@@ -371,3 +372,19 @@
 -keepclassmembers class kotlin.Metadata {
     public <methods>;
 }
+
+# -- Termux & PRoot Workspace --
+-keep class com.termux.terminal.** { *; }
+-keepclassmembers class com.termux.terminal.** { *; }
+-keep class com.termux.view.** { *; }
+-keepclassmembers class com.termux.view.** { *; }
+-dontwarn com.termux.**
+-keeppackagenames com.termux.**
+
+-keep class me.rerere.workspace.** { *; }
+-keepclassmembers class me.rerere.workspace.** { *; }
+-keeppackagenames me.rerere.workspace.**
+
+-keep class com.bit.workspace.** { *; }
+-keepclassmembers class com.bit.workspace.** { *; }
+-keeppackagenames com.bit.workspace.**

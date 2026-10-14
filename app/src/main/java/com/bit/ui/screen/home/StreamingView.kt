@@ -110,10 +110,11 @@ internal fun StreamingView(
         val liveSteps = remember(liveResearchTrace, toolChainSteps) {
             buildLiveTraceSteps(liveResearchTrace, toolChainSteps)
         }
+        val hasLiveActivity = liveSteps.isNotEmpty() || liveResearchTrace.isRunning || toolChainSteps.isNotEmpty()
         val isAgentRunning = agentPhase != AgentPhase.Complete && agentPhase != AgentPhase.Idle
         val isAgentBusy = liveResearchTrace.isRunning || (isAgentRunning && assistantMessage.isEmpty())
 
-        if (liveSteps.isNotEmpty() || liveResearchTrace.isRunning) {
+        if (hasLiveActivity) {
             ActivityBlock(
                 steps = liveSteps,
                 elapsedMs = maxOf(liveResearchTrace.durationMs, toolChainSteps.sumOf { it.executionTimeMs }),
@@ -132,7 +133,11 @@ internal fun StreamingView(
                 )
             }
             assistantMessage.isNotEmpty() -> {
-                AssistantStreamingBubble(text = assistantMessage, thinkingEnabled = thinkingEnabled)
+                AssistantStreamingBubble(
+                    text = assistantMessage,
+                    thinkingEnabled = thinkingEnabled,
+                    suppressThinking = hasLiveActivity
+                )
             }
         }
 

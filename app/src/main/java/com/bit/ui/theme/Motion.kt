@@ -1,8 +1,11 @@
 package com.bit.ui.theme
 
 import android.view.HapticFeedbackConstants
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
@@ -94,6 +97,188 @@ object Motion {
     // Standard exit transition for AnimatedVisibility
     val Exit: ExitTransition = fadeOut(tween(MotionDuration.exit, easing = MotionEasing.accelerate)) +
         shrinkVertically(tween(MotionDuration.exit, easing = MotionEasing.accelerate), shrinkTowards = Alignment.Top)
+
+    // ── Page & Navigation Physics Tokens (Optimized for 120 FPS fluid motion) ──
+    const val NavEnterSlideFraction = 0.22f
+    const val NavExitSlideFraction = 0.12f
+    const val NavScaleDepth = 0.96f
+    const val NavFadeInDuration = 240
+    const val NavFadeOutDuration = 180
+    val NavSpringDamping = Spring.DampingRatioNoBouncy
+    val NavSpringStiffness = Spring.StiffnessMediumLow
+
+    fun pageFloatSpring(): androidx.compose.animation.core.SpringSpec<Float> = spring(
+        dampingRatio = NavSpringDamping,
+        stiffness = NavSpringStiffness,
+        visibilityThreshold = 0.001f
+    )
+
+    fun pageIntOffsetSpring(): androidx.compose.animation.core.SpringSpec<androidx.compose.ui.unit.IntOffset> = spring(
+        dampingRatio = NavSpringDamping,
+        stiffness = NavSpringStiffness,
+        visibilityThreshold = androidx.compose.ui.unit.IntOffset(1, 1)
+    )
+
+    fun <T> pageSpring(): androidx.compose.animation.core.SpringSpec<T> = spring(
+        dampingRatio = NavSpringDamping,
+        stiffness = NavSpringStiffness
+    )
+
+    fun <T> pageEnterTransition(
+        scope: AnimatedContentTransitionScope<T>,
+        allowSpatial: Boolean = true
+    ): EnterTransition = with(scope) {
+        if (allowSpatial) {
+            slideIntoContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Start,
+                animationSpec = pageIntOffsetSpring(),
+                initialOffset = { (it * NavEnterSlideFraction).toInt() }
+            ) + scaleIn(
+                animationSpec = pageFloatSpring(),
+                initialScale = NavScaleDepth
+            ) + fadeIn(
+                animationSpec = tween(NavFadeInDuration, easing = MotionEasing.standard)
+            )
+        } else {
+            fadeIn(animationSpec = tween(NavFadeInDuration, easing = MotionEasing.standard))
+        }
+    }
+
+    fun <T> pageExitTransition(
+        scope: AnimatedContentTransitionScope<T>,
+        allowSpatial: Boolean = true
+    ): ExitTransition = with(scope) {
+        if (allowSpatial) {
+            slideOutOfContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Start,
+                animationSpec = pageIntOffsetSpring(),
+                targetOffset = { -(it * NavExitSlideFraction).toInt() }
+            ) + scaleOut(
+                animationSpec = pageFloatSpring(),
+                targetScale = NavScaleDepth
+            ) + fadeOut(
+                animationSpec = tween(NavFadeOutDuration, easing = MotionEasing.standard)
+            )
+        } else {
+            fadeOut(animationSpec = tween(NavFadeOutDuration, easing = MotionEasing.standard))
+        }
+    }
+
+    fun <T> pagePopEnterTransition(
+        scope: AnimatedContentTransitionScope<T>,
+        allowSpatial: Boolean = true
+    ): EnterTransition = with(scope) {
+        if (allowSpatial) {
+            slideIntoContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.End,
+                animationSpec = pageIntOffsetSpring(),
+                initialOffset = { -(it * NavExitSlideFraction).toInt() }
+            ) + scaleIn(
+                animationSpec = pageFloatSpring(),
+                initialScale = NavScaleDepth
+            ) + fadeIn(
+                animationSpec = tween(NavFadeInDuration, easing = MotionEasing.standard)
+            )
+        } else {
+            fadeIn(animationSpec = tween(NavFadeInDuration, easing = MotionEasing.standard))
+        }
+    }
+
+    fun <T> pagePopExitTransition(
+        scope: AnimatedContentTransitionScope<T>,
+        allowSpatial: Boolean = true
+    ): ExitTransition = with(scope) {
+        if (allowSpatial) {
+            slideOutOfContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.End,
+                animationSpec = pageIntOffsetSpring(),
+                targetOffset = { (it * NavEnterSlideFraction).toInt() }
+            ) + scaleOut(
+                animationSpec = pageFloatSpring(),
+                targetScale = NavScaleDepth
+            ) + fadeOut(
+                animationSpec = tween(NavFadeOutDuration, easing = MotionEasing.standard)
+            )
+        } else {
+            fadeOut(animationSpec = tween(NavFadeOutDuration, easing = MotionEasing.standard))
+        }
+    }
+
+    fun <T> modalEnterTransition(
+        scope: AnimatedContentTransitionScope<T>,
+        allowSpatial: Boolean = true
+    ): EnterTransition = with(scope) {
+        if (allowSpatial) {
+            slideIntoContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Up,
+                animationSpec = pageIntOffsetSpring(),
+                initialOffset = { (it * 0.40f).toInt() }
+            ) + scaleIn(
+                animationSpec = pageFloatSpring(),
+                initialScale = NavScaleDepth
+            ) + fadeIn(
+                animationSpec = tween(NavFadeInDuration, easing = MotionEasing.standard)
+            )
+        } else {
+            fadeIn(animationSpec = tween(NavFadeInDuration, easing = MotionEasing.standard))
+        }
+    }
+
+    fun <T> modalExitTransition(
+        scope: AnimatedContentTransitionScope<T>,
+        allowSpatial: Boolean = true
+    ): ExitTransition = with(scope) {
+        if (allowSpatial) {
+            slideOutOfContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Down,
+                animationSpec = pageIntOffsetSpring(),
+                targetOffset = { (it * 0.40f).toInt() }
+            ) + scaleOut(
+                animationSpec = pageFloatSpring(),
+                targetScale = NavScaleDepth
+            ) + fadeOut(
+                animationSpec = tween(NavFadeOutDuration, easing = MotionEasing.standard)
+            )
+        } else {
+            fadeOut(animationSpec = tween(NavFadeOutDuration, easing = MotionEasing.standard))
+        }
+    }
+
+    fun <T> modalPopEnterTransition(
+        scope: AnimatedContentTransitionScope<T>,
+        allowSpatial: Boolean = true
+    ): EnterTransition = with(scope) {
+        if (allowSpatial) {
+            scaleIn(
+                animationSpec = pageFloatSpring(),
+                initialScale = NavScaleDepth
+            ) + fadeIn(
+                animationSpec = tween(NavFadeInDuration, easing = MotionEasing.standard)
+            )
+        } else {
+            fadeIn(animationSpec = tween(NavFadeInDuration, easing = MotionEasing.standard))
+        }
+    }
+
+    fun <T> modalPopExitTransition(
+        scope: AnimatedContentTransitionScope<T>,
+        allowSpatial: Boolean = true
+    ): ExitTransition = with(scope) {
+        if (allowSpatial) {
+            slideOutOfContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Down,
+                animationSpec = pageIntOffsetSpring(),
+                targetOffset = { (it * 0.40f).toInt() }
+            ) + scaleOut(
+                animationSpec = pageFloatSpring(),
+                targetScale = NavScaleDepth
+            ) + fadeOut(
+                animationSpec = tween(NavFadeOutDuration, easing = MotionEasing.standard)
+            )
+        } else {
+            fadeOut(animationSpec = tween(NavFadeOutDuration, easing = MotionEasing.standard))
+        }
+    }
 }
 
 /**

@@ -38,7 +38,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -74,8 +73,7 @@ fun DynamicActionWindow(
     onModelSelectedNavigate: (Model) -> Unit = {}
 ) {
     val context = LocalContext.current
-    val allModels by modelViewModel.installedModels.collectAsStateWithLifecycle(initialValue = emptyList())
-    val installedModels = allModels
+    val installedModels by modelViewModel.installedModels.collectAsStateWithLifecycle(initialValue = emptyList())
     val currentModelID by modelViewModel.currentModelID.collectAsStateWithLifecycle()
     val downloadStates by com.bit.service.ModelDownloadService.downloadStates.collectAsStateWithLifecycle()
 

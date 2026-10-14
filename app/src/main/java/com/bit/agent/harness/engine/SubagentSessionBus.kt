@@ -19,7 +19,7 @@ object SubagentSessionBus {
         val missionPrompt: String,      // exact goal/prompt the main agent gave this subagent
         val status: String,             // RUNNING | COMPLETED | WARNING | FAILED
         val currentRound: Int = 0,
-        val maxSteps: Int = 8,
+        val maxSteps: Int = 50,
         val startedAtMs: Long = System.currentTimeMillis(),
         val endedAtMs: Long? = null,
         val activity: List<ActivityLine> = emptyList(),

@@ -67,7 +67,7 @@ class DuckDuckGoScraper(
 
     companion object {
         private const val BASE_URL = "https://lite.duckduckgo.com/lite/"
-        private const val USER_AGENT = "Mozilla/5.0 (compatible; Agora/1.0)"
+        private const val USER_AGENT = "Mozilla/5.0 (compatible; Bit/1.0)"
         private const val DEFAULT_MAX_RESULTS = 5
         private const val PAGE_SIZE = 10
         private const val MAX_PAGES = 5

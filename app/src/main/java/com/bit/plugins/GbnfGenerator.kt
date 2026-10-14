@@ -82,4 +82,28 @@ object GbnfGenerator {
 
         return builder.toString()
     }
+
+    /**
+     * Generates GBNF grammar strictly constrained to active mode and tier tools.
+     * Prevents small-model hallucinations by sampling only allowed tool names.
+     */
+    fun generateForModeAndTier(
+        toolNames: List<String>,
+        mode: com.bit.agent.harness.coding.AgentExecutionMode,
+        tier: com.bit.agent.harness.coding.ToolTier
+    ): String {
+        val allowedInMode = toolNames.filter {
+            com.bit.agent.harness.coding.ModeToolPolicy.isToolAllowed(it, mode)
+        }
+        val allowedInTier = if (tier == com.bit.agent.harness.coding.ToolTier.TIER_1_EXTENDED) {
+            allowedInMode
+        } else {
+            allowedInMode.filter { name ->
+                name in com.bit.agent.harness.coding.ToolPromotionPolicy.TIER_0_TOOL_NAMES ||
+                    name !in com.bit.agent.harness.coding.ToolPromotionPolicy.TIER_1_PROMOTABLE_TOOL_NAMES
+            }
+        }
+        return generateStage1(allowedInTier)
+    }
 }
+

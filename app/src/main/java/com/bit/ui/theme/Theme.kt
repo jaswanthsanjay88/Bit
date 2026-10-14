@@ -27,6 +27,10 @@ val LocalDarkMode = compositionLocalOf { true }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
+fun BitTheme(content: @Composable () -> Unit) = NeuroVerseTheme(content)
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
 fun NeuroVerseTheme(
     content: @Composable () -> Unit
 ) {

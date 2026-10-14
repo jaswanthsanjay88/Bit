@@ -65,10 +65,20 @@ sealed class AgentHarnessState {
 }
 
 @Serializable
+enum class PlanMode {
+    DIRECT,
+    TOOLS
+}
+
+@Serializable
 data class TaskPlan(
     val goal: String,
-    val steps: MutableList<TaskStep> = mutableListOf()
-)
+    val steps: MutableList<TaskStep> = mutableListOf(),
+    val mode: PlanMode = PlanMode.TOOLS
+) {
+    val isDirect: Boolean
+        get() = mode == PlanMode.DIRECT || steps.isEmpty() || (steps.size == 1 && steps[0].toolName.equals("direct_answer", ignoreCase = true))
+}
 
 @Serializable
 data class TaskStep(

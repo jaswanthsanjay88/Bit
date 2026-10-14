@@ -7,20 +7,22 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
-import com.bit.ui.theme.BitColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -32,9 +34,8 @@ val EmphasizedEasing = CubicBezierEasing(0.2f, 0.0f, 0f, 1.0f)
 val EmphasizedDecelerate = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1.0f)
 
 // ---------------------------------------------------------------------------
-// LOGO GEOMETRY — bar + top block + bottom block, no outer frame (see prior
-// note: thin frame strokes disappear at small icon sizes).
-// Tune the fractional constants against your real PNG until they line up.
+// LOGO GEOMETRY — bar + top block + bottom block, no outer frame.
+// Proportions match the canonical 120x120 BIT mark with sleek rounded corners.
 // ---------------------------------------------------------------------------
 private data class LogoShape(val path: Path, val bounds: Rect, val revealFromTop: Boolean)
 
@@ -58,10 +59,24 @@ private fun buildLogoShapes(canvasSize: Size): List<LogoShape> {
     val topBlockRect = Rect(blockLeft, blockTop, blockRight, blockMidGapTop)
     val bottomBlockRect = Rect(blockLeft, blockMidGapBottom, blockRight, blockBottom)
 
+    val cornerRadius = CornerRadius(w * 0.024f, w * 0.024f)
+
     return listOf(
-        LogoShape(Path().apply { addRect(barRect) }, barRect, revealFromTop = false), // bar rises bottom->top
-        LogoShape(Path().apply { addRect(topBlockRect) }, topBlockRect, revealFromTop = true),
-        LogoShape(Path().apply { addRect(bottomBlockRect) }, bottomBlockRect, revealFromTop = true)
+        LogoShape(
+            Path().apply { addRoundRect(RoundRect(barRect, cornerRadius)) },
+            barRect,
+            revealFromTop = false
+        ), // bar rises bottom->top
+        LogoShape(
+            Path().apply { addRoundRect(RoundRect(topBlockRect, cornerRadius)) },
+            topBlockRect,
+            revealFromTop = true
+        ),
+        LogoShape(
+            Path().apply { addRoundRect(RoundRect(bottomBlockRect, cornerRadius)) },
+            bottomBlockRect,
+            revealFromTop = true
+        )
     )
 }
 
@@ -86,7 +101,7 @@ fun IntroScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BitColors.Background)
+            .background(MaterialTheme.colorScheme.background)
             .padding(innerPadding),
         contentAlignment = Alignment.Center
     ) {
@@ -101,6 +116,7 @@ fun IntroScreen(
             ) {
                 ElementLogoReveal(
                     modifier = Modifier.fillMaxSize(),
+                    logoColor = MaterialTheme.colorScheme.primary,
                     onFinished = {
                         animationFinished = true
                     }
@@ -118,40 +134,51 @@ fun IntroScreen(
 @Composable
 fun ElementLogoReveal(
     modifier: Modifier = Modifier,
+    logoColor: Color = MaterialTheme.colorScheme.primary,
     onFinished: () -> Unit = {}
 ) {
-    // one progress value per shape, all driven by the same tween spec
+    // One progress value per shape, all driven by the same tween spec
     val barReveal = remember { Animatable(0f) }
     val topBlockReveal = remember { Animatable(0f) }
     val bottomBlockReveal = remember { Animatable(0f) }
 
-    // subtle outline glow that traces alongside the reveal, fades once solid
-    val glowAlpha = remember { Animatable(0.35f) }
+    // Ambient radial aura that blooms behind the mark
+    val ambientAlpha = remember { Animatable(0f) }
 
-    // final settle — barely-there scale pulse, not a bounce
+    // Subtle outline glow that traces alongside the reveal front
+    val glowAlpha = remember { Animatable(0.45f) }
+
+    // Final settle — delicate spring-damped pulse
     val settleScale = remember { Animatable(1f) }
 
     val revealDuration = 280 // crisp and snappy
     val stagger = 50 // fast fluid stagger
 
     LaunchedEffect(Unit) {
-        delay(40) // minimal hold
+        delay(40) // minimal hold for initial frame settle
 
+        // Ambient theme aura blooms
+        launch { ambientAlpha.animateTo(1f, tween(300, easing = EmphasizedEasing)) }
+
+        // Pillar rises from bottom to top
         launch { barReveal.animateTo(1f, tween(revealDuration, easing = EmphasizedEasing)) }
         delay(stagger.toLong())
+        // Top block cascades down
         launch { topBlockReveal.animateTo(1f, tween(revealDuration, easing = EmphasizedEasing)) }
         delay(stagger.toLong())
+        // Bottom block cascades down
         launch { bottomBlockReveal.animateTo(1f, tween(revealDuration, easing = EmphasizedEasing)) }
 
-        // wait for the reveal to finish
+        // Wait for reveals to conclude
         delay(revealDuration.toLong())
 
-        // glow recedes quickly
-        launch { glowAlpha.animateTo(0f, tween(150, easing = EmphasizedEasing)) }
+        // Glow and aura settle
+        launch { glowAlpha.animateTo(0f, tween(160, easing = EmphasizedEasing)) }
+        launch { ambientAlpha.animateTo(0.4f, tween(180, easing = EmphasizedDecelerate)) }
 
-        // snappy settle
-        settleScale.animateTo(1.015f, tween(80, easing = EmphasizedEasing))
-        settleScale.animateTo(1f, tween(100, easing = EmphasizedDecelerate))
+        // Snappy organic settle
+        settleScale.animateTo(1.025f, tween(80, easing = EmphasizedEasing))
+        settleScale.animateTo(1f, tween(110, easing = EmphasizedDecelerate))
 
         delay(40)
         onFinished()
@@ -161,21 +188,38 @@ fun ElementLogoReveal(
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { scaleX = settleScale.value; scaleY = settleScale.value }
+                .graphicsLayer {
+                    scaleX = settleScale.value
+                    scaleY = settleScale.value
+                }
         ) {
             val shapes = buildLogoShapes(size)
             val progresses = listOf(barReveal.value, topBlockReveal.value, bottomBlockReveal.value)
 
+            // 1. Theme ambient radial lighting aura behind the mark
+            if (ambientAlpha.value > 0.001f) {
+                val auraRadius = size.minDimension * 0.72f
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            logoColor.copy(alpha = 0.12f * ambientAlpha.value),
+                            logoColor.copy(alpha = 0.03f * ambientAlpha.value),
+                            Color.Transparent
+                        ),
+                        center = center,
+                        radius = auraRadius
+                    ),
+                    radius = auraRadius,
+                    center = center
+                )
+            }
+
+            // 2. Geometric logo shapes reveal
             shapes.forEachIndexed { index, shape ->
                 val progress = progresses[index]
                 if (progress <= 0f) return@forEachIndexed
 
                 val b = shape.bounds
-                // clip rect grows along the vertical axis toward the shape's full bounds —
-                // top blocks reveal downward (like ink filling), the bar reveals upward
-                // (like it's rising from the ground) — small directional variety without
-                // breaking the single-easing-curve rule, since it's still driven by the
-                // exact same progress/timing, just a different clip axis.
                 val clipRect = if (shape.revealFromTop) {
                     Rect(b.left, b.top, b.right, b.top + (b.height * progress))
                 } else {
@@ -183,15 +227,26 @@ fun ElementLogoReveal(
                 }
 
                 clipRect(clipRect.left, clipRect.top, clipRect.right, clipRect.bottom) {
-                    // soft glow trace along the leading edge — thin, not overpowering
-                    drawRect(
-                        color = Color.White.copy(alpha = glowAlpha.value),
-                        topLeft = Offset(b.left - 2f, b.top - 2f),
-                        size = Size(b.width + 4f, b.height + 4f),
-                        blendMode = BlendMode.Plus
-                    )
-                    // the actual solid fill
-                    drawPath(path = shape.path, color = Color.White, style = Fill)
+                    // Soft glow trace along the leading edge
+                    if (glowAlpha.value > 0.01f) {
+                        val glowHeight = b.height * 0.12f
+                        val edgeGlowRect = if (shape.revealFromTop) {
+                            val y = b.top + (b.height * progress)
+                            Rect(b.left, y - glowHeight, b.right, y + 2f)
+                        } else {
+                            val y = b.bottom - (b.height * progress)
+                            Rect(b.left, y - 2f, b.right, y + glowHeight)
+                        }
+                        drawRoundRect(
+                            color = logoColor.copy(alpha = glowAlpha.value * 0.35f),
+                            topLeft = Offset(edgeGlowRect.left, edgeGlowRect.top),
+                            size = Size(edgeGlowRect.width, edgeGlowRect.height),
+                            cornerRadius = CornerRadius(size.width * 0.02f, size.width * 0.02f)
+                        )
+                    }
+
+                    // Crisp solid fill adapting to active theme
+                    drawPath(path = shape.path, color = logoColor, style = Fill)
                 }
             }
         }
@@ -201,7 +256,7 @@ fun ElementLogoReveal(
 @Composable
 fun AnimatedLogo(
     modifier: Modifier = Modifier,
-    color: Color = Color.White
+    color: Color = MaterialTheme.colorScheme.primary
 ) {
     Canvas(modifier = modifier) {
         val shapes = buildLogoShapes(size)

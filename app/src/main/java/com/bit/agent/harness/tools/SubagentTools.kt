@@ -277,7 +277,7 @@ class RalphTool(
                     id = UUID.randomUUID().toString(),
                     role = "Ralph Worker Round $round",
                     goal = roundPrompt,
-                    maxSteps = 8
+                    maxSteps = 50
                 )
 
                 val result = subagentExecutor.execute(task)

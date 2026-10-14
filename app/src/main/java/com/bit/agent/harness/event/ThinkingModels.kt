@@ -11,7 +11,12 @@ enum class ChipKind { File, Memory, Note, Web }
 
 @Immutable
 @Serializable
-data class SourceChip(val title: String, val kind: ChipKind)
+data class SourceChip(
+    val title: String,
+    val kind: ChipKind,
+    val url: String? = null,
+    val domain: String? = null
+)
 
 @Immutable
 @Serializable
@@ -24,8 +29,16 @@ data class StepUi(
     val endedAtMs: Long? = null,
     val chips: List<SourceChip> = emptyList(),
     val detail: String? = null, // Truncated tool output, max 2000 in memory, max 600 in storage
-    val attempts: Int = 1
-)
+    val attempts: Int = 1,
+    @Transient val uiModel: com.bit.agent.presentation.ToolUiModel? = null,
+    val toolName: String? = null,
+    @Transient val toolArgs: Map<String, Any?> = emptyMap()
+) {
+    val resolvedUiModel: com.bit.agent.presentation.ToolUiModel?
+        get() = uiModel ?: if (kind == StepKind.Tool && !detail.isNullOrBlank()) {
+            com.bit.agent.presentation.ToolResultPresenter.present(toolName ?: label, detail, toolArgs)
+        } else null
+}
 
 @Immutable
 @Serializable
@@ -44,22 +57,48 @@ data class ThinkingUi(
     val timerEndMs: Long? get() = workEndedAtMs ?: endedAtMs
     val showsAsRunning: Boolean get() = isRunning && !writing
 
+    val hasWebSearch: Boolean get() = steps.any {
+        it.chips.any { c -> c.kind == ChipKind.Web } ||
+        it.label.contains("Searched", ignoreCase = true) ||
+        it.label.contains("web", ignoreCase = true) ||
+        it.toolName?.contains("web", ignoreCase = true) == true ||
+        it.resolvedUiModel is com.bit.agent.presentation.ToolUiModel.WebSearchUi
+    }
+
     val liveLabel: String
         get() = steps.lastOrNull { it.status == StepStatus.Running || it.status == StepStatus.Waiting }?.label
-            ?: if (writing) "Writing response…" else "Thinking…"
+            ?: steps.lastOrNull()?.label
+            ?: if (hasWebSearch) "Researching…" else "Thinking…"
 
     val summaryLabel: String
         get() {
             if (interrupted) return "Stopped"
-            val base = if (failureMessage != null) "Couldn't finish" else "Thought"
-            return if (steps.size > 1) "$base · ${steps.size} steps" else base
+            if (failureMessage != null) return "Couldn't finish"
+            if (hasWebSearch) {
+                val end = timerEndMs ?: System.currentTimeMillis()
+                val sec = ((end - startedAtMs).coerceAtLeast(0L) / 1000L).coerceAtLeast(1L)
+                return "Researched ${sec}s"
+            }
+            val lastThinking = steps.lastOrNull { it.kind == StepKind.Thinking }?.label
+                ?.takeIf { it.isNotBlank() && it != "Thinking…" && it != "Thinking" && it != "Thought" }
+            val lastStep = steps.lastOrNull()?.label
+                ?.takeIf { it.isNotBlank() && it != "Thinking…" && it != "Thinking" }
+            return lastThinking ?: lastStep ?: "Thought"
         }
 
     val finishedLabel: String get() = summaryLabel
 }
 
 sealed interface StepEvent {
-    data class Started(val id: String, val kind: StepKind, val label: String, val atMs: Long) : StepEvent
+    data class Started(
+        val id: String,
+        val kind: StepKind,
+        val label: String,
+        val atMs: Long,
+        val toolName: String? = null,
+        val toolArgs: Map<String, Any?> = emptyMap(),
+        val uiModel: com.bit.agent.presentation.ToolUiModel? = null
+    ) : StepEvent
     data class Label(val id: String, val label: String) : StepEvent
     data class Waiting(val id: String, val label: String) : StepEvent
     data class Resumed(val id: String, val label: String) : StepEvent
@@ -68,7 +107,10 @@ sealed interface StepEvent {
         val ok: Boolean,
         val atMs: Long,
         val chips: List<SourceChip> = emptyList(),
-        val detail: String? = null
+        val detail: String? = null,
+        val uiModel: com.bit.agent.presentation.ToolUiModel? = null,
+        val toolName: String? = null,
+        val toolArgs: Map<String, Any?> = emptyMap()
     ) : StepEvent
     data class WritingStarted(val atMs: Long = System.currentTimeMillis()) : StepEvent
     data class Completed(val atMs: Long) : StepEvent
@@ -78,7 +120,16 @@ sealed interface StepEvent {
 
 fun ThinkingUi.reduce(e: StepEvent): ThinkingUi = when (e) {
     is StepEvent.Started -> {
-        val s = StepUi(e.id, e.kind, e.label, StepStatus.Running, e.atMs)
+        val s = StepUi(
+            id = e.id,
+            kind = e.kind,
+            label = e.label,
+            status = StepStatus.Running,
+            startedAtMs = e.atMs,
+            toolName = e.toolName,
+            toolArgs = e.toolArgs,
+            uiModel = e.uiModel
+        )
         if (steps.any { it.id == e.id }) {
             copy(steps = steps.map { if (it.id == e.id) s.copy(attempts = it.attempts + 1) else it })
         } else {
@@ -95,12 +146,29 @@ fun ThinkingUi.reduce(e: StepEvent): ThinkingUi = when (e) {
         if (it.id == e.id) it.copy(status = StepStatus.Running, label = e.label) else it
     })
     is StepEvent.Finished -> copy(steps = steps.map {
-        if (it.id == e.id) it.copy(
-            status = if (e.ok) StepStatus.Done else StepStatus.Failed,
-            endedAtMs = e.atMs,
-            chips = e.chips,
-            detail = e.detail?.take(2000)
-        ) else it
+        if (it.id == e.id) {
+            val resolvedArgs = if (e.toolArgs.isNotEmpty()) e.toolArgs else it.toolArgs
+            val resolvedName = e.toolName ?: it.toolName ?: it.label
+            val resolvedModel = e.uiModel ?: if (it.kind == StepKind.Tool && !e.detail.isNullOrBlank()) {
+                com.bit.agent.presentation.ToolResultPresenter.present(resolvedName, e.detail, resolvedArgs)
+            } else it.uiModel
+
+            val derivedChips = if (e.chips.isEmpty() && resolvedModel is com.bit.agent.presentation.ToolUiModel.WebSearchUi) {
+                resolvedModel.results.map { src ->
+                    SourceChip(title = src.title, kind = ChipKind.Web, url = src.url, domain = src.domain)
+                }
+            } else e.chips
+
+            it.copy(
+                status = if (e.ok) StepStatus.Done else StepStatus.Failed,
+                endedAtMs = e.atMs,
+                chips = derivedChips,
+                detail = e.detail?.take(2000),
+                uiModel = resolvedModel,
+                toolName = resolvedName,
+                toolArgs = resolvedArgs
+            )
+        } else it
     })
     is StepEvent.WritingStarted -> if (writing) this else copy(writing = true, workEndedAtMs = e.atMs)
     is StepEvent.Completed -> closeOpen(StepStatus.Done, e.atMs)
@@ -137,9 +205,12 @@ private fun Map<String, Any?>.firstString(keys: List<String>): String? =
 private fun humanize(t: String) =
     t.replace('_', ' ').replace('-', ' ').trim().replaceFirstChar { it.uppercase() }
 
+private val QUERY_KEYS = listOf("query", "q", "search_query", "keywords", "question")
+
 fun toolLabel(tool: String, args: Map<String, Any?> = emptyMap()): String {
     val t = tool.lowercase().trim()
     val file = args.firstString(PATH_KEYS)?.substringAfterLast('/')
+    val query = args.firstString(QUERY_KEYS)?.trim()?.trim('"', '\'')
     val isMemory = "memory" in t
     return when {
         isMemory && "list" in t -> "Listing memory notes"
@@ -147,7 +218,9 @@ fun toolLabel(tool: String, args: Map<String, Any?> = emptyMap()): String {
         isMemory && "query" in t -> "Consulting memory"
         isMemory && "search" in t -> "Searching memory"
         isMemory && ("create" in t || "write" in t || "save" in t) -> "Saving a note"
-        "web" in t && ("search" in t || "fetch" in t) -> "Searching the web"
+        "web" in t && ("search" in t || "fetch" in t) -> {
+            if (!query.isNullOrBlank()) "Searched: $query" else "Searching the web"
+        }
         "write" in t || "create_file" in t -> file?.let { "Writing $it" } ?: "Writing a file"
         "edit" in t || "replace" in t || "patch" in t -> file?.let { "Editing $it" } ?: "Editing a file"
         "read" in t || "view" in t -> file?.let { "Reading $it" } ?: "Reading a file"
@@ -167,8 +240,8 @@ private val SPLIT = Regex("(?<=[.!?])\\s+|\\n+")
 private val MD = Regex("[*#`_>]")
 private val SPEAKER = Regex("\\b(i|they|the user|user)\\b", RegexOption.IGNORE_CASE)
 
-fun extractReasoningLabel(thoughts: String): String? {
-    if (thoughts.isBlank()) return null
+fun extractReasoningLabel(thoughts: String): String? = runCatching {
+    if (thoughts.isBlank()) return@runCatching null
     val cut = thoughts.length > 400
     val tail = if (cut) thoughts.takeLast(400) else thoughts
     val rawList = tail.split(SPLIT)
@@ -176,18 +249,28 @@ fun extractReasoningLabel(thoughts: String): String? {
         .filter { it.isNotBlank() }
 
     // Pick the most recent complete or substantial sentence
-    val sentence = rawList.asReversed().firstOrNull { it.length >= 10 } ?: return null
-    if (sentence.length < 15 && (sentence.endsWith(".") || !sentence.contains(" "))) return null
+    val sentence = rawList.asReversed().firstOrNull { it.length >= 10 } ?: return@runCatching null
+    if (sentence.length < 15 && (sentence.endsWith(".") || !sentence.contains(" "))) return@runCatching null
 
     var s = sentence.trimEnd('.', '!', ':').trim()
     repeat(3) { s = s.replace(CONJ, "").replace(SELF, "").trim() }
     s = when {
-        ASSUME.containsMatchIn(s) -> "Planning " + s.replace(ASSUME, "")
-        USER_WANTS.containsMatchIn(s) -> "Working out " + s.replace(USER_WANTS, "")
+        ASSUME.containsMatchIn(s) -> {
+            val rem = s.replace(ASSUME, "").trim('\'', '"', ' ', '.', ':', '-')
+            if (rem.length < 3) return@runCatching null
+            "Planning $rem"
+        }
+        USER_WANTS.containsMatchIn(s) -> {
+            val rem = s.replace(USER_WANTS, "").trim('\'', '"', ' ', '.', ':', '-')
+            if (rem.length < 3) return@runCatching null
+            "Working out $rem"
+        }
         else -> s
     }
     if (s.length > 14) {
-        CLAUSE.find(s, 14)?.let { s = s.substring(0, it.range.first) }
+        CLAUSE.find(s.substring(14))?.let { match ->
+            s = s.substring(0, 14 + match.range.first)
+        }
     }
     var truncated = false
     if (s.length > 42) {
@@ -197,9 +280,10 @@ fun extractReasoningLabel(thoughts: String): String? {
     val words = s.split(' ').filter { it.isNotBlank() }.toMutableList()
     while (words.size > 2 && words.last().lowercase() in STOP) words.removeAt(words.lastIndex)
     s = words.joinToString(" ") + if (truncated) "…" else ""
-    if (words.size < 2 || SPEAKER.containsMatchIn(s)) return null
-    return s.replaceFirstChar { it.uppercase() }
-}
+    val pure = s.trim('\'', '"', ' ', '.', '…').lowercase()
+    if (words.size < 2 || SPEAKER.containsMatchIn(s) || pure == "working out" || pure == "planning") return@runCatching null
+    s.replaceFirstChar { it.uppercase() }
+}.getOrNull()
 
 fun humanizeFailure(raw: String): String {
     val missing = Regex("(?:missing (?:required )?(?:argument|parameter) '(\\w+)'|'(\\w+)' parameter is required|required parameter '(\\w+)')", RegexOption.IGNORE_CASE)
@@ -278,21 +362,25 @@ fun buildFallbackThinkingUi(msg: Messages): ThinkingUi? {
                         val title = item?.optString("title")?.ifBlank { null }
                             ?: item?.optString("domain")?.ifBlank { null }
                             ?: item?.optString("url")?.orEmpty()
+                        val url = item?.optString("url")?.ifBlank { null }
+                        val domain = item?.optString("domain")?.ifBlank { null }
+                            ?: url?.let { runCatching { java.net.URI(it).host?.removePrefix("www.") }.getOrNull() }
                         if (!title.isNullOrBlank()) {
-                            chips.add(SourceChip(title = title, kind = ChipKind.Web))
+                            chips.add(SourceChip(title = title, kind = ChipKind.Web, url = url, domain = domain))
                         }
                     }
                 }
             } catch (_: Exception) {}
 
             if (chips.isEmpty()) {
-                val urlPattern = java.util.regex.Pattern.compile("https?://([a-zA-Z0-9.-]+)")
+                val urlPattern = java.util.regex.Pattern.compile("https?://([a-zA-Z0-9.-]+)(/[^\\s]*)?")
                 val matcher = urlPattern.matcher(msg.content.content)
                 val foundHosts = mutableSetOf<String>()
                 while (matcher.find()) {
+                    val fullUrl = matcher.group(0)
                     val host = matcher.group(1)?.removePrefix("www.")
                     if (!host.isNullOrBlank() && foundHosts.add(host)) {
-                        chips.add(SourceChip(title = host, kind = ChipKind.Web))
+                        chips.add(SourceChip(title = host, kind = ChipKind.Web, url = fullUrl, domain = host))
                     }
                 }
             }

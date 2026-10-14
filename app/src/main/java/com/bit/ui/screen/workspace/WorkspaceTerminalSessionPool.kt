@@ -1,6 +1,7 @@
 package com.bit.ui.screen.workspace
 
 import android.content.Context
+import android.util.Log
 import com.bit.workspace.WorkspaceProcessManager
 import com.termux.terminal.TerminalSession
 import java.util.concurrent.ConcurrentHashMap
@@ -72,7 +73,12 @@ internal object WorkspaceTerminalSessionPool {
         })
         val viewClient = WorkspaceTerminalViewClient(context)
 
-        val session = createWorkspaceTerminalSession(context, workspaceRoot, launch, sessionClient)
+        val session = try {
+            createWorkspaceTerminalSession(context, workspaceRoot, launch, sessionClient)
+        } catch (e: Exception) {
+            Log.e("WorkspaceTerminal", "Failed to create terminal session", e)
+            return null
+        }
 
         val holder = TerminalSessionHolder(
             processId = proc.id,

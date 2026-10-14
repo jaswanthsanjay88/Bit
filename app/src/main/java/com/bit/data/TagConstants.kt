@@ -118,6 +118,8 @@ object Tags {
         const val AGENT_SUMMARY = 19
         const val PLUGIN_RESULT_DATA = 20 // BYTES (JSON)
         const val RESEARCH_TRACE = 21 // BYTES (JSON)
+        const val EXECUTION_STEPS = 22 // BYTES (JSON)
+        const val PARENT_ID = 23
     }
 
 }

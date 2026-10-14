@@ -94,7 +94,8 @@ data class ResearchSourceItem(
     val domain: String,
     val url: String,
     val isHttps: Boolean = false,
-    val fetched: Boolean = false
+    val fetched: Boolean = false,
+    val snippet: String = ""
 )
 
 /**

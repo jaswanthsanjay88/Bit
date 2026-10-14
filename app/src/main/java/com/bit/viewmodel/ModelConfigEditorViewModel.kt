@@ -3,6 +3,7 @@ package com.bit.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bit.models.engine_schema.GgufEngineSchema
+import com.bit.models.engine_schema.GgufLoadingParams
 import com.bit.models.enums.ProviderType
 import com.bit.data.VaultManager
 import com.bit.di.AppContainer
@@ -74,12 +75,18 @@ class ModelConfigEditorViewModel @Inject constructor() : ViewModel() {
 
                 when (model.providerType) {
                     ProviderType.GGUF, ProviderType.VLM -> {
+                        val defaultCtx = com.bit.models.ModelContextDefaults.resolve(model.modelName, model.providerType)
                         _ggufConfig.value = if (config != null) {
-                            GgufEngineSchema.fromJson(
+                            val parsed = GgufEngineSchema.fromJson(
                                 config.modelLoadingParams, config.modelInferenceParams
                             )
+                            if (parsed.loadingParams.ctxSize <= 0 || config.modelLoadingParams.isNullOrBlank() || !config.modelLoadingParams!!.contains("ctxSize")) {
+                                parsed.copy(loadingParams = parsed.loadingParams.copy(ctxSize = defaultCtx))
+                            } else {
+                                parsed
+                            }
                         } else {
-                            GgufEngineSchema()
+                            GgufEngineSchema(loadingParams = GgufLoadingParams(ctxSize = defaultCtx))
                         }
                         val proj = if (config != null && !config.modelLoadingParams.isNullOrBlank()) {
                             try {

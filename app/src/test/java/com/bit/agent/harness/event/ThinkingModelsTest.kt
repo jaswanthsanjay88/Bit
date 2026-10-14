@@ -196,14 +196,14 @@ class ThinkingModelsTest {
         var ui = ThinkingUi(turnId = "turn_1", startedAtMs = 1000L)
         assertEquals("Thinking…", ui.liveLabel)
 
-        ui = ui.reduce(StepEvent.WritingStarted(1050L))
-        assertEquals("Writing response…", ui.liveLabel)
-
         ui = ui.reduce(StepEvent.Started("step_1", StepKind.Tool, "Searching the web", 1100L))
         assertEquals("Searching the web", ui.liveLabel)
 
+        ui = ui.reduce(StepEvent.WritingStarted(1150L))
+        assertEquals("Searching the web", ui.liveLabel)
+
         ui = ui.reduce(StepEvent.Finished("step_1", ok = true, atMs = 1200L))
-        assertEquals("Writing response…", ui.liveLabel)
+        assertEquals("Searching the web", ui.liveLabel)
     }
 
     @Test
@@ -213,9 +213,9 @@ class ThinkingModelsTest {
         ui = ui.reduce(StepEvent.Completed(1500L))
         assertEquals("Thought", ui.finishedLabel)
 
-        ui = ui.reduce(StepEvent.Started("s2", StepKind.Tool, "Tool", 1600L))
+        ui = ui.reduce(StepEvent.Started("s2", StepKind.Tool, "Designing the UI", 1600L))
         ui = ui.reduce(StepEvent.Completed(2000L))
-        assertEquals("Thought · 2 steps", ui.finishedLabel)
+        assertEquals("Designing the UI", ui.finishedLabel)
 
         val stopped = ui.reduce(StepEvent.Stopped(2100L))
         assertEquals("Stopped", stopped.finishedLabel)
@@ -267,6 +267,16 @@ class ThinkingModelsTest {
         // Must not throw IndexOutOfBoundsException
         val result = extractReasoningLabel(input)
         // Can be null or parsed, but critically must not throw
+    }
+
+    @Test
+    fun testExtractReasoningLabel_streamingTokensNeverThrows() {
+        val full = "The user is asking: what are skillls u have? I should answer directly about my capabilities without executing tools."
+        for (i in 1..full.length) {
+            val partial = full.take(i)
+            // Must never throw any exception, including IndexOutOfBoundsException
+            extractReasoningLabel(partial)
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

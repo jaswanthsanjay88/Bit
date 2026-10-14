@@ -24,6 +24,7 @@ sealed class StreamEvent {
     data class ToolCallRequest(val id: String, val name: String, val arguments: String, val signature: String? = null) : StreamEvent()
     data class ToolCallsRequest(val calls: List<ToolCallRequest>) : StreamEvent()
     data class Retrying(val attempt: Int, val maxAttempts: Int) : StreamEvent()
+    data class Finish(val finishReason: String?, val httpStatusCode: Int = 200) : StreamEvent()
 }
 
 data class ProviderConfig(

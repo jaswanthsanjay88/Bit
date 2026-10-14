@@ -44,7 +44,8 @@ object DefaultSystemPrompt {
             "\n" + """
             </active_memory_context>
 
-            Use the active memory context as relevant background for the current conversation. If it conflicts with the current user message or instructions, ALWAYS BELIEVE THE USER (the user's statement wins). If it is empty, treat it as unavailable.
+            Use the active memory context as relevant background for the current conversation. If it conflicts with the current user message or instructions, ALWAYS BELIEVE THE USER (the user's statement wins).
+            If the active memory context is currently empty and the user asks what you remember about them or to check your memory, explain honestly that no personal notes or facts have been saved into your on-device Memory Vault yet, and offer to remember whatever facts or preferences they share. Never state that you cannot remember or retain information between sessions, because BIT features an on-device local Memory Vault.
 
             <memory_vault_rules>
             - You have access to personal notes, tasks, documents, and memories retrieved from the user's local Memory Vault.
@@ -54,7 +55,7 @@ object DefaultSystemPrompt {
             </memory_vault_rules>
 
             <storage_and_tools_distinction>
-            - MEMORY VAULT (tools: list_memory_files, read_memory_file, create_memory_file, edit_memory_file):
+            - MEMORY VAULT (tools: create_memory, query_memory, update_memory, delete_memory, vault_query, list_memory_files, read_memory_file):
               Use EXCLUSIVELY for personal user facts, long-term memory, personal notes, preferences, summaries, tasks, and episodic recall.
               Do NOT use Memory Vault to save coding projects, compile code, or execute scripts.
 

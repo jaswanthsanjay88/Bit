@@ -45,7 +45,7 @@ class WorkspaceReadFileTool(private val context: Context) : AgentTool {
             if (!file.exists()) {
                 return ToolObservation.error(
                     summary = "File not found: $path",
-                    recoveryHint = "Verify file path using dir_list or create it using workspace_write_file."
+                    recoveryHint = "File does not exist. Verify path using list_dir or check filename."
                 )
             }
 
@@ -54,6 +54,8 @@ class WorkspaceReadFileTool(private val context: Context) : AgentTool {
             val effectiveEnd = if (endLine in startLine..totalLines) endLine else totalLines
             val sliced = lines.subList(startLine - 1, effectiveEnd)
             val content = sliced.joinToString("\n")
+
+            com.bit.agent.harness.coding.FileReadTracker.recordRead(file)
 
             ToolObservation.success(
                 summary = "Read ${sliced.size}/$totalLines lines from ${file.name}",
@@ -111,6 +113,7 @@ class WorkspaceWriteFileTool(private val context: Context) : AgentTool {
             file.parentFile?.mkdirs()
             file.writeText(content)
             check(file.exists() && file.length() > 0) { "Write could not be verified" }
+            com.bit.agent.harness.coding.FileReadTracker.recordRead(file)
 
             val sizeStr = com.bit.workspace.WorkspacePaths.humanSize(file.length())
             val terminalPath = com.bit.workspace.WorkspacePaths.terminalPath(context, file)
@@ -125,7 +128,7 @@ class WorkspaceWriteFileTool(private val context: Context) : AgentTool {
             Log.e(TAG, "workspace_write_file error: ${e.message}", e)
             ToolObservation.error(
                 summary = "Failed to write file: ${e.message}",
-                recoveryHint = "Check storage permissions and valid directory paths.",
+                recoveryHint = "Ensure parent directory exists using list_dir or check path format.",
                 executionTimeMs = System.currentTimeMillis() - startTime
             )
         }
@@ -165,16 +168,30 @@ class WorkspaceEditFileTool(private val context: Context) : AgentTool {
                 return ToolObservation.error("File not found: $path", "Verify file exists before editing.")
             }
 
+            if (!com.bit.agent.harness.coding.FileReadTracker.hasRead(file)) {
+                return ToolObservation.error(
+                    summary = "File '${file.name}' must be read before editing.",
+                    recoveryHint = "Call workspace_read_file on '$path' to inspect the latest content before making edits."
+                )
+            }
+            if (com.bit.agent.harness.coding.FileReadTracker.hasChangedSinceRead(file)) {
+                return ToolObservation.error(
+                    summary = "File '${file.name}' was modified on disk since it was last read.",
+                    recoveryHint = "Call workspace_read_file on '$path' to inspect the updated content before making edits."
+                )
+            }
+
             val text = file.readText()
             if (!text.contains(targetChunk)) {
                 return ToolObservation.error(
                     summary = "target_chunk was not found in ${file.name}",
-                    recoveryHint = "Read the latest file content using workspace_read_file and ensure target_chunk matches exactly."
+                    recoveryHint = "Read current content using read_slice and apply changes using edit_file_slice with exact line numbers."
                 )
             }
 
             val updated = text.replaceFirst(targetChunk, replacementChunk)
             file.writeText(updated)
+            com.bit.agent.harness.coding.FileReadTracker.recordRead(file)
 
             ToolObservation.success(
                 summary = "Successfully edited ${file.name}",
@@ -414,6 +431,10 @@ class WorkspaceShellTool(
                 return ToolObservation.error("Command cannot be empty", "Provide a valid shell command.")
             }
 
+            val memStatus = com.bit.agent.harness.coding.DeviceMemoryGate.checkMemory(context)
+            val adaptedCmd = com.bit.agent.harness.coding.DeviceMemoryGate.adaptCommandForMemory(command, memStatus)
+            val isTestRun = listOf("test", "pytest", "cargo test", "npm test").any { adaptedCmd.contains(it) }
+
             // Prefer Linux PRoot execution via workspaceRepository if available
             if (workspaceRepository != null) {
                 val workspaces = workspaceRepository.getAll()
@@ -421,22 +442,57 @@ class WorkspaceShellTool(
                     val activeWorkspace = workspaces.maxByOrNull { it.updatedAt } ?: workspaces.first()
                     val result = workspaceRepository.executeCommand(
                         id = activeWorkspace.id,
-                        command = command,
+                        command = adaptedCmd,
                         cwd = "",
                         timeoutMillis = 30000L
                     )
                     val combinedOutput = (result.stdout + if (result.stderr.isNotBlank()) "\n${result.stderr}" else "").trim()
+
+                    if (isTestRun) {
+                        val parsed = com.bit.agent.harness.coding.StructuredTestParser.parse(combinedOutput)
+                        val summary = "Test run (${parsed.framework}): ${parsed.passed} passed, ${parsed.failed} failed"
+                        return if (parsed.isSuccess || result.exitCode == 0) {
+                            ToolObservation.success(
+                                summary = summary,
+                                payload = parsed.toModelPayload(),
+                                executionTimeMs = System.currentTimeMillis() - startTime
+                            )
+                        } else {
+                            ToolObservation.warning(
+                                summary = summary,
+                                payload = parsed.toModelPayload(),
+                                recoveryHint = "Inspect failed tests in payload and patch source code with edit_file_slice.",
+                                executionTimeMs = System.currentTimeMillis() - startTime
+                            )
+                        }
+                    }
+
+                    val structuredOutput = buildString {
+                        appendLine("exit_code: ${result.exitCode}")
+                        if (result.stdout.isNotBlank()) {
+                            appendLine("stdout:")
+                            appendLine(result.stdout.trim().take(4000))
+                        }
+                        if (result.stderr.isNotBlank()) {
+                            appendLine("stderr:")
+                            appendLine(result.stderr.trim().take(4000))
+                        }
+                        if (result.stdout.isBlank() && result.stderr.isBlank()) {
+                            appendLine("(no output)")
+                        }
+                    }.trim()
+
                     return if (result.exitCode == 0) {
                         ToolObservation.success(
-                            summary = "Command '$command' completed with code 0 in Linux PRoot",
-                            payload = combinedOutput.take(8000),
+                            summary = "Command '$adaptedCmd' completed with code 0 in Linux PRoot",
+                            payload = structuredOutput,
                             executionTimeMs = System.currentTimeMillis() - startTime
                         )
                     } else {
                         ToolObservation.warning(
-                            summary = "Command '$command' exited with code ${result.exitCode} in Linux PRoot",
-                            payload = combinedOutput.take(8000),
-                            recoveryHint = "Review error output and adjust command.",
+                            summary = "Command '$adaptedCmd' exited with code ${result.exitCode} in Linux PRoot",
+                            payload = structuredOutput,
+                            recoveryHint = "Review stderr and exit_code to fix errors before continuing.",
                             executionTimeMs = System.currentTimeMillis() - startTime
                         )
                     }
@@ -452,17 +508,27 @@ class WorkspaceShellTool(
             val output = process.inputStream.bufferedReader().use { it.readText() }
             val exitCode = process.waitFor()
 
+            val structuredLocalOutput = buildString {
+                appendLine("exit_code: $exitCode")
+                if (output.isNotBlank()) {
+                    appendLine("output:")
+                    appendLine(output.trim().take(8000))
+                } else {
+                    appendLine("(no output)")
+                }
+            }.trim()
+
             if (exitCode == 0) {
                 ToolObservation.success(
                     summary = "Command '$command' completed with code 0",
-                    payload = output.take(8000),
+                    payload = structuredLocalOutput,
                     executionTimeMs = System.currentTimeMillis() - startTime
                 )
             } else {
                 ToolObservation.warning(
                     summary = "Command '$command' exited with code $exitCode",
-                    payload = output.take(8000),
-                    recoveryHint = "Review error output and adjust command.",
+                    payload = structuredLocalOutput,
+                    recoveryHint = "Review output and exit_code to fix errors before continuing.",
                     executionTimeMs = System.currentTimeMillis() - startTime
                 )
             }
@@ -478,11 +544,7 @@ class WorkspaceShellTool(
 }
 
 private fun resolveFile(context: Context?, path: String): File {
-    return if (context != null) {
-        com.bit.workspace.WorkspacePaths.resolveFile(context, path)
-    } else {
-        File(path)
-    }
+    return com.bit.workspace.WorkspacePaths.resolveFile(context, path)
 }
 
 /**
@@ -575,7 +637,7 @@ class StrReplaceEditorTool(private val context: Context? = null) : AgentTool {
             Log.e(TAG, "str_replace_editor error: ${e.message}", e)
             ToolObservation.error(
                 summary = "str_replace_editor error: ${e.message}",
-                recoveryHint = "Review arguments and ensure file permissions are valid.",
+                recoveryHint = "Review command parameters and ensure file path exists.",
                 executionTimeMs = System.currentTimeMillis() - startTime
             )
         }
@@ -624,6 +686,7 @@ class StrReplaceEditorTool(private val context: Context? = null) : AgentTool {
         }.joinToString("\n")
 
         val output = if (numbered.length > MAX_OUTPUT_CHARS) numbered.take(MAX_OUTPUT_CHARS) + TRUNCATED_MESSAGE else numbered
+        com.bit.agent.harness.coding.FileReadTracker.recordRead(target)
         return ToolObservation.success(
             summary = "Viewed ${target.name} (lines $startLine..$endLine of ${lines.size}) [version=$version]",
             payload = output,
@@ -643,6 +706,7 @@ class StrReplaceEditorTool(private val context: Context? = null) : AgentTool {
         target.parentFile?.mkdirs()
         target.writeText(fileText)
         check(target.exists()) { "Write could not be verified" }
+        com.bit.agent.harness.coding.FileReadTracker.recordRead(target)
         val sizeStr = com.bit.workspace.WorkspacePaths.humanSize(target.length())
         val termPath = context?.let { com.bit.workspace.WorkspacePaths.terminalPath(it, target) } ?: target.name
         val newVersion = computeFileVersion(target)
@@ -657,6 +721,18 @@ class StrReplaceEditorTool(private val context: Context? = null) : AgentTool {
     private fun handleStrReplace(target: File, args: JSONObject, startTime: Long): ToolObservation {
         if (!target.exists()) {
             return ToolObservation.error("File does not exist: ${target.path}", "Use 'create' to create a new file.")
+        }
+        if (!com.bit.agent.harness.coding.FileReadTracker.hasRead(target)) {
+            return ToolObservation.error(
+                summary = "File '${target.name}' must be read before editing.",
+                recoveryHint = "Use 'view' command on '${target.name}' to inspect current contents before editing."
+            )
+        }
+        if (com.bit.agent.harness.coding.FileReadTracker.hasChangedSinceRead(target)) {
+            return ToolObservation.error(
+                summary = "File '${target.name}' was modified on disk since it was last viewed.",
+                recoveryHint = "Use 'view' command on '${target.name}' to inspect latest content before editing."
+            )
         }
         val expectedVersion = args.optString("expected_version", "").trim()
         val currentVersion = computeFileVersion(target)
@@ -703,6 +779,7 @@ class StrReplaceEditorTool(private val context: Context? = null) : AgentTool {
 
         val updated = content.substring(0, occurrences[0]) + newStr + content.substring(occurrences[0] + oldStr.length)
         target.writeText(updated)
+        com.bit.agent.harness.coding.FileReadTracker.recordRead(target)
         val newVersion = computeFileVersion(target)
         return ToolObservation.success(
             summary = "The file ${target.name} has been edited successfully [version=$newVersion].",
@@ -715,6 +792,18 @@ class StrReplaceEditorTool(private val context: Context? = null) : AgentTool {
     private fun handleInsert(target: File, args: JSONObject, startTime: Long): ToolObservation {
         if (!target.exists()) {
             return ToolObservation.error("File does not exist: ${target.path}", "Verify path before inserting.")
+        }
+        if (!com.bit.agent.harness.coding.FileReadTracker.hasRead(target)) {
+            return ToolObservation.error(
+                summary = "File '${target.name}' must be read before editing.",
+                recoveryHint = "Use 'view' command on '${target.name}' to inspect current contents before inserting."
+            )
+        }
+        if (com.bit.agent.harness.coding.FileReadTracker.hasChangedSinceRead(target)) {
+            return ToolObservation.error(
+                summary = "File '${target.name}' was modified on disk since it was last viewed.",
+                recoveryHint = "Use 'view' command on '${target.name}' to inspect latest content before inserting."
+            )
         }
         val expectedVersion = args.optString("expected_version", "").trim()
         val currentVersion = computeFileVersion(target)
@@ -739,6 +828,7 @@ class StrReplaceEditorTool(private val context: Context? = null) : AgentTool {
         val insertLines = newStr.split("\n")
         lines.addAll(insertLine, insertLines)
         target.writeText(lines.joinToString("\n"))
+        com.bit.agent.harness.coding.FileReadTracker.recordRead(target)
         val newVersion = computeFileVersion(target)
 
         return ToolObservation.success(

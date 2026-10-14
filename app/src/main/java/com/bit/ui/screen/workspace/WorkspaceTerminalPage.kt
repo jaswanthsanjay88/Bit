@@ -71,20 +71,28 @@ fun WorkspaceTerminalPage(
     var currentProcessId by remember(targetProcessId) { mutableStateOf(targetProcessId) }
     var sessionFinished by remember { mutableStateOf(false) }
 
-    // Obtain or create active session holder from pool
-    val currentHolder = remember(currentProcessId, workspace.id, workspace.root) {
-        WorkspaceTerminalSessionPool.getOrCreateSession(
-            context = context,
-            workspaceId = workspace.id,
-            workspaceRoot = workspace.root,
-            targetProcessId = currentProcessId,
-            forceNew = false,
-            onSessionFinished = { finishedId ->
-                if (finishedId == currentProcessId) {
-                    sessionFinished = true
+    val rootfsReady = remember(workspace.root, isInstalling) {
+        workspaceRootfsReady(context, workspace.root)
+    }
+
+    // Obtain or create active session holder from pool only when rootfs is ready
+    val currentHolder = remember(currentProcessId, workspace.id, workspace.root, rootfsReady) {
+        if (!rootfsReady) {
+            null
+        } else {
+            WorkspaceTerminalSessionPool.getOrCreateSession(
+                context = context,
+                workspaceId = workspace.id,
+                workspaceRoot = workspace.root,
+                targetProcessId = currentProcessId,
+                forceNew = false,
+                onSessionFinished = { finishedId ->
+                    if (finishedId == currentProcessId) {
+                        sessionFinished = true
+                    }
                 }
-            }
-        )
+            )
+        }
     }
 
     // Keep currentProcessId synced with active holder
@@ -98,10 +106,6 @@ fun WorkspaceTerminalPage(
 
     var ctrlActive by remember { mutableStateOf(false) }
     var altActive by remember { mutableStateOf(false) }
-
-    val rootfsReady = remember(workspace.root, isInstalling) {
-        workspaceRootfsReady(context, workspace.root)
-    }
 
     Column(
         modifier = Modifier
@@ -467,7 +471,7 @@ fun WorkspaceTerminalPage(
                     )
                 }
 
-                if (sessionFinished || (currentHolder?.session?.isRunning == false)) {
+                if (sessionFinished || currentHolder == null || currentHolder.session.isRunning == false) {
                     Surface(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -483,7 +487,7 @@ fun WorkspaceTerminalPage(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             Text(
-                                text = "Session exited",
+                                text = if (currentHolder == null) "Terminal not started" else "Session exited",
                                 fontSize = 12.sp,
                                 fontFamily = FontFamily.Monospace,
                             )
@@ -509,7 +513,7 @@ fun WorkspaceTerminalPage(
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                 shape = RoundedCornerShape(8.dp)
                             ) {
-                                Text("Restart")
+                                Text(if (currentHolder == null) "Start" else "Restart")
                             }
                         }
                     }

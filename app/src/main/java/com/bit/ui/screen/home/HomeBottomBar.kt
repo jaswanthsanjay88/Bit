@@ -59,7 +59,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -120,6 +119,8 @@ import io.github.fletchmckee.liquid.LiquidState
 import io.github.fletchmckee.liquid.liquid
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.mutableLongStateOf
 
 
@@ -498,6 +499,7 @@ internal fun BottomBar(
         val bottomScrim = androidx.compose.ui.graphics.Brush.verticalGradient(
             colors = listOf(
                 Color.Transparent,
+                scrimColor.copy(alpha = 0.45f),
                 scrimColor.copy(alpha = 0.85f),
                 scrimColor
             )
@@ -625,67 +627,68 @@ internal fun BottomBar(
                                 isInputExpanded = false
                             } else {
                                 val finalPrompt = effectivePrompt
-                                val imageBytesList = attachedImages.mapNotNull { uri ->
-                                    try {
-                                        context.contentResolver.openInputStream(uri)?.use { stream ->
-                                            stream.readBytes()
-                                        }
-                                    } catch (e: Exception) {
-                                        null
-                                    }
-                                }
-
+                                val hasPackages = loadedRags.isNotEmpty() && isRagEnabledForChat
                                 val hasActiveKnowledge = unifiedSources.any { it.isEnabled }
                                 val hasRags = (loadedRags.isNotEmpty() || hasActiveKnowledge) && isRagEnabledForChat
                                 val hasAttachedDoc = attachedFiles.isNotEmpty() || chatViewModel.attachedFileName.value != null
 
-                                if (imageBytesList.isNotEmpty()) {
-                                    value = ""
-                                    attachedSkill = null
-                                    attachedImages = emptyList()
-                                    attachedFiles = emptyList()
-                                    isInputExpanded = false
+                                // 1. Instant UI update: clear text field, dismiss expanded input immediately (0ms UI latency)
+                                val promptToSend = finalPrompt
+                                val imagesToProcess = attachedImages
+                                value = ""
+                                attachedSkill = null
+                                attachedImages = emptyList()
+                                attachedFiles = emptyList()
+                                isInputExpanded = false
 
-                                    if (hasRags) {
-                                        scope.launch {
-                                            val ragContext = ragViewModel.queryAndStoreResults(finalPrompt)
-                                            chatViewModel.setRagContext(
-                                                ragContext.ifBlank { null },
-                                                ragViewModel.lastRagResults.value
-                                            )
-                                            chatViewModel.sendChatWithImages(finalPrompt, imageBytesList)
+                                if (imagesToProcess.isNotEmpty()) {
+                                    scope.launch(Dispatchers.IO) {
+                                        val imageBytesList = imagesToProcess.mapNotNull { uri ->
+                                            try {
+                                                context.contentResolver.openInputStream(uri)?.use { stream ->
+                                                    stream.readBytes()
+                                                }
+                                            } catch (e: Exception) {
+                                                null
+                                            }
                                         }
-                                    } else {
-                                        if (!hasAttachedDoc) {
-                                            chatViewModel.clearRagContext()
+
+                                        if (hasPackages) {
+                                            val ragContext = ragViewModel.queryAndStoreResults(promptToSend)
+                                            withContext(Dispatchers.Main) {
+                                                chatViewModel.setRagContext(
+                                                    ragContext.ifBlank { null },
+                                                    ragViewModel.lastRagResults.value
+                                                )
+                                                chatViewModel.sendChatWithImages(promptToSend, imageBytesList)
+                                            }
+                                        } else {
+                                            withContext(Dispatchers.Main) {
+                                                if (!hasAttachedDoc && !hasRags) {
+                                                    chatViewModel.clearRagContext()
+                                                }
+                                                chatViewModel.sendChatWithImages(promptToSend, imageBytesList)
+                                            }
                                         }
-                                        chatViewModel.sendChatWithImages(finalPrompt, imageBytesList)
                                     }
                                 } else {
-                                    if (hasRags) {
-                                        value = ""
-                                        attachedSkill = null
-                                        attachedImages = emptyList()
-                                        attachedFiles = emptyList()
-                                        isInputExpanded = false
-                                        scope.launch {
-                                            val ragContext = ragViewModel.queryAndStoreResults(finalPrompt)
-                                            chatViewModel.setRagContext(
-                                                ragContext.ifBlank { null },
-                                                ragViewModel.lastRagResults.value
-                                            )
-                                            chatViewModel.sendTextMessage(finalPrompt)
+                                    if (hasPackages) {
+                                        scope.launch(Dispatchers.IO) {
+                                            val ragContext = ragViewModel.queryAndStoreResults(promptToSend)
+                                            withContext(Dispatchers.Main) {
+                                                chatViewModel.setRagContext(
+                                                    ragContext.ifBlank { null },
+                                                    ragViewModel.lastRagResults.value
+                                                )
+                                                chatViewModel.sendTextMessage(promptToSend)
+                                            }
                                         }
                                     } else {
-                                        if (!hasAttachedDoc) {
+                                        if (!hasAttachedDoc && !hasRags) {
                                             chatViewModel.clearRagContext()
                                         }
-                                        chatViewModel.sendTextMessage(finalPrompt)
-                                        value = ""
-                                        attachedSkill = null
-                                        attachedImages = emptyList()
-                                        attachedFiles = emptyList()
-                                        isInputExpanded = false
+                                        // Send immediately on the main thread so user bubble renders instantaneously (0ms frame drop)
+                                        chatViewModel.sendTextMessage(promptToSend)
                                     }
                                 }
                             }

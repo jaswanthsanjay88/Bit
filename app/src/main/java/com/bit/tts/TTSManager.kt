@@ -404,24 +404,18 @@ object TTSManager {
         _synthProgress.value = 0f
     }
 
-    fun getModelDirectory(): String? {
-        val ctx = context ?: return null
+    suspend fun getModelDirectory(): String? = withContext(Dispatchers.IO) {
+        val ctx = context ?: return@withContext null
         
         // 1. Try to find the active TTS model in the metadata repository
         try {
             val repository = com.bit.di.AppContainer.getModelRepository()
-            val activeModelPath = kotlinx.coroutines.runBlocking {
-                try {
-                    val models = repository.getAllModels().firstOrNull()
-                    val activeModel = models?.find { it.providerType == com.bit.models.enums.ProviderType.TTS && it.isActive }
-                    activeModel?.modelPath
-                } catch (e: Exception) {
-                    null
-                }
-            }
+            val models = repository.getAllModels().firstOrNull()
+            val activeModel = models?.find { it.providerType == com.bit.models.enums.ProviderType.TTS && it.isActive }
+            val activeModelPath = activeModel?.modelPath
             if (activeModelPath != null) {
                 val dir = File(activeModelPath)
-                if (dir.exists()) return dir.absolutePath
+                if (dir.exists()) return@withContext dir.absolutePath
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get active TTS model from DB, falling back", e)
@@ -429,7 +423,7 @@ object TTSManager {
 
         // 2. Fallback to legacy path
         val legacyDir = AppPaths.ttsModel(ctx)
-        return if (legacyDir.exists()) legacyDir.absolutePath else null
+        if (legacyDir.exists()) legacyDir.absolutePath else null
     }
 
     private fun floatToPcm(floats: FloatArray): ByteArray {

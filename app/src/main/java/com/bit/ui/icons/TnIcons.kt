@@ -49,6 +49,7 @@ object TnIcons {
     val ThumbUp by lazy { tabler("M7 11v8a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1v-7a1 1 0 0 1 1 -1h3a4 4 0 0 0 4 -4v-1a2 2 0 0 1 4 0v5h3a2 2 0 0 1 2 2l-1 5a2 3 0 0 1 -2 2h-7a3 3 0 0 1 -3 -3") }
     val ThumbDown by lazy { tabler("M7 13v-8a1 1 0 0 0 -1 -1h-2a1 1 0 0 0 -1 1v7a1 1 0 0 0 1 1h3a4 4 0 0 1 4 4v1a2 2 0 0 0 4 0v-5h3a2 2 0 0 0 2 -2l-1 -5a2 3 0 0 0 -2 -2h-7a3 3 0 0 0 -3 3") }
     val DotsVertical by lazy { tabler("M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0", "M12 19m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0", "M12 5m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0") }
+    val DotsHorizontal by lazy { tabler("M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0", "M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0", "M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0") }
 
     // ── Status / Feedback ──
     val Heart by lazy { tabler("M19.5 12.572l-7.5 7.428l-7.5 -7.428a5 5 0 1 1 7.5 -6.566a5 5 0 1 1 7.5 6.572") }

@@ -424,6 +424,33 @@ class McpManager @Inject constructor(
             }
         }
     }
+
+    fun isServerConnected(serverId: String): Boolean =
+        statusStore.status.value[serverId] is McpStatus.Connected
+
+    /**
+     * Injects live capability state of all configured MCP servers into the system prompt.
+     * Prevents small-model hallucinations claiming MCP is not natively supported.
+     */
+    fun getLiveMcpCapabilityPrompt(): String {
+        val enabledServers = _servers.value.filter { it.isEnabled }
+        if (enabledServers.isEmpty()) return ""
+
+        val mcpBlock = enabledServers.joinToString("\n") { srv ->
+            val isConn = statusStore.status.value[srv.id] is McpStatus.Connected || srv.tools.isNotEmpty()
+            val status = if (isConn) "connected" else "offline"
+            val activeTools = srv.tools.filter { it.isEnabled }.map { t ->
+                if (t.name.startsWith("mcp_")) t.name else "mcp_${t.name}"
+            }
+            "- ${srv.name} [$status]: ${if (activeTools.isNotEmpty()) activeTools.joinToString() else "no active tools"}"
+        }
+
+        return buildString {
+            appendLine("Connected MCP servers:")
+            appendLine(mcpBlock)
+            appendLine("You CAN call these tools. Never claim MCP is unavailable.")
+        }.trim()
+    }
 }
 
 /**

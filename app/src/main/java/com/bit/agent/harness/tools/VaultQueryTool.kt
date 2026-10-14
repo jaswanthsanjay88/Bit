@@ -16,6 +16,7 @@ import org.json.JSONObject
  */
 class VaultQueryTool(
     private val ragOrchestrator: GlobalRagOrchestrator,
+    private val context: android.content.Context? = null,
     private val logger: HarnessLogger = NoOpHarnessLogger
 ) : AgentTool {
 
@@ -45,6 +46,9 @@ class VaultQueryTool(
         )
     )
 
+    override fun getSystemPrompt(): String =
+        "Use `vault_query` to semantically search documents, user notes, and attachments in the local Memory Vault."
+
     override suspend fun execute(argumentsJson: String): ToolObservation {
         val startTime = System.currentTimeMillis()
         return try {
@@ -62,12 +66,39 @@ class VaultQueryTool(
             val duration = System.currentTimeMillis() - startTime
 
             if (result == null || result.results.isEmpty()) {
-                ToolObservation.warning(
-                    summary = "No vault knowledge found for: $query",
-                    recoveryHint = "Rephrase the query or note that the vault may be empty.",
-                    payload = result?.compressedContext,
-                    executionTimeMs = duration
-                )
+                val ctx = context ?: com.bit.di.AppContainer.getContext()
+                val fallbackMatches = mutableListOf<String>()
+                if (ctx != null) {
+                    val vaultRoot = com.bit.global.AppPaths.vaultRoot(ctx)
+                    if (vaultRoot.exists()) {
+                        vaultRoot.walkTopDown()
+                            .filter { it.isFile && (it.extension.lowercase() in listOf("md", "txt", "json")) }
+                            .take(10)
+                            .forEach { f ->
+                                try {
+                                    val content = f.readText()
+                                    if (content.contains(query, ignoreCase = true) || f.name.contains(query, ignoreCase = true)) {
+                                        fallbackMatches.add("### File: ${f.name}\n${content.take(800)}")
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                    }
+                }
+
+                if (fallbackMatches.isNotEmpty()) {
+                    ToolObservation.success(
+                        summary = "Found ${fallbackMatches.size} vault document match(es) for '$query'",
+                        payload = fallbackMatches.joinToString("\n\n"),
+                        executionTimeMs = duration
+                    )
+                } else {
+                    ToolObservation.warning(
+                        summary = "No vault knowledge found for: $query",
+                        recoveryHint = "Rephrase the query or note that the vault may be empty.",
+                        payload = "No documents found in the memory vault matching query: '$query'.",
+                        executionTimeMs = duration
+                    )
+                }
             } else {
                 ToolObservation.success(
                     summary = "Found ${result.results.size} vault chunks (confidence: ${result.confidence}).",

@@ -65,10 +65,11 @@ class ChatManager {
             }
         }
 
-    suspend fun addUserMessage(chatId: String, content: String): Result<Messages> =
+    suspend fun addUserMessage(chatId: String, content: String, parentId: String? = null): Result<Messages> =
         withContext(Dispatchers.IO) {
             withUmsReady {
                 val message = Messages(
+                    parentId = parentId,
                     role = Role.User,
                     content = MessageContent(
                         contentType = ContentType.Text,
@@ -83,6 +84,7 @@ class ChatManager {
     suspend fun addAssistantMessage(
         chatId: String,
         content: String,
+        parentId: String? = null,
         decodingMetrics: DecodingMetrics? = null,
         ragResults: List<RagResultItem>? = null,
         toolChainSteps: List<ToolChainStepData>? = null,
@@ -91,6 +93,7 @@ class ChatManager {
     ): Result<Messages> = withContext(Dispatchers.IO) {
         withUmsReady {
             val message = Messages(
+                parentId = parentId,
                 role = Role.Assistant,
                 content = MessageContent(
                     contentType = ContentType.Text,

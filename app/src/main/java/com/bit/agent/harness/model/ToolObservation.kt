@@ -97,7 +97,7 @@ data class ToolObservation(
 
         fun error(
             summary: String,
-            recoveryHint: String,
+            recoveryHint: String = "Check input parameters and retry",
             payload: String? = null,
             executionTimeMs: Long = 0L,
             approvalState: ToolApprovalState = ToolApprovalState.Auto

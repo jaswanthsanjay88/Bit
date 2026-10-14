@@ -20,11 +20,13 @@ class AskUserTool(
         const val NAME = "ask_user"
     }
 
+    override val requiresApproval: Boolean get() = true
+
     override val definition: ToolDefinition = ToolDefinition(
         type = "function",
         function = ToolFunction(
             name = NAME,
-            description = "Ask the user clarification questions or request decision feedback when requirements are ambiguous.",
+            description = "Ask the user clarification questions or request decision feedback ONLY when user requirements are genuinely ambiguous AND no tool (such as web_search or workspace inspection) can resolve it. Never use for general Q&A, news, or informational questions.",
             parameters = ToolParameters(
                 properties = mapOf(
                     "question" to ToolProperty(

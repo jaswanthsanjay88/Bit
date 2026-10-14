@@ -51,7 +51,7 @@ fun convertToOpenAiMessages(
     apiMessages.addAll(messages.flatMap { msg ->
         val entries = mutableListOf<OpenAiMessage>()
 
-        if (msg.id.startsWith(Constants.TOOL_MSG_PREFIX)) {
+        if (msg.id.startsWith(Constants.TOOL_MSG_PREFIX) || (msg.participant == Participant.MODEL && msg.toolCall != null)) {
             val toolSegs = msg.segments?.filter { it.type == "tool" }
             val thoughtContent = msg.segments?.lastOrNull { it.type == "thought" }?.content
             if (!toolSegs.isNullOrEmpty()) {
@@ -84,7 +84,7 @@ fun convertToOpenAiMessages(
             return@flatMap entries
         }
 
-        if (msg.id.startsWith(Constants.RESULT_MSG_PREFIX)) {
+        if (msg.id.startsWith(Constants.RESULT_MSG_PREFIX) || (msg.participant == Participant.USER && msg.toolCall != null)) {
             val toolSegs = msg.segments?.filter { it.type == "tool" }
             if (!toolSegs.isNullOrEmpty()) {
                 for (seg in toolSegs) {

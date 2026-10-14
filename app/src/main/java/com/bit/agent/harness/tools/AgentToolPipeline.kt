@@ -30,6 +30,9 @@ class AgentToolPipeline @Inject constructor(
 ) {
     private val interceptors = mutableListOf<ToolInterceptor>()
 
+    @Volatile
+    var executionMode: com.bit.agent.harness.coding.AgentExecutionMode = com.bit.agent.harness.coding.AgentExecutionMode.ACT
+
     fun addInterceptor(interceptor: ToolInterceptor) {
         interceptors.add(interceptor)
     }
@@ -42,6 +45,17 @@ class AgentToolPipeline @Inject constructor(
         eventSink: com.bit.agent.harness.model.ResearchEventSink = com.bit.agent.harness.model.ResearchEventSink.NoOp
     ): ToolObservation {
         val startTime = System.currentTimeMillis()
+
+        // Phase 0: Mode Enforcement
+        if (!com.bit.agent.harness.coding.ModeToolPolicy.isToolAllowed(tool.definition.function.name, executionMode)) {
+            val reason = com.bit.agent.harness.coding.ModeToolPolicy.rejectionReason(tool.definition.function.name, executionMode)
+            return ToolObservation.error(
+                summary = "Action denied by mode policy: ${tool.definition.function.name}",
+                recoveryHint = reason,
+                executionTimeMs = System.currentTimeMillis() - startTime
+            )
+        }
+
         var validatedArgs = rawArgumentsJson
 
         // Phase 1: Pre-Execution

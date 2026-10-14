@@ -23,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -181,11 +182,17 @@ fun HomeScreen(
                         TopBar(
                             sharedTransitionScope = sharedTransitionScope,
                             animatedVisibilityScope = animatedVisibilityScope,
-                            onStoreButtonClicked = onStoreButtonClicked,
                             onMenuClick = { drawerState.toggle() },
                             showDynamicWindow = { chatViewModel.showDynamicWindow() },
+                            onNewChatClick = {
+                                if (drawerState.isOpen) drawerState.close()
+                                chatViewModel.startNewConversation()
+                            },
+                            onStoreButtonClicked = onStoreButtonClicked,
                             onMemoryClick = onVaultManagerClick,
-                            chatViewModel = chatViewModel
+                            onSettingsClick = onSettingsClick,
+                            chatViewModel = chatViewModel,
+                            llmModelViewModel = llmModelViewModel
                         )
                     },
                     bottomBar = {
@@ -206,12 +213,6 @@ fun HomeScreen(
                             llmModelViewModel = llmModelViewModel,
                             liquidState = liquidState,
                             onModelSelectedNavigate = onModelSelectedNavigate
-                        )
-
-                        // Top section progressive blur scrim
-                        com.bit.ui.components.TopBlurScrim(
-                            modifier = Modifier.align(Alignment.TopCenter),
-                            height = 120.dp
                         )
                     }
                 }
@@ -247,6 +248,12 @@ fun HomeScreen(
                 val appState by com.bit.state.AppStateManager.appState.collectAsStateWithLifecycle()
                 var dismissedError by remember { mutableStateOf<String?>(null) }
 
+                LaunchedEffect(appState) {
+                    if (appState !is com.bit.models.state.AppState.Error) {
+                        dismissedError = null
+                    }
+                }
+
                 if (appState is com.bit.models.state.AppState.Error) {
                     val errorState = appState as com.bit.models.state.AppState.Error
                     if (errorState.message != dismissedError) {
@@ -257,16 +264,19 @@ fun HomeScreen(
                             technicalLogs = errorState.technicalLogs,
                             onDismiss = {
                                 dismissedError = errorState.message
-                                com.bit.state.AppStateManager.clearError()
+                                com.bit.state.AppStateManager.clearError(clearCurrentModel = true)
+                                chatViewModel.clearError()
                             },
                             onNavigateToModelStore = {
                                 dismissedError = errorState.message
-                                com.bit.state.AppStateManager.clearError()
+                                com.bit.state.AppStateManager.clearError(clearCurrentModel = true)
+                                chatViewModel.clearError()
                                 onStoreButtonClicked("models")
                             },
                             onNavigateToSettings = {
                                 dismissedError = errorState.message
-                                com.bit.state.AppStateManager.clearError()
+                                com.bit.state.AppStateManager.clearError(clearCurrentModel = true)
+                                chatViewModel.clearError()
                                 onSettingsClick()
                             }
                         )

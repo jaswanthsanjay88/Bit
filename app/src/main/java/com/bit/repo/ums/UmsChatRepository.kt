@@ -210,6 +210,7 @@ class UmsChatRepository(private val ums: UnifiedMemorySystem) {
         val b = UmsRecord.create()
         if (existingId != 0) b.id(existingId)
         b.putString(Tags.Message.MSG_ID, msgId)
+        if (parentId != null) b.putString(Tags.Message.PARENT_ID, parentId)
         b.putString(Tags.Message.CHAT_ID, chatId)
         b.putInt(Tags.Message.ROLE, if (role == Role.User) 0 else 1)
         b.putString(Tags.Message.CONTENT_TYPE, content.contentType.name)
@@ -225,6 +226,13 @@ class UmsChatRepository(private val ums: UnifiedMemorySystem) {
         if (ragResults != null) b.putString(Tags.Message.RAG_RESULTS, json.encodeToString(ragResults))
         if (pluginMetrics != null) b.putString(Tags.Message.PLUGIN_METRICS, json.encodeToString(pluginMetrics))
         if (toolChainSteps != null) b.putString(Tags.Message.TOOL_CHAIN_STEPS, json.encodeToString(toolChainSteps))
+        if (executionSteps != null) {
+            val cappedSteps = executionSteps.steps.takeLast(100).map { step ->
+                if (step.detail != null && step.detail.length > 600) step.copy(detail = step.detail.take(600)) else step
+            }
+            val toSave = executionSteps.copy(steps = cappedSteps)
+            b.putString(Tags.Message.EXECUTION_STEPS, json.encodeToString(toSave))
+        }
         if (agentPlan != null) b.putString(Tags.Message.AGENT_PLAN, agentPlan)
         if (agentSummary != null) b.putString(Tags.Message.AGENT_SUMMARY, agentSummary)
         if (researchTrace != null) b.putString(Tags.Message.RESEARCH_TRACE, json.encodeToString(researchTrace))
@@ -251,6 +259,7 @@ class UmsChatRepository(private val ums: UnifiedMemorySystem) {
 
         return Messages(
             msgId = getString(Tags.Message.MSG_ID) ?: "",
+            parentId = getString(Tags.Message.PARENT_ID),
             role = if (roleInt == 0) Role.User else Role.Assistant,
             content = MessageContent(
                 contentType = contentType,
@@ -280,6 +289,9 @@ class UmsChatRepository(private val ums: UnifiedMemorySystem) {
             },
             toolChainSteps = getString(Tags.Message.TOOL_CHAIN_STEPS)?.let {
                 runCatching { json.decodeFromString<List<ToolChainStepData>>(it) }.getOrNull()
+            },
+            executionSteps = getString(Tags.Message.EXECUTION_STEPS)?.let {
+                runCatching { json.decodeFromString<com.bit.agent.harness.event.ThinkingUi>(it) }.getOrNull()
             },
             agentPlan = getString(Tags.Message.AGENT_PLAN),
             agentSummary = getString(Tags.Message.AGENT_SUMMARY),

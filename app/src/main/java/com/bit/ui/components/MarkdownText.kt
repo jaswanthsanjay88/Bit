@@ -70,12 +70,20 @@ import com.bit.global.Standards
 val LocalCodeHighlightEnabled = compositionLocalOf { true }
 
 /**
+ * CompositionLocal providing an optional click handler for citation markers [n].
+ * When invoked with the 1-based index n, the UI can expand the thinking block
+ * and highlight the corresponding source chip.
+ */
+val LocalCitationHandler = compositionLocalOf<((Int) -> Unit)?> { null }
+
+/**
  * Colors extracted once from MaterialTheme — passed to non-composable formatters
  * to avoid reading theme state inside every Text().
  */
 @Immutable
 data class InlineColors(
     val codeBg: Color,
+    val codeTextColor: Color = Color.Unspecified,
     val highlightBg: Color,
     val mathColor: Color
 )
@@ -91,12 +99,15 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier) {
         com.bit.ui.components.markdown.MarkdownPreprocessor.toRenderableMarkdownText(text) 
     }
     val parsedContent = remember(processedText) { parseMarkdown(processedText) }
-    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+    val isDark = com.bit.ui.theme.LocalDarkMode.current
+    val surfaceContainer = MaterialTheme.colorScheme.surfaceContainerHighest
+    val onSurface = MaterialTheme.colorScheme.onSurface
     val primary = MaterialTheme.colorScheme.primary
-    val colors = remember(surfaceVariant, primary) {
+    val colors = remember(isDark, surfaceContainer, onSurface, primary) {
         InlineColors(
-            codeBg = surfaceVariant.copy(alpha = 0.5f),
-            highlightBg = primary.copy(alpha = 0.3f),
+            codeBg = if (isDark) surfaceContainer.copy(alpha = 0.65f) else surfaceContainer.copy(alpha = 0.85f),
+            codeTextColor = onSurface,
+            highlightBg = primary.copy(alpha = 0.25f),
             mathColor = primary
         )
     }
@@ -125,11 +136,13 @@ fun LazyListScope.lazyMarkdownItems(
         contentType = { index -> elements[index]::class.simpleName }
     ) { index ->
         val element = elements[index]
+        val isDark = com.bit.ui.theme.LocalDarkMode.current
         val scheme = MaterialTheme.colorScheme
-        val colors = remember(scheme) {
+        val colors = remember(isDark, scheme) {
             InlineColors(
-                codeBg = scheme.surfaceVariant.copy(alpha = 0.5f),
-                highlightBg = scheme.primary.copy(alpha = 0.3f),
+                codeBg = if (isDark) scheme.surfaceContainerHighest.copy(alpha = 0.65f) else scheme.surfaceContainerHighest.copy(alpha = 0.85f),
+                codeTextColor = scheme.onSurface,
+                highlightBg = scheme.primary.copy(alpha = 0.25f),
                 mathColor = scheme.primary
             )
         }
@@ -414,7 +427,11 @@ private fun findStarClose(text: String, from: Int): Int {
 }
 
 /** Pure function — no @Composable, no MaterialTheme reads. */
-internal fun buildInlineFormatted(text: String, colors: InlineColors): AnnotatedString = buildAnnotatedString {
+internal fun buildInlineFormatted(
+    text: String,
+    colors: InlineColors,
+    onCitationClick: ((Int) -> Unit)? = null
+): AnnotatedString = buildAnnotatedString {
     var i = 0
     val chars = text.toCharArray()
     while (i < chars.size) {
@@ -424,7 +441,7 @@ internal fun buildInlineFormatted(text: String, colors: InlineColors): Annotated
                 val end = text.indexOf("***", i + 3)
                 if (end != -1) {
                     withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) {
-                        append(buildInlineFormatted(text.substring(i + 3, end), colors))
+                        append(buildInlineFormatted(text.substring(i + 3, end), colors, onCitationClick))
                     }; i = end + 3
                 } else { append(chars[i]); i++ }
             }
@@ -433,7 +450,7 @@ internal fun buildInlineFormatted(text: String, colors: InlineColors): Annotated
                 val end = findStarClose(text, i + 2)
                 if (end != -1) {
                     withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(buildInlineFormatted(text.substring(i + 2, end), colors))
+                        append(buildInlineFormatted(text.substring(i + 2, end), colors, onCitationClick))
                     }; i = end + 2
                 } else { append(chars[i]); i++ }
             }
@@ -442,7 +459,7 @@ internal fun buildInlineFormatted(text: String, colors: InlineColors): Annotated
                 val end = text.indexOf("__", i + 2)
                 if (end != -1) {
                     withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(buildInlineFormatted(text.substring(i + 2, end), colors))
+                        append(buildInlineFormatted(text.substring(i + 2, end), colors, onCitationClick))
                     }; i = end + 2
                 } else { append(chars[i]); i++ }
             }
@@ -451,7 +468,7 @@ internal fun buildInlineFormatted(text: String, colors: InlineColors): Annotated
                 val end = text.indexOf('*', i + 1)
                 if (end != -1) {
                     withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
-                        append(buildInlineFormatted(text.substring(i + 1, end), colors))
+                        append(buildInlineFormatted(text.substring(i + 1, end), colors, onCitationClick))
                     }; i = end + 1
                 } else { append(chars[i]); i++ }
             }
@@ -460,7 +477,7 @@ internal fun buildInlineFormatted(text: String, colors: InlineColors): Annotated
                 val end = text.indexOf('_', i + 1)
                 if (end != -1) {
                     withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
-                        append(buildInlineFormatted(text.substring(i + 1, end), colors))
+                        append(buildInlineFormatted(text.substring(i + 1, end), colors, onCitationClick))
                     }; i = end + 1
                 } else { append(chars[i]); i++ }
             }
@@ -469,7 +486,7 @@ internal fun buildInlineFormatted(text: String, colors: InlineColors): Annotated
                 val end = text.indexOf("~~", i + 2)
                 if (end != -1) {
                     withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
-                        append(buildInlineFormatted(text.substring(i + 2, end), colors))
+                        append(buildInlineFormatted(text.substring(i + 2, end), colors, onCitationClick))
                     }; i = end + 2
                 } else { append(chars[i]); i++ }
             }
@@ -477,7 +494,23 @@ internal fun buildInlineFormatted(text: String, colors: InlineColors): Annotated
             chars[i] == '`' -> {
                 val end = text.indexOf('`', i + 1)
                 if (end != -1) {
-                    withStyle(SpanStyle(fontFamily = MapleMonoFontFamily, background = colors.codeBg, fontSize = 12.sp)) {
+                    val codeSpanStyle = if (colors.codeTextColor != Color.Unspecified) {
+                        SpanStyle(
+                            fontFamily = MapleMonoFontFamily,
+                            background = colors.codeBg,
+                            color = colors.codeTextColor,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    } else {
+                        SpanStyle(
+                            fontFamily = MapleMonoFontFamily,
+                            background = colors.codeBg,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    withStyle(codeSpanStyle) {
                         append(" ${text.substring(i + 1, end)} ")
                     }; i = end + 1
                 } else { append(chars[i]); i++ }
@@ -509,19 +542,29 @@ internal fun buildInlineFormatted(text: String, colors: InlineColors): Annotated
                     i = end + 1
                 } else { append(chars[i]); i++ }
             }
-            // Citation `[1]`, `[2]`, `[id]`
+            // Citation `[1]`, `[2]`, `[id]` (plain superscript with tap-to-expand / highlight)
             chars[i] == '[' && text.indexOf(']', i + 1).let { it in (i + 2)..(i + 6) } -> {
                 val closeIdx = text.indexOf(']', i + 1)
                 val citation = text.substring(i + 1, closeIdx)
-                if (citation.all { it.isDigit() }) {
+                val citationNum = citation.toIntOrNull()
+                if (citationNum != null) {
+                    val startPos = length
                     withStyle(SpanStyle(
-                        fontSize = 10.sp,
+                        fontSize = 10.5.sp,
                         color = colors.mathColor,
-                        background = colors.codeBg,
                         baselineShift = androidx.compose.ui.text.style.BaselineShift.Superscript,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.SemiBold
                     )) {
                         append("[$citation]")
+                    }
+                    if (onCitationClick != null) {
+                        addLink(
+                            androidx.compose.ui.text.LinkAnnotation.Clickable("citation_$citationNum") {
+                                onCitationClick(citationNum)
+                            },
+                            startPos,
+                            length
+                        )
                     }
                     i = closeIdx + 1
                 } else {
@@ -541,8 +584,12 @@ internal fun buildInlineFormatted(text: String, colors: InlineColors): Annotated
 }
 
 @Composable
-private fun cachedInlineFormatting(text: String, colors: InlineColors): AnnotatedString =
-    remember(text, colors) { buildInlineFormatted(text, colors) }
+private fun cachedInlineFormatting(text: String, colors: InlineColors): AnnotatedString {
+    val citationHandler = LocalCitationHandler.current
+    return remember(text, colors, citationHandler) {
+        buildInlineFormatted(text, colors, citationHandler)
+    }
+}
 
 // ── Element renderers ──
 
@@ -592,7 +639,7 @@ private fun BodyText(text: String, colors: InlineColors) {
     Text(
         text = cachedInlineFormatting(text, colors),
         style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 23.5.sp),
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.98f),
         lineHeight = 23.5.sp,
         letterSpacing = 0.15.sp
     )
@@ -613,7 +660,7 @@ private fun BulletPointView(text: String, level: Int, colors: InlineColors) {
         Text(
             text = cachedInlineFormatting(text, colors),
             style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 23.5.sp),
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.98f),
             lineHeight = 23.5.sp,
             letterSpacing = 0.15.sp,
             modifier = Modifier.weight(1f)
@@ -631,13 +678,13 @@ private fun NumberedPointView(text: String, number: String, colors: InlineColors
             text = "$number.",
             style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.90f),
             modifier = Modifier.padding(top = 1.dp)
         )
         Text(
             text = cachedInlineFormatting(text, colors),
             style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 23.5.sp),
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.98f),
             lineHeight = 23.5.sp,
             letterSpacing = 0.15.sp,
             modifier = Modifier.weight(1f)
@@ -665,7 +712,7 @@ private fun BlockQuoteView(text: String, level: Int, colors: InlineColors) {
         Text(
             text = cachedInlineFormatting(text, colors),
             style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 23.5.sp),
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.98f),
             lineHeight = 23.5.sp,
             modifier = Modifier.weight(1f)
         )
@@ -678,11 +725,12 @@ private fun InlineCodeView(text: String) {
         text = text,
         fontFamily = MapleMonoFontFamily,
         fontSize = 12.sp,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.90f),
+        fontWeight = FontWeight.Medium,
+        color = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier
             .clip(MaterialTheme.shapes.extraSmall)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            .padding(horizontal = 5.dp, vertical = 1.dp)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.85f))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
     )
 }
 
@@ -694,12 +742,13 @@ private fun CodeBlockView(code: String, language: String) {
         mutableStateOf(true)
     }
     val context = LocalContext.current
+    val isDark = com.bit.ui.theme.LocalDarkMode.current
 
-    val containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-    val headerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+    val containerColor = if (isDark) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer
+    val headerColor = if (isDark) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surfaceContainerHigh
     val contentColor = MaterialTheme.colorScheme.onSurface
-    val mutedColor = contentColor.copy(alpha = 0.6f)
-    val borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+    val mutedColor = contentColor.copy(alpha = 0.75f)
+    val borderColor = if (isDark) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
     val shape = RoundedCornerShape(14.dp)
     val lineCount = remember(code) { code.count { it == '\n' } + 1 }
 
@@ -740,7 +789,7 @@ private fun CodeBlockView(code: String, language: String) {
                 Text(
                     text = "$lineCount ${if (lineCount == 1) "line" else "lines"}",
                     fontSize = 10.sp,
-                    color = contentColor.copy(alpha = 0.4f)
+                    color = contentColor.copy(alpha = 0.5f)
                 )
             }
 
@@ -777,7 +826,7 @@ private fun CodeBlockView(code: String, language: String) {
             Column {
                 HorizontalDivider(color = borderColor)
                 val syntaxTheme = resolveSyntaxTheme()
-                val highlighted = remember(code, language) {
+                val highlighted = remember(code, language, syntaxTheme) {
                     if (language.isNotBlank()) highlightCode(code, language, syntaxTheme) else null
                 }
                 Box(
@@ -791,7 +840,7 @@ private fun CodeBlockView(code: String, language: String) {
                         fontFamily = MapleMonoFontFamily,
                         fontSize = 12.5.sp,
                         lineHeight = 19.sp,
-                        color = contentColor.copy(alpha = 0.92f)
+                        color = if (syntaxTheme is OneLightTheme) Color(0xFF24292F) else contentColor.copy(alpha = 0.95f)
                     )
                 }
             }
@@ -804,7 +853,7 @@ private fun CodeBlockView(code: String, language: String) {
                 fontFamily = MapleMonoFontFamily,
                 fontSize = 12.sp,
                 lineHeight = 17.sp,
-                color = contentColor.copy(alpha = 0.7f),
+                color = contentColor.copy(alpha = 0.85f),
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier

@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class KnowledgeItemType {
     PDF,
@@ -698,7 +699,7 @@ class RagViewModel @Inject constructor(
 
     // ==================== Query with Display Results ====================
 
-    suspend fun queryAndStoreResults(query: String, topK: Int = 5): String {
+    suspend fun queryAndStoreResults(query: String, topK: Int = 5): String = withContext(Dispatchers.IO) {
         val displayResults = mutableListOf<RagQueryDisplayResult>()
         val contextBuilder = StringBuilder()
 
@@ -752,12 +753,12 @@ class RagViewModel @Inject constructor(
 
         if (contextBuilder.isBlank()) {
             Log.w("RagViewModel", "No RAG results found for query: $query")
-            return ""
+            return@withContext ""
         }
 
         val finalContext = "### Relevant Knowledge:\n${contextBuilder.toString().trim()}"
         Log.d("RagViewModel", "Unified RAG context: ${finalContext.length} chars, ${sortedDisplay.size} results")
-        return finalContext
+        finalContext
     }
 
     // ==================== Secure RAG Creation ====================

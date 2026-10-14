@@ -93,7 +93,6 @@ object LlmModelWorker {
             _serviceFlow.value = ILLMService.Stub.asInterface(binder)
             isBinding = false
             Log.i(TAG, "Service connected to inference process")
-            restoreSessionAfterCrash()
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -180,9 +179,25 @@ object LlmModelWorker {
         withTimeout(10_000) { _serviceFlow.first { it != null } }
     }
 
+    private var lastCrashTime = 0L
+    private var crashRecoveryCount = 0
+
     private fun triggerAutoRecovery() {
+        val now = System.currentTimeMillis()
+        if (now - lastCrashTime < 15_000) {
+            crashRecoveryCount++
+        } else {
+            crashRecoveryCount = 1
+        }
+        lastCrashTime = now
+
+        if (crashRecoveryCount > 2) {
+            Log.w(TAG, "Suppressed auto-recovery Service bind: too many crashes ($crashRecoveryCount within window)")
+            return
+        }
+
         val context = boundContext ?: return
-        Log.i(TAG, "Triggering auto-recovery Service bind...")
+        Log.i(TAG, "Triggering auto-recovery Service bind (attempt $crashRecoveryCount)...")
         kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
             kotlinx.coroutines.delay(1000)
             bindService(context)
@@ -191,64 +206,35 @@ object LlmModelWorker {
 
     private fun handleInferenceCrash(reason: String) {
         val context = boundContext
+        val crashedModel = lastLoadedModel
+        val crashedConfig = lastLoadedConfig
+
+        // Immediately clear active model state so auto-recovery NEVER loops reloading a crashing model!
+        lastLoadedModel = null
+        lastLoadedConfig = null
+        _isGgufModelLoaded.value = false
+        _isDiffusionModelLoaded.value = false
+        _currentGgufModelId.value = null
+        ActiveModelSession.clear()
+
         kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
             val report = com.bit.util.CrashLogCollector.captureCrashReport(
                 context = context,
-                model = lastLoadedModel,
-                config = lastLoadedConfig,
+                model = crashedModel,
+                config = crashedConfig,
                 customMessage = reason
             )
             withContext(Dispatchers.Main) {
                 com.bit.state.AppStateManager.setError(
-                    message = "AI inference process crashed unexpectedly. Diagnostic report is ready to copy.",
-                    technicalLogs = report
+                    message = "AI inference process stopped unexpectedly. Diagnostic report is ready to copy.",
+                    technicalLogs = report,
+                    modelName = crashedModel?.modelName
                 )
             }
         }
         triggerAutoRecovery()
     }
 
-    private fun restoreSessionAfterCrash() {
-        val model = lastLoadedModel
-        val config = lastLoadedConfig
-        if (model != null && config != null) {
-            Log.i(TAG, "Attempting to auto-restore crashed model session in background: ${model.modelName}")
-            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-                val context = boundContext ?: return@launch
-                try {
-                    // Do not overwrite user-facing error state with loading spinner
-                    val currentAppState = com.bit.state.AppStateManager.appState.value
-                    if (currentAppState !is com.bit.models.state.AppState.Error) {
-                        com.bit.state.AppStateManager.setLoadingModel(model.modelName)
-                    }
-                    val success = loadGgufModel(model, config)
-                    if (success) {
-                        // Restore performance optimizations on restart
-                        try {
-                            val cacheDir = AppPaths.promptCache(context).also { it.mkdirs() }
-                            setPromptCacheDirGguf(cacheDir.absolutePath)
-                            val speedMode = AppSettingsDataStore(context).speedModeEnabled.first()
-                            setSpeculativeDecodingGguf(speedMode)
-                            warmUpGguf()
-                            Log.d(TAG, "Optimizations re-applied after crash recovery")
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Failed to re-apply optimizations on recovery: ${e.message}")
-                        }
-
-                        // Only transition appState if user is not currently viewing an active error popup
-                        if (com.bit.state.AppStateManager.appState.value !is com.bit.models.state.AppState.Error) {
-                            com.bit.state.AppStateManager.setModelLoaded(model.modelName)
-                        }
-                        Log.i(TAG, "Auto-recovery successful for model: ${model.modelName}")
-                    } else {
-                        Log.w(TAG, "Background auto-restore of model failed")
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Auto-recovery failed", e)
-                }
-            }
-        }
-    }
 
     /**
      * Diagnostic simulation of a native engine crash.

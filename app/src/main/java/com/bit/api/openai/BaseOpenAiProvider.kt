@@ -40,12 +40,19 @@ abstract class BaseOpenAiProvider : LlmProvider {
         emit: suspend (StreamEvent) -> Unit
     ) {
         delta.reasoningContent?.let { reasoning ->
-            if (reasoning.isNotEmpty() && config.thinkingEnabled) {
+            if (reasoning.isNotEmpty()) {
                 emit(StreamEvent.ThoughtChunk(reasoning))
             }
         }
         delta.content?.let { content ->
-            if (content.isNotEmpty()) emit(StreamEvent.TextChunk(content))
+            if (content.isNotEmpty()) {
+                thinkParser.feed(
+                    content = content,
+                    thinkingEnabled = true,
+                    onText = { emit(StreamEvent.TextChunk(it)) },
+                    onThought = { emit(StreamEvent.ThoughtChunk(it)) }
+                )
+            }
         }
     }
 
@@ -89,7 +96,7 @@ abstract class BaseOpenAiProvider : LlmProvider {
 
         try {
             val requestBodyJson = json.encodeToString(OpenAiChatRequest.serializer(), request)
-            Log.d("AgoraAPI", "[$name] REQ -> ${endpointUrls.first()} | model=${config.modelId} | msgs=${apiMessages.size} | tools=${config.tools?.size ?: 0}")
+            Log.d("BitAPI", "[$name] REQ -> ${endpointUrls.first()} | model=${config.modelId} | msgs=${apiMessages.size} | tools=${config.tools?.size ?: 0}")
 
             val headers = mutableMapOf("Content-Type" to "application/json")
             if (config.apiKey.isNotBlank()) headers["Authorization"] = "Bearer ${config.apiKey}"
@@ -113,7 +120,7 @@ abstract class BaseOpenAiProvider : LlmProvider {
                     } catch (e: Exception) {
                         val retryable = e.asRetryableTransportError()
                         if (retryable != null && attempt < maxAttempts) {
-                            Log.w("AgoraAPI", "[$name] Transport error on attempt $attempt/$maxAttempts (${e.javaClass.simpleName}), retrying...")
+                            Log.w("BitAPI", "[$name] Transport error on attempt $attempt/$maxAttempts (${e.javaClass.simpleName}), retrying...")
                             emit(StreamEvent.Retrying(attempt, ProviderRetryPolicy.MAX_RETRIES))
                             delay(ProviderRetryPolicy.delayMillis(attempt))
                             retryScheduled = true
@@ -129,16 +136,16 @@ abstract class BaseOpenAiProvider : LlmProvider {
                             val errorRaw = handle.errorBody ?: "Unknown error"
                             val hasV1Fallback = endpointIndex + 1 < endpointUrls.size
                             if (hasV1Fallback) {
-                                Log.w("AgoraAPI", "[$name] ${handle.code} at $endpointUrl, retrying with ${endpointUrls[endpointIndex + 1]}")
+                                Log.w("BitAPI", "[$name] ${handle.code} at $endpointUrl, retrying with ${endpointUrls[endpointIndex + 1]}")
                                 endpointIndex++
                                 continue
                             }
 
-                            Log.e("AgoraAPI", "[$name] ERR ${handle.code} at $endpointUrl: $errorRaw")
+                            Log.e("BitAPI", "[$name] ERR ${handle.code} at $endpointUrl: $errorRaw")
 
                             if (handle.code in retryableStatusCodes && attempt < maxAttempts) {
                                 val retryDelayMs = ProviderRetryPolicy.delayMillis(attempt)
-                                Log.w("AgoraAPI", "[$name] Transient error ${handle.code} on attempt $attempt/$maxAttempts, retrying in ${retryDelayMs}ms...")
+                                Log.w("BitAPI", "[$name] Transient error ${handle.code} on attempt $attempt/$maxAttempts, retrying in ${retryDelayMs}ms...")
                                 emit(StreamEvent.Retrying(attempt, ProviderRetryPolicy.MAX_RETRIES))
                                 delay(retryDelayMs)
                                 retryScheduled = true
@@ -190,6 +197,8 @@ abstract class BaseOpenAiProvider : LlmProvider {
             }
         }
 
+        var latestFinishReason: String? = null
+
         while (currentCoroutineContext().isActive) {
             val line = try {
                 handle.readLine()
@@ -205,6 +214,10 @@ abstract class BaseOpenAiProvider : LlmProvider {
             try {
                 val response = json.decodeFromString<OpenAiStreamResponse>(jsonStr)
                 val choice = response.choices?.firstOrNull()
+
+                choice?.finishReason?.let { fr ->
+                    if (fr.isNotEmpty()) latestFinishReason = fr
+                }
 
                 choice?.delta?.let { delta ->
                     parseDeltaContent(delta, config, thinkParser) { customEmitter(it) }
@@ -234,7 +247,7 @@ abstract class BaseOpenAiProvider : LlmProvider {
 
                 response.usage?.let { usage ->
                     val reasoning = usage.completionTokensDetails?.reasoningTokens ?: 0
-                    Log.d("AgoraAPI", "Usage: prompt=${usage.promptTokens}, completion=${usage.completionTokens}, reasoning=$reasoning, total=${usage.totalTokens}")
+                    Log.d("BitAPI", "Usage: prompt=${usage.promptTokens}, completion=${usage.completionTokens}, reasoning=$reasoning, total=${usage.totalTokens}")
                     emit(
                         StreamEvent.UsageUpdate(
                             promptTokens = usage.promptTokens,
@@ -247,8 +260,18 @@ abstract class BaseOpenAiProvider : LlmProvider {
                     )
                 }
             } catch (e: Exception) {
-                Log.e("AgoraAPI", "Parse error: ${e.message}", e)
+                Log.e("BitAPI", "Parse error: ${e.message}", e)
             }
+        }
+
+        // Flush any remaining tool calls if provider finished stream without finishReason == "tool_calls"
+        if (pendingToolCalls.isNotEmpty()) {
+            val calls = pendingToolCalls.values.filter { it.name.isNotEmpty() }.map {
+                StreamEvent.ToolCallRequest(it.id, it.name, it.args.toString())
+            }
+            pendingToolCalls.clear()
+            if (calls.size == 1) emit(calls.first())
+            else if (calls.size > 1) emit(StreamEvent.ToolCallsRequest(calls))
         }
 
         thinkParser.flush(
@@ -259,6 +282,8 @@ abstract class BaseOpenAiProvider : LlmProvider {
         toolParser.flush(
             onText = { emit(StreamEvent.TextChunk(it)) }
         )
+
+        emit(StreamEvent.Finish(finishReason = latestFinishReason, httpStatusCode = handle.code))
 
         if (!currentCoroutineContext().isActive) {
             throw CancellationException("Stream cancelled")
@@ -313,7 +338,7 @@ abstract class BaseOpenAiProvider : LlmProvider {
                 val responseText = HttpClient.fetchModels(endpointUrl, headers)
                 if (responseText == null) {
                     if (index < endpointUrls.lastIndex) {
-                        Log.w("AgoraAPI", "Failed to fetch $name models from $endpointUrl; retrying ${endpointUrls[index + 1]}")
+                        Log.w("BitAPI", "Failed to fetch $name models from $endpointUrl; retrying ${endpointUrls[index + 1]}")
                     }
                     continue
                 }
@@ -324,19 +349,19 @@ abstract class BaseOpenAiProvider : LlmProvider {
                 } catch (e: Exception) {
                     lastParseError = e
                     if (index < endpointUrls.lastIndex) {
-                        Log.w("AgoraAPI", "Failed to parse $name models from $endpointUrl; retrying ${endpointUrls[index + 1]}")
+                        Log.w("BitAPI", "Failed to parse $name models from $endpointUrl; retrying ${endpointUrls[index + 1]}")
                     }
                 }
             }
 
             if (lastParseError != null) {
-                Log.e("AgoraAPI", "Failed to parse $name models", lastParseError)
+                Log.e("BitAPI", "Failed to parse $name models", lastParseError)
             } else {
-                Log.e("AgoraAPI", "Failed to fetch $name models: empty response")
+                Log.e("BitAPI", "Failed to fetch $name models: empty response")
             }
             emptyList()
         } catch (e: Exception) {
-            Log.e("AgoraAPI", "Failed to fetch $name models", e)
+            Log.e("BitAPI", "Failed to fetch $name models", e)
             emptyList()
         }
     }

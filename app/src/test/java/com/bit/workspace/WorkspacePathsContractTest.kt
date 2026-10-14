@@ -80,4 +80,24 @@ class WorkspacePathsContractTest {
         val terminalPath = WorkspacePaths.terminalPath(appFilesDir, hostFile, rootName)
         assertEquals("/workspace/assets/logo.png", terminalPath)
     }
+
+    @Test
+    fun testBundledReferences_syncedAndResolved() {
+        val rootName = "project_refs_test"
+        // Setup bundled skills reference source
+        val skillsRefDir = File(appFilesDir, "skills/bit-workspace-shell/references")
+        skillsRefDir.mkdirs()
+        File(skillsRefDir, "alpine.md").writeText("# Alpine Guide")
+        File(skillsRefDir, "debian.md").writeText("# Debian Guide")
+
+        val rootDir = WorkspacePaths.root(appFilesDir, rootName)
+        val alpineInRoot = File(rootDir, "references/alpine.md")
+        assertTrue("alpine.md must be synced to workspace references", alpineInRoot.exists())
+        assertEquals("# Alpine Guide", alpineInRoot.readText())
+
+        // Test resolution of reference path
+        val resolved = WorkspacePaths.resolveFile(appFilesDir, "references/alpine.md", rootName)
+        assertEquals(alpineInRoot.canonicalPath, resolved.canonicalPath)
+        assertTrue(resolved.exists())
+    }
 }

@@ -110,7 +110,17 @@ open class AgentToolRegistry {
             add(TimeInfoTool())
             add(ClipboardTool(ctx))
 
-            // 2. Workspace Tools
+            // 2. Coding Tools (Tier 0 & Tier 1)
+            add(com.bit.agent.harness.coding.GrepTool(ctx))
+            add(com.bit.agent.harness.coding.GlobTool(ctx))
+            add(com.bit.agent.harness.coding.ReadSliceTool(ctx))
+            add(com.bit.agent.harness.coding.EditFileSliceTool(ctx))
+            add(com.bit.agent.harness.coding.SearchCodeTool(ctx))
+            add(com.bit.agent.harness.coding.ListDirectoryTool(ctx))
+            add(com.bit.agent.harness.coding.GitDiffTool(ctx))
+            add(com.bit.agent.harness.coding.OutlineSymbolsTool(ctx))
+
+            // 3. Workspace Legacy Tools
             add(WorkspaceReadFileTool(ctx))
             add(WorkspaceWriteFileTool(ctx))
             add(WorkspaceEditFileTool(ctx))
@@ -121,7 +131,7 @@ open class AgentToolRegistry {
             add(StrReplaceEditorTool(ctx))
             add(TodoWriteTool())
 
-            // 3. Memory Vault Tools (UMS Single Source of Truth & Local File Vault)
+            // 4. Memory Vault Tools (UMS Single Source of Truth & Local File Vault)
             aiMemoryWriter?.let { add(CreateMemoryTool(it)) }
             memoryNoteDao?.let { add(QueryMemoryTool(it)) }
             aiMemoryWriter?.let { add(UpdateMemoryTool(it)) }
@@ -172,6 +182,13 @@ open class AgentToolRegistry {
     fun definitions(): List<ToolDefinition> = tools().map { it.definition }
 
     fun names(): List<String> = tools().map { it.definition.function.name }
+
+    fun toolsForModeAndTier(
+        mode: com.bit.agent.harness.coding.AgentExecutionMode,
+        tier: com.bit.agent.harness.coding.ToolTier
+    ): List<AgentTool> {
+        return com.bit.agent.harness.coding.ToolPromotionPolicy.getActiveTools(tools(), mode, tier)
+    }
 
     fun refresh() {
         cachedTools = null

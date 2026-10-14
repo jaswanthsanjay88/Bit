@@ -38,24 +38,29 @@ class OpenRouterProvider : BaseOpenAiProvider() {
         thinkParser: StreamingThinkTagParser,
         emit: suspend (StreamEvent) -> Unit
     ) {
-        if (config.thinkingEnabled) {
-            delta.reasoningDetails?.forEach { detail ->
-                if (detail.type == "reasoning.text" || detail.type == "text") {
-                    detail.text?.let {
-                        if (it.isNotEmpty()) {
-                            emit(StreamEvent.ThoughtChunk(it, extractThoughtTitle(it)))
-                        }
+        delta.reasoningDetails?.forEach { detail ->
+            if (detail.type == "reasoning.text" || detail.type == "text") {
+                detail.text?.let {
+                    if (it.isNotEmpty()) {
+                        emit(StreamEvent.ThoughtChunk(it, extractThoughtTitle(it)))
                     }
                 }
             }
-            delta.reasoningContent?.let {
-                if (it.isNotEmpty()) {
-                    emit(StreamEvent.ThoughtChunk(it, extractThoughtTitle(it)))
-                }
+        }
+        delta.reasoningContent?.let {
+            if (it.isNotEmpty()) {
+                emit(StreamEvent.ThoughtChunk(it, extractThoughtTitle(it)))
             }
         }
         delta.content?.let { content ->
-            if (content.isNotEmpty()) emit(StreamEvent.TextChunk(content))
+            if (content.isNotEmpty()) {
+                thinkParser.feed(
+                    content = content,
+                    thinkingEnabled = true,
+                    onText = { emit(StreamEvent.TextChunk(it)) },
+                    onThought = { emit(StreamEvent.ThoughtChunk(it)) }
+                )
+            }
         }
     }
 }

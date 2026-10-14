@@ -160,12 +160,6 @@
             tools:node="merge"
             tools:targetApi="29" />
 
-        <service
-            android:name=".service.BitAgentService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="dataSync"
-            tools:targetApi="29" />
 
         <service
             android:name=".service.WebServerService"

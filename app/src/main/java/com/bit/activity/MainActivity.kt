@@ -92,9 +92,10 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             NeuroVerseTheme {
-                androidx.compose.runtime.CompositionLocalProvider(
-                    com.bit.ui.theme.LocalBitHaptics provides com.bit.ui.theme.rememberBitHaptics(enabled = true)
-                ) {
+                com.bit.ui.motion.ProvideBitMotionPolicy {
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        com.bit.ui.theme.LocalBitHaptics provides com.bit.ui.theme.rememberBitHaptics(enabled = true)
+                    ) {
                 val context = this@MainActivity
 
                 // Compute target destination from onboarding state + installed models
@@ -191,13 +192,14 @@ class MainActivity : ComponentActivity() {
                     needsMigration = needsMigration
                 )
 
-                if (betaStatus is com.bit.util.BetaStatus.Expired) {
-                    com.bit.ui.components.BetaExpiredDialog(status = betaStatus)
+                    if (betaStatus is com.bit.util.BetaStatus.Expired) {
+                        com.bit.ui.components.BetaExpiredDialog(status = betaStatus)
+                    }
                 }
             }
         }
     }
-    }
+}
 
     override fun onDestroy() {
         super.onDestroy()
@@ -259,6 +261,7 @@ fun AppNavigation(
     // Activity-scoped ViewModels for shared state between Chat and Personas
     val chatViewModel: ChatViewModel = hiltViewModel()
     val llmModelViewModel: LLMModelViewModel = hiltViewModel()
+    val allowSpatial = com.bit.ui.motion.LocalBitMotionPolicy.current.allowSpatialTransitions
 
     SharedTransitionLayout {
         androidx.compose.runtime.CompositionLocalProvider(
@@ -269,42 +272,10 @@ fun AppNavigation(
         NavHost(
             navController = navController,
             startDestination = startDestination,
-            enterTransition = {
-                slideIntoContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                    animationSpec = tween(MotionDuration.enter, easing = MotionEasing.standard),
-                    initialOffset = { (it * 0.22f).toInt() }
-                ) + fadeIn(
-                    animationSpec = tween(MotionDuration.enter, easing = MotionEasing.standard)
-                )
-            },
-            exitTransition = {
-                slideOutOfContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                    animationSpec = tween(MotionDuration.exit, easing = MotionEasing.standard),
-                    targetOffset = { -(it * 0.12f).toInt() }
-                ) + fadeOut(
-                    animationSpec = tween(MotionDuration.exit, easing = MotionEasing.standard)
-                )
-            },
-            popEnterTransition = {
-                slideIntoContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.End,
-                    animationSpec = tween(MotionDuration.enter, easing = MotionEasing.standard),
-                    initialOffset = { -(it * 0.18f).toInt() }
-                ) + fadeIn(
-                    animationSpec = tween(MotionDuration.enter, easing = MotionEasing.standard)
-                )
-            },
-            popExitTransition = {
-                slideOutOfContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.End,
-                    animationSpec = tween(MotionDuration.exit, easing = MotionEasing.standard),
-                    targetOffset = { (it * 0.22f).toInt() }
-                ) + fadeOut(
-                    animationSpec = tween(MotionDuration.exit, easing = MotionEasing.standard)
-                )
-            }
+            enterTransition = { com.bit.ui.theme.Motion.pageEnterTransition(this, allowSpatial) },
+            exitTransition = { com.bit.ui.theme.Motion.pageExitTransition(this, allowSpatial) },
+            popEnterTransition = { com.bit.ui.theme.Motion.pagePopEnterTransition(this, allowSpatial) },
+            popExitTransition = { com.bit.ui.theme.Motion.pagePopExitTransition(this, allowSpatial) }
         ) {
 
             // ============ ONBOARDING SCREENS ============
@@ -372,25 +343,10 @@ fun AppNavigation(
 
             composable(
                 route = Screen.OnboardingSetup.route,
-                enterTransition = {
-                    slideIntoContainer(
-                        towards = AnimatedContentTransitionScope.SlideDirection.Up,
-                        animationSpec = tween(MotionDuration.enter, easing = MotionEasing.standard)
-                    ) + fadeIn(tween(MotionDuration.enter))
-                },
-                exitTransition = {
-                    slideOutOfContainer(
-                        towards = AnimatedContentTransitionScope.SlideDirection.Down,
-                        animationSpec = tween(MotionDuration.exit, easing = MotionEasing.standard)
-                    ) + fadeOut(tween(MotionDuration.exit))
-                },
-                popEnterTransition = { fadeIn(tween(MotionDuration.enter)) },
-                popExitTransition = {
-                    slideOutOfContainer(
-                        towards = AnimatedContentTransitionScope.SlideDirection.Down,
-                        animationSpec = tween(MotionDuration.exit, easing = MotionEasing.standard)
-                    ) + fadeOut(tween(MotionDuration.exit))
-                }
+                enterTransition = { com.bit.ui.theme.Motion.modalEnterTransition(this, allowSpatial) },
+                exitTransition = { com.bit.ui.theme.Motion.modalExitTransition(this, allowSpatial) },
+                popEnterTransition = { com.bit.ui.theme.Motion.modalPopEnterTransition(this, allowSpatial) },
+                popExitTransition = { com.bit.ui.theme.Motion.modalPopExitTransition(this, allowSpatial) }
             ) {
                 SetupScreen(
                     sharedTransitionScope = this@SharedTransitionLayout,
@@ -495,25 +451,10 @@ fun AppNavigation(
 
         composable(
             route = Screen.ImageGenSetup.route,
-            enterTransition = {
-                slideIntoContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.Up,
-                    animationSpec = tween(MotionDuration.enter, easing = MotionEasing.standard)
-                ) + fadeIn(tween(MotionDuration.enter))
-            },
-            exitTransition = {
-                slideOutOfContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.Down,
-                    animationSpec = tween(MotionDuration.exit, easing = MotionEasing.standard)
-                ) + fadeOut(tween(MotionDuration.exit))
-            },
-            popEnterTransition = { fadeIn(tween(MotionDuration.enter)) },
-            popExitTransition = {
-                slideOutOfContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.Down,
-                    animationSpec = tween(MotionDuration.exit, easing = MotionEasing.standard)
-                ) + fadeOut(tween(MotionDuration.exit))
-            }
+            enterTransition = { com.bit.ui.theme.Motion.modalEnterTransition(this, allowSpatial) },
+            exitTransition = { com.bit.ui.theme.Motion.modalExitTransition(this, allowSpatial) },
+            popEnterTransition = { com.bit.ui.theme.Motion.modalPopEnterTransition(this, allowSpatial) },
+            popExitTransition = { com.bit.ui.theme.Motion.modalPopExitTransition(this, allowSpatial) }
         ) {
             ImageGenSetupScreen(
                 onComplete = {
@@ -532,25 +473,10 @@ fun AppNavigation(
         }
         composable(
             route = Screen.EmbeddingSetup.route,
-            enterTransition = {
-                slideIntoContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.Up,
-                    animationSpec = tween(MotionDuration.enter, easing = MotionEasing.standard)
-                ) + fadeIn(tween(MotionDuration.enter))
-            },
-            exitTransition = {
-                slideOutOfContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.Down,
-                    animationSpec = tween(MotionDuration.exit, easing = MotionEasing.standard)
-                ) + fadeOut(tween(MotionDuration.exit))
-            },
-            popEnterTransition = { fadeIn(tween(MotionDuration.enter)) },
-            popExitTransition = {
-                slideOutOfContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.Down,
-                    animationSpec = tween(MotionDuration.exit, easing = MotionEasing.standard)
-                ) + fadeOut(tween(MotionDuration.exit))
-            }
+            enterTransition = { com.bit.ui.theme.Motion.modalEnterTransition(this, allowSpatial) },
+            exitTransition = { com.bit.ui.theme.Motion.modalExitTransition(this, allowSpatial) },
+            popEnterTransition = { com.bit.ui.theme.Motion.modalPopEnterTransition(this, allowSpatial) },
+            popExitTransition = { com.bit.ui.theme.Motion.modalPopExitTransition(this, allowSpatial) }
         ) {
             EmbeddingSetupScreen(
                 onSetupComplete = {
@@ -584,25 +510,10 @@ fun AppNavigation(
                     defaultValue = "note"
                 }
             ),
-            enterTransition = {
-                slideIntoContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.Up,
-                    animationSpec = tween(MotionDuration.enter, easing = MotionEasing.standard)
-                ) + fadeIn(tween(MotionDuration.enter))
-            },
-            exitTransition = {
-                slideOutOfContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.Down,
-                    animationSpec = tween(MotionDuration.exit, easing = MotionEasing.standard)
-                ) + fadeOut(tween(MotionDuration.exit))
-            },
-            popEnterTransition = { fadeIn(tween(MotionDuration.enter)) },
-            popExitTransition = {
-                slideOutOfContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.Down,
-                    animationSpec = tween(MotionDuration.exit, easing = MotionEasing.standard)
-                ) + fadeOut(tween(MotionDuration.exit))
-            }
+            enterTransition = { com.bit.ui.theme.Motion.modalEnterTransition(this, allowSpatial) },
+            exitTransition = { com.bit.ui.theme.Motion.modalExitTransition(this, allowSpatial) },
+            popEnterTransition = { com.bit.ui.theme.Motion.modalPopEnterTransition(this, allowSpatial) },
+            popExitTransition = { com.bit.ui.theme.Motion.modalPopExitTransition(this, allowSpatial) }
         ) { backStackEntry ->
             val noteId = backStackEntry.arguments?.getString("noteId")
             val defaultType = backStackEntry.arguments?.getString("defaultType") ?: "note"

@@ -92,7 +92,7 @@ fun SubagentSessionScreen(
                             )
                             Text(
                                 text = if (status == "RUNNING" && session != null)
-                                    "Working · round ${session.currentRound}/${session.maxSteps}"
+                                    (if (session.currentRound > 0) "Working · round ${session.currentRound}" else "Working")
                                 else status,
                                 style = MaterialTheme.typography.labelMedium,
                                 color = statusColor,

@@ -142,6 +142,12 @@ fun getShortModelLabel(fullModelName: String): String {
     return name
 }
 
+sealed interface ModelState {
+    data object Loading : ModelState
+    data object Ready : ModelState
+    data object Generating : ModelState
+}
+
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 @Composable
 fun TitleRow(
@@ -157,13 +163,30 @@ fun TitleRow(
 ) {
     val iconColor = state.getColor()
     val contentColor = MaterialTheme.colorScheme.onSurface
-    val isLoading = state is AppState.LoadingModel
+    
+    val modelState = remember(state) {
+        when (state) {
+            is AppState.LoadingModel -> ModelState.Loading
+            is AppState.GeneratingText,
+            is AppState.GeneratingImage,
+            is AppState.GeneratingAudio,
+            is AppState.ExecutingPlugin -> ModelState.Generating
+            else -> ModelState.Ready
+        }
+    }
 
     val collapsedText = remember(text, state, activeDownload) {
         when {
             state is AppState.LoadingModel -> "Loading: ${getShortModelLabel(state.modelName)}"
             state is AppState.ModelLoaded -> "Ready: ${getShortModelLabel(state.modelName)}"
-            state is AppState.GeneratingText -> "Generating: ${getShortModelLabel(state.modelName)}"
+            state is AppState.GeneratingText -> {
+                val model = getShortModelLabel(state.modelName)
+                if (!state.statusLabel.isNullOrBlank()) {
+                    "${state.statusLabel}: $model"
+                } else {
+                    "Generating: $model"
+                }
+            }
             state is AppState.GeneratingImage -> "Generating: ${getShortModelLabel(state.modelName)}"
             state is AppState.GeneratingAudio -> "Generating: ${getShortModelLabel(state.modelName)}"
             activeDownload != null -> {
@@ -199,20 +222,23 @@ fun TitleRow(
                                 indication = null
                             ) { onShowDynamicWindow() }
                     ) {
-                        if (isLoading) {
-                            androidx.compose.material3.CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                color = iconColor,
-                                strokeWidth = 2.dp,
-                                trackColor = iconColor.copy(alpha = 0.15f)
-                            )
-                        } else {
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = null,
-                                tint = iconColor,
-                                modifier = Modifier.size(20.dp)
-                            )
+                        when (modelState) {
+                            ModelState.Loading, ModelState.Generating -> {
+                                androidx.compose.material3.CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    color = iconColor,
+                                    strokeWidth = 2.dp,
+                                    trackColor = iconColor.copy(alpha = 0.15f)
+                                )
+                            }
+                            ModelState.Ready -> {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    tint = iconColor,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
 
                         Text(
@@ -232,7 +258,7 @@ fun TitleRow(
                         )
                     }
 
-                    // Agora-style Context Window circle indicator + composition popup
+                    // Context Window circle indicator + composition popup
                     if (contextUsageState != null && activeDownload == null) {
                         TopContextIndicator(
                             contextUsageState = contextUsageState

@@ -83,9 +83,9 @@ object AppStateManager {
     /**
      * Update when text generation starts
      */
-    fun setGeneratingText() {
+    fun setGeneratingText(statusLabel: String? = null) {
         currentModelName?.let {
-            setStateIfChanged(AppState.GeneratingText(it))
+            setStateIfChanged(AppState.GeneratingText(it, statusLabel))
         }
     }
 
@@ -135,14 +135,19 @@ object AppStateManager {
     /**
      * Update when an error occurs
      */
-    fun setError(message: String, technicalLogs: String? = null) {
-        setStateIfChanged(AppState.Error(message, currentModelName, technicalLogs))
+    fun setError(message: String, technicalLogs: String? = null, modelName: String? = null) {
+        val targetModel = modelName ?: currentModelName
+        setStateIfChanged(AppState.Error(message, targetModel, technicalLogs))
     }
 
     /**
-     * Clear error and return to appropriate idle state
+     * Clear error and return to appropriate idle state.
+     * By default clears currentModelName so the app returns to a responsive idle state.
      */
-    fun clearError() {
+    fun clearError(clearCurrentModel: Boolean = true) {
+        if (clearCurrentModel) {
+            currentModelName = null
+        }
         updateIdleState()
     }
 

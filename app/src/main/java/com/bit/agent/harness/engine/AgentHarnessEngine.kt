@@ -17,7 +17,10 @@ import com.bit.agent.harness.tools.AgentToolRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -38,7 +41,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 class AgentHarnessEngine @Inject constructor(
     @ApplicationContext private val context: Context? = null,
     private val toolBridge: AgentToolBridge,
-    private val toolRegistry: AgentToolRegistry? = null,
+    val toolRegistry: AgentToolRegistry? = null,
     private val gateChecker: StepGateChecker,
     private val correctionPlanner: SelfCorrectionPlanner,
     private val logger: HarnessLogger = NoOpHarnessLogger,
@@ -70,6 +73,12 @@ class AgentHarnessEngine @Inject constructor(
 
     fun getSystemPrompt(baseRolePrompt: String = ""): String =
         promptAssembler?.assemblePrompt(baseRolePrompt) ?: baseRolePrompt
+
+    private val _events = kotlinx.coroutines.flow.MutableSharedFlow<com.bit.agent.harness.event.AgentEvent>(
+        replay = 0,
+        extraBufferCapacity = 64
+    )
+    val events: kotlinx.coroutines.flow.SharedFlow<com.bit.agent.harness.event.AgentEvent> = _events.asSharedFlow()
 
     private val _state = MutableStateFlow<AgentHarnessState>(AgentHarnessState.Idle)
     val state = _state.asStateFlow()
@@ -167,11 +176,17 @@ class AgentHarnessEngine @Inject constructor(
         emitState(AgentHarnessState.Decomposing(goal, attempt = 1))
 
         val plan = explicitPlan ?: generatePlan(goal, maxSteps)
-        if (plan.steps.isEmpty()) {
-            val failState = AgentHarnessState.Failed("Could not decompose goal into executable steps.")
-            discoveryRecorder?.completeSession(success = false, outcomeSummary = failState.reason)
-            sessionLog.append(com.bit.agent.harness.model.HarnessSessionEvent.TurnEnd(turnId = turnId, finalResult = failState.reason, success = false))
-            emitState(failState)
+        if (plan.mode == com.bit.agent.harness.state.PlanMode.DIRECT || plan.steps.isEmpty()) {
+            _events.tryEmit(com.bit.agent.harness.event.AgentEvent.Done)
+            val completedState = AgentHarnessState.Completed(
+                finalResult = "",
+                artifacts = emptyList(),
+                totalTurns = 0,
+                executionTimeMs = System.currentTimeMillis() - startTime
+            )
+            discoveryRecorder?.completeSession(success = true, outcomeSummary = "Direct conversational mode")
+            sessionLog.append(com.bit.agent.harness.model.HarnessSessionEvent.TurnEnd(turnId = turnId, finalResult = "", success = true))
+            emitState(completedState)
             return@flow
         }
 
@@ -225,7 +240,7 @@ class AgentHarnessEngine @Inject constructor(
                                     id = step.id,
                                     role = "Fan-out ×${tasksArr.length()} [$roles]".take(90),
                                     goal = "Independent parallel subagent tasks",
-                                    maxSteps = 8
+                                    maxSteps = 50
                                 ),
                                 parentStepIndex = index + 1,
                                 totalParentSteps = plan.steps.size
@@ -241,7 +256,7 @@ class AgentHarnessEngine @Inject constructor(
                                     id = step.id,
                                     role = argsObj.optString("role", "Specialist Agent"),
                                     goal = argsObj.optString("goal"),
-                                    maxSteps = argsObj.optInt("max_steps", 8)
+                                    maxSteps = argsObj.optInt("max_steps", 50).coerceIn(1, 100)
                                 ),
                                 parentStepIndex = index + 1,
                                 totalParentSteps = plan.steps.size
@@ -258,6 +273,14 @@ class AgentHarnessEngine @Inject constructor(
                         )
                     )
                 }
+
+                _events.tryEmit(
+                    com.bit.agent.harness.event.AgentEvent.ToolCommitted(
+                        id = step.id,
+                        tool = step.toolName,
+                        rawArgs = step.toolArguments
+                    )
+                )
 
                 // Dynamic DAG data pipelining: pipe prior step output if writing file or memory
                 if (index > 0 && (step.toolName == "workspace_write_file" || step.toolName == "create_memory_file" || step.toolName == "create_memory")) {
@@ -445,6 +468,14 @@ class AgentHarnessEngine @Inject constructor(
                     )
                 )
 
+                _events.tryEmit(
+                    com.bit.agent.harness.event.AgentEvent.ToolFinished(
+                        id = step.id,
+                        ok = observation.isSuccess,
+                        summary = observation.summary
+                    )
+                )
+
                 // Gate Check
                 val gateResult: GateResult = gateChecker.verify(step, observation)
 
@@ -586,6 +617,26 @@ class AgentHarnessEngine @Inject constructor(
         // step summary only as fallback when synthesis is unavailable or fails.
         val finalResult = synthesizer?.synthesize(goal, plan)?.takeIf { it.isNotBlank() }
             ?: synthesizeResults(goal, plan)
+
+        if (PlanLeakGuard.isPlanLeak(finalResult, plan)) {
+            val leakReason = "Plan leak detected: final answer equals plan step title, outcome, or dummy text ('$finalResult')"
+            logger.w(TAG, leakReason)
+            val failState = AgentHarnessState.Failed(
+                reason = leakReason,
+                partialArtifacts = accumulatedArtifacts.distinct()
+            )
+            discoveryRecorder?.completeSession(success = false, outcomeSummary = leakReason)
+            sessionLog.append(
+                com.bit.agent.harness.model.HarnessSessionEvent.TurnEnd(
+                    turnId = turnId,
+                    finalResult = leakReason,
+                    success = false
+                )
+            )
+            emitState(failState)
+            return@flow
+        }
+
         val completedState = AgentHarnessState.Completed(
             finalResult = finalResult,
             artifacts = accumulatedArtifacts.distinct(),
@@ -600,8 +651,11 @@ class AgentHarnessEngine @Inject constructor(
             )
         )
         discoveryRecorder?.completeSession(success = true, outcomeSummary = finalResult.take(500))
+        _events.tryEmit(com.bit.agent.harness.event.AgentEvent.AnswerDelta(finalResult))
+        _events.tryEmit(com.bit.agent.harness.event.AgentEvent.Done)
         emitState(completedState)
     } finally {
+        _events.tryEmit(com.bit.agent.harness.event.AgentEvent.Done)
         if (ResearchSessionBus.currentTrace.value.isRunning) {
             ResearchSessionBus.finishSession(System.currentTimeMillis() - startTime)
         }
@@ -616,7 +670,9 @@ class AgentHarnessEngine @Inject constructor(
     private suspend fun generatePlan(goal: String, maxSteps: Int): TaskPlan {
         val rawPlan = if (planGenerator != null) {
             try {
-                val raw = planGenerator.generatePlanJson(goal)
+                val raw = planGenerator.generatePlanJson(goal) { chunk ->
+                    _events.tryEmit(com.bit.agent.harness.event.AgentEvent.Reasoning(chunk))
+                }
                 if (!raw.isNullOrBlank()) {
                     val llmPlan = parsePlanJson(goal, raw)
                     if (llmPlan.steps.isNotEmpty()) {
@@ -635,6 +691,9 @@ class AgentHarnessEngine @Inject constructor(
     }
 
     private fun validateAndSanitizePlan(goal: String, plan: TaskPlan, maxSteps: Int): TaskPlan {
+        if (CapabilityIntentRouter.isCapabilityQuery(goal)) {
+            return plan
+        }
         if (needsWebResearch(goal)) {
             val hasSearchTool = plan.steps.any { step ->
                 step.toolName.contains("search", ignoreCase = true) ||
@@ -775,12 +834,16 @@ class AgentHarnessEngine @Inject constructor(
     fun needsWebResearch(text: String): Boolean {
         val clean = text.trim()
         if (clean.isBlank()) return false
+        if (CapabilityIntentRouter.isCapabilityQuery(clean)) return false
         return WEB_RESEARCH_REGEX.containsMatchIn(clean) || EXPLICIT_SEARCH_REGEX.containsMatchIn(clean)
     }
 
     private fun isDirectConversationalQuery(lower: String): Boolean {
         val clean = lower.trim()
         if (clean.isBlank()) return false
+
+        // Rule 0: Capability / tool queries are handled deterministically in code
+        if (CapabilityIntentRouter.isCapabilityQuery(clean)) return true
 
         // Rule 1: Factual, temporal, or research queries must never be treated as direct conversational
         if (needsWebResearch(clean)) return false
@@ -813,7 +876,41 @@ class AgentHarnessEngine @Inject constructor(
         val lower = goal.lowercase().trim()
         val steps = mutableListOf<TaskStep>()
 
-        // 0. Direct conversational / conceptual queries that require no tools or workspace actions
+        // 0. Tool and capability introspection: direct answer in code from real state
+        if (CapabilityIntentRouter.isCapabilityQuery(lower)) {
+            val capabilityReport = CapabilityIntentRouter.buildCapabilityResponse(
+                mcpManager = toolRegistry?.mcpManager,
+                toolRegistry = toolRegistry,
+                skillManager = null
+            )
+            steps.add(
+                TaskStep(
+                    id = "step_1_capability",
+                    description = "Report active capabilities and connected tools",
+                    toolName = "direct_answer",
+                    toolArguments = JSONObject(mapOf("answer" to capabilityReport)).toString(),
+                    expectedOutcome = "Live capabilities reported"
+                )
+            )
+            return TaskPlan(goal = goal, steps = steps)
+        }
+
+        // 0b. Memory inspection / recall queries: direct answer in code from real on-device memory
+        if (CapabilityIntentRouter.isMemoryQuery(lower)) {
+            val memoryReport = CapabilityIntentRouter.buildMemoryResponse(context ?: com.bit.di.AppContainer.getContext())
+            steps.add(
+                TaskStep(
+                    id = "step_1_memory",
+                    description = "Inspect on-device Memory Vault",
+                    toolName = "direct_answer",
+                    toolArguments = JSONObject(mapOf("answer" to memoryReport)).toString(),
+                    expectedOutcome = "Memory Vault facts inspected and reported"
+                )
+            )
+            return TaskPlan(goal = goal, steps = steps)
+        }
+
+        // 0c. Direct conversational / conceptual queries that require no tools or workspace actions
         if (isDirectConversationalQuery(lower)) {
             steps.add(
                 TaskStep(
@@ -824,12 +921,40 @@ class AgentHarnessEngine @Inject constructor(
                     expectedOutcome = "Direct conversational answer"
                 )
             )
+            return TaskPlan(goal = goal, steps = steps, mode = com.bit.agent.harness.state.PlanMode.DIRECT)
+        }
+
+        // 0d. Memory files and document retrieval requests
+        val isVaultDocRequest = Regex(
+            """\b(from\s+memory\s+files?|memory\s+files?|vault\s+documents?|search\s+vault|vault\s+query|read\s+memory(?:\s+files?)?|documents?\s+from\s+memory)\b""",
+            RegexOption.IGNORE_CASE
+        ).containsMatchIn(lower)
+
+        if (isVaultDocRequest) {
+            steps.add(
+                TaskStep(
+                    id = "step_1_vault_query",
+                    description = "Search memory vault documents for: ${goal.take(50)}",
+                    toolName = "vault_query",
+                    toolArguments = JSONObject(mapOf("query" to goal, "top_k" to 5)).toString(),
+                    expectedOutcome = "Relevant memory vault documents and chunks retrieved"
+                )
+            )
+            steps.add(
+                TaskStep(
+                    id = "step_2_memory_query",
+                    description = "Search user memory notes for: ${goal.take(50)}",
+                    toolName = "query_memory",
+                    toolArguments = JSONObject(mapOf("query" to goal, "top_k" to 5)).toString(),
+                    expectedOutcome = "User memory facts and notes retrieved"
+                )
+            )
             return TaskPlan(goal = goal, steps = steps)
         }
 
         // 1. Pure memory requests (remember / vault)
         val isPureMemory = (lower.startsWith("remember") || lower.startsWith("save to memory") || lower.startsWith("vault remember")) &&
-                !lower.contains("workspace") && !lower.contains("file")
+                !lower.contains("workspace")
 
         if (isPureMemory) {
             steps.add(
@@ -919,13 +1044,32 @@ class AgentHarnessEngine @Inject constructor(
             )
         }
 
-        val hasCodingOrProjectContext = extractedFilename != null ||
-                Regex("""\b(build|develop|implement|refactor|subagent|code|python|script|test|app|pipeline)\b""", RegexOption.IGNORE_CASE).containsMatchIn(goal)
+        val defaultWebFile = if (lower.contains("website") || lower.contains("portfolio") || lower.contains("html") || lower.contains("webpage") || lower.contains("landing page")) "index.html" else null
+        val targetFilename = extractedFilename ?: defaultWebFile
 
-        if (hasCodingOrProjectContext) {
+        val hasCodingOrProjectContext = targetFilename != null ||
+                Regex("""\b(build|develop|implement|refactor|subagent|code|python|script|test|app|pipeline|website|webpage|page|site|portfolio|frontend|backend|create|make|design|generate|html|css|javascript|js)\b""", RegexOption.IGNORE_CASE).containsMatchIn(goal)
+
+        val mentionsMcpOrSkills = Regex("""\b(mcp|skills?|tools?)\b""", RegexOption.IGNORE_CASE).containsMatchIn(goal)
+        val mcpListSkillsTool = toolRegistry?.tools()?.find { it.definition.function.name.equals("mcp_list_skills", ignoreCase = true) }
+
+        if (mentionsMcpOrSkills && mcpListSkillsTool != null) {
             steps.add(
                 TaskStep(
-                    id = if (needsWebResearch) "step_2_execute" else "step_1_execute",
+                    id = "step_${steps.size + 1}_mcp_skills",
+                    description = "Retrieve UI design skills from MCP server",
+                    toolName = mcpListSkillsTool.definition.function.name,
+                    toolArguments = "{}",
+                    expectedOutcome = "Active MCP UI skills retrieved"
+                )
+            )
+        }
+
+        if (hasCodingOrProjectContext) {
+            val stepIndex = steps.size + 1
+            steps.add(
+                TaskStep(
+                    id = "step_${stepIndex}_execute",
                     description = "Autonomous Specialist: ${goal.take(70)}",
                     toolName = "invoke_subagent",
                     toolArguments = JSONObject(
@@ -940,31 +1084,32 @@ class AgentHarnessEngine @Inject constructor(
             )
 
             // If a specific output file was requested, add a verification step to confirm file presence
-            if (!extractedFilename.isNullOrBlank()) {
-                if (extractedFilename.endsWith(".py", ignoreCase = true)) {
+            if (!targetFilename.isNullOrBlank()) {
+                val verifyIndex = steps.size + 1
+                if (targetFilename.endsWith(".py", ignoreCase = true)) {
                     steps.add(
                         TaskStep(
-                            id = "step_verify",
-                            description = "Verify Python script: $extractedFilename",
+                            id = "step_${verifyIndex}_verify",
+                            description = "Verify Python script: $targetFilename",
                             toolName = "workspace_shell",
-                            toolArguments = JSONObject(mapOf("command" to "python3 $extractedFilename")).toString(),
+                            toolArguments = JSONObject(mapOf("command" to "python3 $targetFilename")).toString(),
                             expectedOutcome = "Script executed cleanly"
                         )
                     )
                 } else {
                     steps.add(
                         TaskStep(
-                            id = "step_verify",
-                            description = "Verify file created: $extractedFilename",
+                            id = "step_${verifyIndex}_verify",
+                            description = "Verify deliverable created: $targetFilename",
                             toolName = "workspace_read_file",
-                            toolArguments = JSONObject(mapOf("path" to extractedFilename)).toString(),
+                            toolArguments = JSONObject(mapOf("path" to targetFilename)).toString(),
                             expectedOutcome = "File presence and content verified"
                         )
                     )
                 }
             }
         } else if (!needsWebResearch) {
-            // Conversational or general conceptual query fallback
+            // Conversational or general conceptual query fallback: direct response
             steps.add(
                 TaskStep(
                     id = "step_1_direct",
@@ -974,6 +1119,7 @@ class AgentHarnessEngine @Inject constructor(
                     expectedOutcome = "Direct conversational answer"
                 )
             )
+            return TaskPlan(goal = goal, steps = steps, mode = com.bit.agent.harness.state.PlanMode.DIRECT)
         }
 
         return TaskPlan(goal = goal, steps = steps.take(maxSteps).toMutableList())
@@ -1078,11 +1224,11 @@ class AgentHarnessEngine @Inject constructor(
         if (plan.steps.size == 1 && plan.steps[0].toolName.equals("direct_answer", ignoreCase = true)) {
             val obs = plan.steps[0].observation
             val payload = obs?.payload?.trim()
-            if (!payload.isNullOrBlank() && payload != "{}" && payload != goal) {
+            if (!payload.isNullOrBlank() && payload != "{}" && payload != goal && !payload.equals("Direct conversational answer", ignoreCase = true)) {
                 return payload
             }
             val summary = obs?.summary?.trim()
-            if (!summary.isNullOrBlank()) {
+            if (!summary.isNullOrBlank() && !summary.equals("Direct conversational answer", ignoreCase = true)) {
                 return summary
             }
         }

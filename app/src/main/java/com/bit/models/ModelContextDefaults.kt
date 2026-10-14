@@ -3,7 +3,7 @@ package com.bit.models
 import com.bit.models.enums.ProviderType
 
 /**
- * Known context window defaults and Agora-style presets for local and cloud models.
+ * Known context window defaults and standard presets for local and cloud models.
  * Automatically adapts the context size based on model name, provider, and architecture.
  */
 object ModelContextDefaults {
@@ -12,7 +12,7 @@ object ModelContextDefaults {
     const val DEFAULT_GGUF_LARGE_CONTEXT = 8_192 // 8K standard
 
     /**
-     * Agora standard context window presets ranging from 4K to 1M tokens.
+     * Standard context window presets ranging from 4K to 1M tokens.
      */
     val PRESETS = intArrayOf(
         4_096,
@@ -33,7 +33,8 @@ object ModelContextDefaults {
         val name = modelIdOrName.lowercase().trim()
         return when (providerType) {
             ProviderType.API -> when {
-                name.contains("gemini-1.5") || name.contains("gemini-2") || name.contains("gemini") -> 1_048_576 // 1M tokens
+                name.contains("glm") || name.contains("nim") || name.contains("nvidia") -> 131_072 // 128K standard for NIM models
+                (name.startsWith("gemini-1.5") || name.startsWith("gemini-2") || name.startsWith("models/gemini") || name == "gemini-1.5-pro" || name == "gemini-1.5-flash" || name == "gemini-2.0-flash") -> 1_048_576 // 1M tokens for verified Gemini models
                 name.contains("claude-3-7") || name.contains("claude-3.7") ||
                 name.contains("claude-3-5") || name.contains("claude-3.5") ||
                 name.contains("claude") -> 200_000 // 200K tokens
@@ -63,7 +64,7 @@ object ModelContextDefaults {
     }
 
     /**
-     * Returns the nearest standard Agora preset for any arbitrary token count.
+     * Returns the nearest standard preset for any arbitrary token count.
      */
     fun nearestPreset(tokens: Int): Int {
         return PRESETS.minByOrNull { kotlin.math.abs(it - tokens) } ?: DEFAULT_API_CONTEXT

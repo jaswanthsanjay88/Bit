@@ -39,7 +39,6 @@ import com.bit.service.AudioCaptureService
 import com.bit.stt.SherpaSTTEngine
 import com.bit.tts.TTSManager
 import com.bit.tts.TTSSettings
-import com.bit.ui.components.TopBlurScrim
 import com.bit.ui.icons.TnIcons
 import com.bit.ui.theme.Motion
 import com.bit.ui.theme.MotionDuration
@@ -461,10 +460,20 @@ fun LiveVoiceOverlay(
         )
     }
 
+    val isDark = com.bit.ui.theme.LocalDarkMode.current
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val onSurfaceColor = MaterialTheme.colorScheme.onSurface
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
+    val surfaceContainerHigh = MaterialTheme.colorScheme.surfaceContainerHigh
+    val surfaceContainerHighest = MaterialTheme.colorScheme.surfaceContainerHighest
+    val outlineVariant = MaterialTheme.colorScheme.outlineVariant
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.95f))
+            .background(surfaceColor)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -489,13 +498,11 @@ fun LiveVoiceOverlay(
                     Brush.verticalGradient(
                         colors = listOf(
                             Color.Transparent,
-                            Color.White.copy(alpha = 0.35f)
+                            primaryColor.copy(alpha = if (isDark) 0.28f else 0.14f)
                         )
                     )
                 )
         )
-        // Top Blur Scrim
-        TopBlurScrim(height = 90.dp)
 
         Column(
             modifier = Modifier
@@ -510,11 +517,21 @@ fun LiveVoiceOverlay(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 12.dp),
+                    .padding(top = 8.dp),
                 contentAlignment = Alignment.TopEnd
             ) {
-                IconButton(onClick = onClose) {
-                    Icon(TnIcons.X, contentDescription = "Close", tint = Color.White)
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(surfaceContainerHigh.copy(alpha = 0.85f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = TnIcons.X,
+                        contentDescription = "Close",
+                        tint = onSurfaceColor,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
 
@@ -544,9 +561,9 @@ fun LiveVoiceOverlay(
                         text = caption,
                         style = MaterialTheme.typography.headlineSmall.copy(
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 22.sp
+                            fontSize = 24.sp
                         ),
-                        color = Color.White,
+                        color = onSurfaceColor,
                         textAlign = TextAlign.Center,
                         modifier = Modifier
                             .fillMaxWidth(0.9f)
@@ -570,16 +587,16 @@ fun LiveVoiceOverlay(
                     Text(
                         text = statusText,
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.5f),
+                        color = onSurfaceVariant.copy(alpha = 0.75f),
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(bottom = 12.dp)
                     )
                 }
 
                 Surface(
-                    color = Color(0xCC1F1F1F),
+                    color = surfaceContainerHighest.copy(alpha = 0.95f),
                     shape = RoundedCornerShape(100.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x33FFFFFF)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, outlineVariant.copy(alpha = 0.45f)),
                     shadowElevation = 8.dp
                 ) {
                     Row(
@@ -593,9 +610,9 @@ fun LiveVoiceOverlay(
                             onClick = { /* Add prompt attachment */ },
                             modifier = Modifier
                                 .size(48.dp)
-                                .background(Color(0xFF2A2A2A), CircleShape)
+                                .background(surfaceContainerHigh, CircleShape)
                         ) {
-                            Icon(TnIcons.Plus, contentDescription = "Add", tint = Color.White)
+                            Icon(TnIcons.Plus, contentDescription = "Add", tint = onSurfaceColor)
                         }
 
                         // Center Stop / Mic button
@@ -611,7 +628,7 @@ fun LiveVoiceOverlay(
                             },
                             modifier = Modifier
                                 .size(56.dp)
-                                .background(Color.White, CircleShape)
+                                .background(primaryColor, CircleShape)
                         ) {
                             val isActionStop = state is LiveModeState.Speaking || state is LiveModeState.Thinking
                             AnimatedContent(
@@ -625,7 +642,7 @@ fun LiveVoiceOverlay(
                                 Icon(
                                     imageVector = if (stopIcon) TnIcons.PlayerStop else TnIcons.LiveWaveform,
                                     contentDescription = "Stop or Start",
-                                    tint = Color.Black,
+                                    tint = onPrimaryColor,
                                     modifier = Modifier.size(24.dp)
                                 )
                             }
@@ -636,9 +653,9 @@ fun LiveVoiceOverlay(
                             onClick = onClose,
                             modifier = Modifier
                                 .size(48.dp)
-                                .background(Color(0xFF2A2A2A), CircleShape)
+                                .background(surfaceContainerHigh, CircleShape)
                         ) {
-                            Icon(TnIcons.X, contentDescription = "Close Live Mode", tint = Color.White)
+                            Icon(TnIcons.X, contentDescription = "Close Live Mode", tint = onSurfaceColor)
                         }
                     }
                 }

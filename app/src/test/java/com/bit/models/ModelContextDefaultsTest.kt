@@ -9,7 +9,7 @@ import org.junit.Test
 class ModelContextDefaultsTest {
 
     @Test
-    fun testAgoraPresetsAvailable() {
+    fun testContextPresetsAvailable() {
         assertEquals(9, ModelContextDefaults.PRESETS.size)
         assertEquals(4_096, ModelContextDefaults.PRESETS.first())
         assertEquals(1_048_576, ModelContextDefaults.PRESETS.last())

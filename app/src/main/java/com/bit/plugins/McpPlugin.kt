@@ -36,8 +36,9 @@ class McpPlugin(
         val servers = mcpManager.servers.value.filter { it.isEnabled }
         for (server in servers) {
             for (tool in server.tools.filter { it.isEnabled }) {
+                val prefixedName = if (tool.name.startsWith("mcp_")) tool.name else "mcp_${tool.name}"
                 val builder = ToolDefinitionBuilder(
-                    tool.name,
+                    prefixedName,
                     if (!tool.description.isNullOrBlank()) "[MCP: ${server.name}] ${tool.description}"
                     else "[MCP: ${server.name}] External MCP Tool"
                 )
@@ -108,13 +109,17 @@ class McpPlugin(
                 val matchedTool = srv.tools.firstOrNull { tool ->
                     val toolClean = tool.name.trim().lowercase().replace("-", "_")
                     val callClean = toolName.trim().lowercase().replace("-", "_")
+                    val callStripped = callClean.removePrefix("mcp__").removePrefix("mcp_")
 
                     tool.isEnabled && (
                         tool.name.equals(toolName, ignoreCase = true) ||
+                        tool.name.equals(toolName.removePrefix("mcp_"), ignoreCase = true) ||
                         toolClean == callClean ||
+                        toolClean == callStripped ||
                         callClean == "${srvClean}__${toolClean}" ||
                         callClean == "${srvClean}_${toolClean}" ||
                         callClean == "mcp__${srvClean}__${toolClean}" ||
+                        callClean == "mcp_${srvClean}_${toolClean}" ||
                         callClean.endsWith("__$toolClean") ||
                         callClean.endsWith("_$toolClean")
                     )

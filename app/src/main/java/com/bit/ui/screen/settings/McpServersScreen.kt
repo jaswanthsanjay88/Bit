@@ -63,20 +63,7 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
-fun LazyListScope.mcpServersSection(
-    mcpManager: McpManager
-) {
-    item {
-        McpServersContent(mcpManager = mcpManager)
-    }
-}
 
-@Composable
-fun McpServersContent(
-    mcpManager: McpManager
-) {
-    McpServersScreen(mcpManager = mcpManager)
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

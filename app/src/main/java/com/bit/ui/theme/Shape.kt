@@ -18,10 +18,10 @@ val BitShapes = Shapes(
 )
 
 object BitShapeScale {
-    val extraSmall: CornerBasedShape = RoundedCornerShape(4.dp)
-    val small: CornerBasedShape = RoundedCornerShape(8.dp)
-    val medium: CornerBasedShape = RoundedCornerShape(12.dp)
-    val large: CornerBasedShape = RoundedCornerShape(16.dp)
-    val extraLarge: CornerBasedShape = RoundedCornerShape(28.dp)
+    val extraSmall: CornerBasedShape get() = BitShapes.extraSmall
+    val small: CornerBasedShape get() = BitShapes.small
+    val medium: CornerBasedShape get() = BitShapes.medium
+    val large: CornerBasedShape get() = BitShapes.large
+    val extraLarge: CornerBasedShape get() = BitShapes.extraLarge
     val full: CornerBasedShape = CircleShape
 }

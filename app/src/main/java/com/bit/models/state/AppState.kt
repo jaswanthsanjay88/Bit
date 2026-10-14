@@ -22,7 +22,7 @@ sealed class AppState {
     data class LoadingModel(val modelName: String, val progress: Float = 0f) : AppState()
     
     // Active states
-    data class GeneratingText(val modelName: String) : AppState()
+    data class GeneratingText(val modelName: String, val statusLabel: String? = null) : AppState()
     data class GeneratingImage(val modelName: String) : AppState()
     data class GeneratingAudio(val modelName: String) : AppState()
     data class ExecutingPlugin(val pluginName: String, val toolName: String) : AppState()
@@ -49,9 +49,10 @@ fun AppState.getDisplayText(): String = when (this) {
     is AppState.ModelLoaded -> "Ready: $modelName"
     is AppState.LoadingModel -> "Loading: $modelName"
     is AppState.GeneratingText -> {
-        // Show "Looking for Tool" if any plugins are enabled
-        val hasToolsEnabled = PluginManager.enabledPluginNames.value.isNotEmpty()
-        if (hasToolsEnabled) "Looking for Tool" else "Generating Text"
+        statusLabel ?: run {
+            val hasToolsEnabled = PluginManager.enabledPluginNames.value.isNotEmpty()
+            if (hasToolsEnabled) "Looking for Tool" else "Generating Text"
+        }
     }
     is AppState.GeneratingImage -> "Creating Image"
     is AppState.GeneratingAudio -> "Generating Audio"

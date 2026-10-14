@@ -258,13 +258,13 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     // User Profile
     val profileName: StateFlow<String> = appSettingsDataStore.profileName
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "Jaswanthsanjay Nekkanti")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
     val profileEmail: StateFlow<String> = appSettingsDataStore.profileEmail
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "jaswanthsanjay88@gmail.com")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
     val profilePhone: StateFlow<String> = appSettingsDataStore.profilePhone
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "+918088997070")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
     // TTS settings
     val ttsSettings: StateFlow<TTSSettings> = ttsDataStore.settings

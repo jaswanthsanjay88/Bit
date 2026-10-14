@@ -697,7 +697,8 @@ internal fun GgufConfigEditor(viewModel: ModelConfigEditorViewModel, model: Mode
                 value = ggufConfig.inferenceParams.temperature,
                 onValueChange = { viewModel.updateGgufTemperature(it) },
                 range = 0f..2f,
-                step = 0.1f
+                step = 0.1f,
+                description = "Controls randomness (0.2 = focused, 0.7 = balanced). Hint: lower is better for tool use (default 0.6 in Agent mode)."
             )
 
             FloatField(
@@ -1092,7 +1093,7 @@ internal fun ApiConfigEditor(viewModel: ModelConfigEditorViewModel, model: Model
             )
         }
 
-        ConfigSection("Context Window & Token Budget (Agora)") {
+        ConfigSection("Context Window & Token Budget") {
             ContextPresetsRow(
                 currentValue = apiConfig.contextSize,
                 presets = ModelContextDefaults.PRESETS,
@@ -1157,7 +1158,7 @@ internal fun ApiConfigEditor(viewModel: ModelConfigEditorViewModel, model: Model
                 onValueChange = { viewModel.updateApiTemperature(it) },
                 range = 0.0f..2.0f,
                 step = 0.05f,
-                description = "Controls randomness (0.2 = focused & deterministic, 0.7 = balanced, 1.0 = creative)"
+                description = "Controls randomness (0.2 = focused & deterministic, 0.7 = balanced). Hint: lower is better for tool use (default 0.6 in Agent mode)."
             )
 
             FloatField(
@@ -1227,7 +1228,7 @@ private fun ContextPresetsRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Context Presets (Agora)",
+                text = "Context Presets",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant

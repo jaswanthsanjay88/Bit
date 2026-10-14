@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bit.models.ModelType
 import com.bit.models.messages.ContentType
@@ -69,28 +70,7 @@ data class ParsedMessage(
     val isThinkingInProgress: Boolean = false
 )
 
-sealed class ChatMessageItem {
-    data class UserMessage(val message: com.bit.models.messages.Messages) : ChatMessageItem()
-    data class AssistantMessage(val message: com.bit.models.messages.Messages, val isLastAssistant: Boolean) : ChatMessageItem()
-}
 
-fun groupMessages(messages: List<com.bit.models.messages.Messages>, lastAssistantIndex: Int): List<ChatMessageItem> {
-    val result = mutableListOf<ChatMessageItem>()
-    
-    messages.forEachIndexed { index, msg ->
-        if (msg.content.contentType == ContentType.PluginResult) {
-            // Skip PluginResult, tool steps are handled inside AssistantMessage
-        } else {
-            if (msg.role == Role.User) {
-                result.add(ChatMessageItem.UserMessage(msg))
-            } else {
-                val isLastAssistant = index == lastAssistantIndex
-                result.add(ChatMessageItem.AssistantMessage(msg, isLastAssistant))
-            }
-        }
-    }
-    return result
-}
 
 @Composable
 fun GeneratingIndicator(
@@ -248,6 +228,10 @@ fun BodyContent(
     val streaming by chatViewModel.streamingState.collectAsStateWithLifecycle()
     val chatState by chatViewModel.chatUiState.collectAsStateWithLifecycle()
     val agent by chatViewModel.agentState.collectAsStateWithLifecycle()
+    val turnUi by chatViewModel.turnUi.collectAsStateWithLifecycle()
+    val liveThinkingUi by chatViewModel.thinkingUi.collectAsStateWithLifecycle()
+    val liveStreamingTurnId by chatViewModel.streamingTurnId.collectAsStateWithLifecycle()
+    val expandedBlockTurnIds by chatViewModel.expandedBlockTurnIds.collectAsStateWithLifecycle()
     val pendingApproval by chatViewModel.pendingApproval.collectAsStateWithLifecycle()
     val subagentSessions by com.bit.agent.harness.engine.SubagentSessionBus.sessions.collectAsStateWithLifecycle()
     val liveResearchTrace by com.bit.agent.harness.engine.ResearchSessionBus.currentTrace.collectAsStateWithLifecycle()
@@ -269,6 +253,7 @@ fun BodyContent(
 
     val listState = rememberLazyListState()
     val haptics = com.bit.ui.theme.LocalBitHaptics.current
+    val highlightedChipsByMsg = remember { mutableStateMapOf<String, Int?>() }
     var wasGenerating by remember { mutableStateOf(chatState.isGenerating) }
 
     LaunchedEffect(chatState.isGenerating) {
@@ -332,30 +317,36 @@ fun BodyContent(
         if (messages.isEmpty() && !chatState.isGenerating) {
             EmptyMessagesState()
         } else {
-            val deduped = remember(messages.size) { messages.distinctBy { it.msgId } }
-            val lastAssistantIndex = remember(deduped.size) { deduped.indexOfLast { it.role == Role.Assistant } }
-            val groupedItems = remember(deduped) { groupMessages(deduped, lastAssistantIndex) }
+            val visibleEpoch by chatViewModel.visibleEpoch
+            val currentMessages = messages.toList()
+            val deduped = remember(currentMessages, visibleEpoch, liveStreamingTurnId) {
+                currentMessages
+                    .filter { it.content.contentType != ContentType.PluginResult }
+                    .filter { liveStreamingTurnId == null || it.msgId != liveStreamingTurnId }
+                    .distinctBy { it.msgId }
+            }
+            val lastAssistantIndex = remember(deduped) { deduped.indexOfLast { it.role == Role.Assistant } }
 
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
                     top = paddingValues.calculateTopPadding() + Standards.SpacingXl, 
-                    bottom = 120.dp
+                    bottom = 180.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                itemsIndexed(
-                    items = messages,
-                    key = { index, msg -> "${msg.msgId}_${index}" }
-                ) { _, msg ->
+                items(
+                    items = deduped,
+                    key = { it.msgId.ifEmpty { "msg_${it.hashCode()}" } }
+                ) { msg ->
                     Box(modifier = Modifier.animateItem()) {
                         if (msg.role == Role.User) {
                             UserMessageBubble(
                                 message = msg
                             )
                         } else {
-                                val isLast = msg == messages.last()
+                                val isLast = msg == deduped.lastOrNull { it.role == Role.Assistant }
                                 val parsedMessage = remember(msg.content.content) { parseThinkingTags(msg.content.content) }
                                 Column(
                                     modifier = Modifier.fillMaxWidth(),
@@ -366,10 +357,21 @@ fun BodyContent(
                                         imageBlurEnabled = imageBlurEnabled
                                     )
                                     
-                                    val hasActivity = remember(msg) {
-                                        buildTraceStepsFromMessage(msg).isNotEmpty()
+                                    val thinking = remember(msg.msgId, msg.executionSteps) {
+                                        msg.executionSteps ?: com.bit.agent.harness.event.buildFallbackThinkingUi(msg)
                                     }
-                                    if (!hasActivity && parsedMessage.thinkingContent != null) {
+                                    if (thinking != null && (thinking.steps.isNotEmpty() || thinking.interrupted || thinking.failureMessage != null)) {
+                                        val isExpanded = chatViewModel.isBlockExpanded(msg.msgId, thinking)
+                                        val isLastAssistantMsg = msg.msgId == messages.lastOrNull { it.role == Role.Assistant }?.msgId
+                                        com.bit.ui.components.ThinkingBlock(
+                                            thinkingUi = thinking,
+                                            isExpanded = isExpanded,
+                                            onToggleExpand = { chatViewModel.toggleBlockExpanded(msg.msgId, isFailed = thinking.failureMessage != null) },
+                                            highlightedChipIndex = highlightedChipsByMsg[msg.msgId],
+                                            onUndoTurn = if (isLastAssistantMsg) { { chatViewModel.undoLastAgentTurn() } } else null,
+                                            modifier = Modifier.padding(horizontal = Standards.SpacingMd)
+                                        )
+                                    } else if (parsedMessage.thinkingContent != null) {
                                         ThinkingBlock(
                                             thinkingText = parsedMessage.thinkingContent,
                                             isStreaming = false
@@ -385,16 +387,137 @@ fun BodyContent(
                                         } else {
                                             parsedMessage.actualContent
                                         }
+                                        val msgCitationHandler = remember(msg.msgId) {
+                                            { citationIndex: Int ->
+                                                chatViewModel.setBlockExpanded(msg.msgId, true)
+                                                highlightedChipsByMsg[msg.msgId] = citationIndex
+                                            }
+                                        }
                                         Box(modifier = Modifier.fillMaxWidth().padding(horizontal = Standards.SpacingMd)) {
                                             androidx.compose.foundation.text.selection.SelectionContainer {
-                                                MarkdownText(
-                                                    text = displayContent,
-                                                    modifier = Modifier.fillMaxWidth()
+                                                CompositionLocalProvider(com.bit.ui.components.LocalCitationHandler provides msgCitationHandler) {
+                                                    MarkdownText(
+                                                        text = displayContent,
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        val answerSources = remember(thinking?.steps) {
+                                            thinking?.steps
+                                                ?.flatMap { step ->
+                                                    (step.resolvedUiModel as? com.bit.agent.presentation.ToolUiModel.WebSearchUi)?.results?.map { r ->
+                                                        com.bit.agent.harness.event.SourceChip(
+                                                            title = r.title,
+                                                            kind = com.bit.agent.harness.event.ChipKind.Web,
+                                                            url = r.url,
+                                                            domain = r.domain
+                                                        )
+                                                    } ?: step.chips
+                                                }
+                                                ?.filter { it.kind == com.bit.agent.harness.event.ChipKind.Web && (!it.url.isNullOrBlank() || !it.domain.isNullOrBlank()) }
+                                                ?.distinctBy { it.url ?: it.title }
+                                                .orEmpty()
+                                        }
+
+                                        if (answerSources.isNotEmpty()) {
+                                            val context = LocalContext.current
+                                            FlowRow(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = Standards.SpacingMd, vertical = 6.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                answerSources.take(6).forEachIndexed { index, chip ->
+                                                    val chipNum = index + 1
+                                                    val isHighlighted = highlightedChipsByMsg[msg.msgId] == chipNum
+                                                    Surface(
+                                                        onClick = {
+                                                            val targetUrl = chip.url?.ifBlank { null }
+                                                                ?: "https://${chip.domain ?: chip.title}"
+                                                            try {
+                                                                val intent = android.content.Intent(
+                                                                    android.content.Intent.ACTION_VIEW,
+                                                                    android.net.Uri.parse(targetUrl)
+                                                                ).apply {
+                                                                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                                }
+                                                                context.startActivity(intent)
+                                                            } catch (_: Exception) {}
+                                                        },
+                                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                                                        color = if (isHighlighted) {
+                                                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
+                                                        } else {
+                                                            MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f)
+                                                        },
+                                                        border = BorderStroke(
+                                                            1.dp,
+                                                            if (isHighlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                                        )
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = "[$chipNum]",
+                                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                                    fontSize = 11.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = MaterialTheme.colorScheme.primary
+                                                                )
+                                                            )
+                                                            Text(
+                                                                text = chip.domain?.ifBlank { chip.title } ?: chip.title,
+                                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                                    fontSize = 11.sp,
+                                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                                ),
+                                                                maxLines = 1,
+                                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    val isStoppedNotice = msg.content.content.contains("Stopped: ")
+                                    if (isStoppedNotice && isLast && !chatState.isGenerating) {
+                                        Surface(
+                                            onClick = { chatViewModel.continueTurn() },
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                                            modifier = Modifier.padding(horizontal = Standards.SpacingMd, vertical = 4.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = TnIcons.PlayerPlay,
+                                                    contentDescription = "Continue",
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                                )
+                                                Text(
+                                                    text = "Continue",
+                                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer
                                                 )
                                             }
                                         }
                                     }
                                     com.bit.ui.components.ContextStackIndicator(message = msg)
+                                    val versionInfo = remember(msg.msgId, chatViewModel.allMessages.size, chatViewModel.selectedBranches[msg.parentId ?: ""], visibleEpoch) {
+                                        chatViewModel.getVersionInfo(msg)
+                                    }
                                     com.bit.ui.screen.home.AssistantMessageFooter(
                                         message = msg,
                                         ttsPlayingMsgId = ttsPlayingMsgId,
@@ -404,7 +527,14 @@ fun BodyContent(
                                         onSpeak = { chatViewModel.speakMessage(it) },
                                         onStopTTS = { chatViewModel.stopTTS() }, // toggle same message to stop
                                         onRegenerate = if (isLast) { { chatViewModel.regenerateLastMessage() } } else null,
-                                        isRegenerateEnabled = isLast
+                                        isRegenerateEnabled = isLast,
+                                        onContinue = if (isStoppedNotice && isLast && !chatState.isGenerating) { { chatViewModel.continueTurn() } } else null,
+                                        versionInfo = versionInfo,
+                                        onSelectVersion = { targetMsgId ->
+                                            msg.parentId?.let { pId ->
+                                                chatViewModel.selectMessageVersion(pId, targetMsgId)
+                                            }
+                                        }
                                     )
                                 }
                             }
@@ -459,7 +589,7 @@ fun BodyContent(
                                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                             )
                                             Text(
-                                                text = "Round ${sub.currentRound}/${sub.maxSteps} · tap to watch it think",
+                                                text = if (sub.currentRound > 0) "Working · round ${sub.currentRound} · tap to view progress" else "Working on task · tap to view progress",
                                                 style = MaterialTheme.typography.labelMedium,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                                             )
@@ -474,19 +604,22 @@ fun BodyContent(
                                 }
                             }
                         }
-                        // Live activity block (merges research trace, search queries, sources, and tool calls into ONE collapsible block)
-                        if (!isImageGen && (liveResearchTrace.phases.isNotEmpty() || liveResearchTrace.isRunning || agent.toolChainSteps.isNotEmpty())) {
-                            item(key = "live-activity-block") {
-                                val liveSteps = remember(liveResearchTrace, agent.toolChainSteps) {
-                                    buildLiveTraceSteps(liveResearchTrace, agent.toolChainSteps)
-                                }
-                                val isAgentBusy = liveResearchTrace.isRunning || (agent.plan != null && chatState.isGenerating && streaming.assistantMessage.isEmpty())
-                                ActivityBlock(
-                                    steps = liveSteps,
-                                    elapsedMs = maxOf(liveResearchTrace.durationMs, agent.toolChainSteps.sumOf { it.executionTimeMs }),
-                                    isRunning = isAgentBusy,
-                                    runningPhase = liveResearchTrace.phases.lastOrNull()?.title,
-                                    isStreamingAnswer = streaming.assistantMessage.isNotEmpty()
+                        // Live Thinking / Steps Block (Claude-style ThinkingBlock)
+                        val liveThinking = liveThinkingUi
+                        val showThinkingBlock = !isImageGen && liveThinking != null && (
+                            liveThinking.steps.isNotEmpty() || liveThinking.writing || chatState.thinkingEnabled || agent.phase != AgentPhase.Idle
+                        )
+                        val hasLiveActivity = !isImageGen && showThinkingBlock
+
+                        if (showThinkingBlock && liveThinking != null) {
+                            item(key = "live-thinking-block-${liveThinking.turnId}") {
+                                val isLiveExpanded = chatViewModel.isBlockExpanded(liveThinking.turnId, liveThinking)
+                                com.bit.ui.components.ThinkingBlock(
+                                    thinkingUi = liveThinking,
+                                    isExpanded = isLiveExpanded,
+                                    onToggleExpand = { chatViewModel.toggleBlockExpanded(liveThinking.turnId, isFailed = liveThinking.failureMessage != null) },
+                                    reasoningTextFlow = chatViewModel.reasoningText,
+                                    modifier = Modifier.padding(horizontal = Standards.SpacingMd)
                                 )
                             }
                         }
@@ -531,7 +664,8 @@ fun BodyContent(
                             item(key = "streaming-assistant-response") {
                                 AssistantStreamingBubble(
                                     text = streaming.assistantMessage,
-                                    thinkingEnabled = chatState.thinkingEnabled
+                                    thinkingEnabled = chatState.thinkingEnabled,
+                                    suppressThinking = hasLiveActivity
                                 )
                             }
                         }

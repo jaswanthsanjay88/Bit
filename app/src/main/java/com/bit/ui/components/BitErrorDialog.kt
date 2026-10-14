@@ -79,7 +79,13 @@ fun BitErrorDialog(
         lower.contains("endpoint") || lower.contains("permission") || lower.contains("url not configured")
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
+    ) {
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -141,20 +147,17 @@ fun BitErrorDialog(
                         }
                     }
 
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .clickable {
-                                haptics.pop()
-                                onDismiss()
-                            },
-                        contentAlignment = Alignment.Center
+                    androidx.compose.material3.IconButton(
+                        onClick = {
+                            haptics.pop()
+                            onDismiss()
+                        },
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             imageVector = TnIcons.X,
                             contentDescription = "Close",
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(20.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -285,8 +288,8 @@ fun BitErrorDialog(
                         }
                     }
 
-                    // Secondary context action
-                    if (isModelMissingError && onNavigateToModelStore != null) {
+                    // Secondary context action: Navigate to models if available
+                    if (onNavigateToModelStore != null) {
                         OutlinedButton(
                             onClick = {
                                 haptics.selection()
