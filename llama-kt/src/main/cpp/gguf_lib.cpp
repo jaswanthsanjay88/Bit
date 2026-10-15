@@ -1613,7 +1613,12 @@ Java_com_dark_gguf_1lib_GGUFNativeLib_nativeGenerateStream(
 
     // check prompt fits in context window
     if (check_prompt_fits((int)tokens.size(), maxTokens) == -1) {
-        jstring jerr = env->NewStringUTF("Prompt exceeds context window");
+        int n_ctx = g_state.ctx ? (int)llama_n_ctx(g_state.ctx) : 0;
+        char err_msg[256];
+        snprintf(err_msg, sizeof(err_msg),
+                 "Prompt (%d tokens) exceeds context window (%d tokens). Try increasing Context Size in Model Settings or switching to Chat mode.",
+                 (int)tokens.size(), n_ctx);
+        jstring jerr = env->NewStringUTF(err_msg);
         env->CallVoidMethod(callback, g_onError, jerr);
         env->DeleteLocalRef(jerr);
         return JNI_FALSE;
@@ -1883,7 +1888,12 @@ Java_com_dark_gguf_1lib_GGUFNativeLib_nativeGenerateStreamMultiTurn(
 
     // check if prompt fits in context window
     if (check_prompt_fits((int)tokens.size(), maxTokens) == -1) {
-        jstring jerr = env->NewStringUTF("Prompt exceeds context window");
+        int n_ctx = g_state.ctx ? (int)llama_n_ctx(g_state.ctx) : 0;
+        char err_msg[256];
+        snprintf(err_msg, sizeof(err_msg),
+                 "Prompt (%d tokens) exceeds context window (%d tokens). Try increasing Context Size in Model Settings or switching to Chat mode.",
+                 (int)tokens.size(), n_ctx);
+        jstring jerr = env->NewStringUTF(err_msg);
         env->CallVoidMethod(callback, g_onError, jerr);
         env->DeleteLocalRef(jerr);
         return JNI_FALSE;

@@ -35,6 +35,7 @@ enum class QuantLevel(val bitsPerWeight: Float, val kvBytesPerToken: Float) {
                 upper.contains("Q4") -> Q4
                 upper.contains("Q3") -> Q3
                 upper.contains("Q2") || upper.contains("IQ2") -> Q2
+                upper.contains("Q1") || upper.contains("IQ1") || upper.contains("TQ1") || upper.contains("TQ2") || upper.contains("I2_S") || upper.contains("BITNET") || upper.contains("BONSAI") -> Q2
                 else -> UNKNOWN
             }
         }
@@ -82,7 +83,8 @@ object DeviceTuner {
         }
         val kvBudgetKB = ramAfterModelMB * 0.50 * 1024
         val rawCtx = (kvBudgetKB / quant.kvBytesPerToken).toInt()
-        val ctxSize = ((rawCtx / 512) * 512).coerceIn(512, ctxCap)
+        val minFloor = 2048
+        val ctxSize = ((rawCtx / 512) * 512).coerceIn(minFloor, ctxCap.coerceAtLeast(minFloor))
 
         // ── Batch size ──
         val batchCap = when (mode) {
@@ -130,7 +132,8 @@ object DeviceTuner {
         val isSmallMobileModel = (modelSizeMB in 1..2500) ||
                 (com.bit.worker.ActiveModelSession.isSmallModel.value)
         val maxCap = if (isSmallMobileModel) 4096 else 32768
-        val raw = (kvBudgetKB / quant.kvBytesPerToken).toInt().coerceIn(512, maxCap)
+        val minFloor = 2048
+        val raw = (kvBudgetKB / quant.kvBytesPerToken).toInt().coerceIn(minFloor, maxCap.coerceAtLeast(minFloor))
         return (raw / 512) * 512
     }
 
