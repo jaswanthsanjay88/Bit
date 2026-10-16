@@ -36,7 +36,6 @@ import com.bit.viewmodel.SetupOption
 import com.bit.viewmodel.SetupViewModel
 import com.bit.worker.SystemBackupManager
 import com.bit.models.data.HuggingFaceModel
-import com.bit.ui.theme.BitColors
 import com.bit.ui.theme.Motion
 import kotlinx.coroutines.delay
 
@@ -70,7 +69,7 @@ fun SetupScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BitColors.Background)
+            .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
             .navigationBarsPadding()
             .padding(horizontal = 24.dp)
@@ -142,7 +141,7 @@ private fun WelcomeSlide(
             modifier = Modifier.weight(1f)
         ) {
             Surface(
-                color = BitColors.SurfaceAlt,
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
                 shape = RoundedCornerShape(24.dp),
                 modifier = Modifier.size(96.dp)
             ) {
@@ -150,7 +149,7 @@ private fun WelcomeSlide(
                     Icon(
                         imageVector = TnIcons.Lock,
                         contentDescription = null,
-                        tint = BitColors.TextPrimary,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(48.dp)
                     )
                 }
@@ -161,7 +160,7 @@ private fun WelcomeSlide(
             Text(
                 text = "Welcome to BIT",
                 style = androidx.compose.ui.text.TextStyle(
-                    color = BitColors.TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 32.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = (-1).sp
@@ -172,7 +171,7 @@ private fun WelcomeSlide(
             Text(
                 text = "Your private, secure on-device AI assistant.\nChoose how you want to connect to AI models.",
                 style = androidx.compose.ui.text.TextStyle(
-                    color = BitColors.TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 15.sp,
                     lineHeight = 22.sp
                 ),
@@ -188,8 +187,8 @@ private fun WelcomeSlide(
                 .height(56.dp),
             shape = RoundedCornerShape(28.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = BitColors.Inverse,
-                contentColor = BitColors.OnInverse
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
             )
         ) {
             Text(
@@ -222,12 +221,12 @@ private fun SetupChoiceSlide(
                 onClick = onBack,
                 modifier = Modifier.align(Alignment.Start)
             ) {
-                Text("Back", color = BitColors.TextTertiary)
+                Text("Back", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text(
                 text = "Choose AI Provider Type",
                 style = androidx.compose.ui.text.TextStyle(
-                    color = BitColors.TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = (-0.5).sp
@@ -236,7 +235,7 @@ private fun SetupChoiceSlide(
             Text(
                 text = "Decide whether to run local models on-device or connect to high-speed cloud APIs.",
                 style = androidx.compose.ui.text.TextStyle(
-                    color = BitColors.TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 14.sp,
                     lineHeight = 20.sp
                 )
@@ -248,19 +247,17 @@ private fun SetupChoiceSlide(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(if (selectLocal) BitColors.SurfaceAlt else BitColors.Surface)
-                    .border(
-                        width = if (selectLocal) 1.5.dp else 1.dp,
-                        color = if (selectLocal) BitColors.TextPrimary else BitColors.Border,
-                        shape = RoundedCornerShape(20.dp)
-                    )
-                    .clickable {
-                        haptics.selection()
-                        onSelectLocal()
-                    }
+                onClick = {
+                    haptics.selection()
+                    onSelectLocal()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                color = if (selectLocal) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surfaceContainer,
+                border = BorderStroke(
+                    width = if (selectLocal) 1.5.dp else 1.dp,
+                    color = if (selectLocal) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                )
             ) {
                 Row(
                     modifier = Modifier.padding(20.dp),
@@ -270,19 +267,19 @@ private fun SetupChoiceSlide(
                     Icon(
                         imageVector = TnIcons.Lock,
                         contentDescription = null,
-                        tint = if (selectLocal) BitColors.TextPrimary else BitColors.TextSecondary,
+                        tint = if (selectLocal) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(36.dp)
                     )
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Local Offline AI (Recommended)",
                             fontWeight = FontWeight.Bold,
-                            color = BitColors.TextPrimary,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontSize = 16.sp
                         )
                         Text(
                             text = "Runs models directly on your device. 100% private, no internet required, zero data collection.",
-                            color = BitColors.TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp,
                             lineHeight = 18.sp
                         )
@@ -291,19 +288,17 @@ private fun SetupChoiceSlide(
             }
 
             Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(if (!selectLocal) BitColors.SurfaceAlt else BitColors.Surface)
-                    .border(
-                        width = if (!selectLocal) 1.5.dp else 1.dp,
-                        color = if (!selectLocal) BitColors.TextPrimary else BitColors.Border,
-                        shape = RoundedCornerShape(20.dp)
-                    )
-                    .clickable {
-                        haptics.selection()
-                        onSelectRemote()
-                    }
+                onClick = {
+                    haptics.selection()
+                    onSelectRemote()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                color = if (!selectLocal) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surfaceContainer,
+                border = BorderStroke(
+                    width = if (!selectLocal) 1.5.dp else 1.dp,
+                    color = if (!selectLocal) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                )
             ) {
                 Row(
                     modifier = Modifier.padding(20.dp),
@@ -313,19 +308,19 @@ private fun SetupChoiceSlide(
                     Icon(
                         imageVector = TnIcons.ArrowUp,
                         contentDescription = null,
-                        tint = if (!selectLocal) BitColors.TextPrimary else BitColors.TextSecondary,
+                        tint = if (!selectLocal) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(36.dp)
                     )
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Cloud APIs (Bring Your Own Key)",
                             fontWeight = FontWeight.Bold,
-                            color = BitColors.TextPrimary,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontSize = 16.sp
                         )
                         Text(
                             text = "Connect Google Gemini, OpenAI, Anthropic Claude, DeepSeek, or other endpoints for advanced cloud speed.",
-                            color = BitColors.TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp,
                             lineHeight = 18.sp
                         )
@@ -341,8 +336,8 @@ private fun SetupChoiceSlide(
                 .height(56.dp),
             shape = RoundedCornerShape(28.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = BitColors.Inverse,
-                contentColor = BitColors.OnInverse
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
             )
         ) {
             Text(
@@ -432,12 +427,12 @@ private fun ModelPickerContent(
                 onClick = onBack,
                 modifier = Modifier.align(Alignment.Start)
             ) {
-                Text("Back", color = BitColors.TextTertiary)
+                Text("Back", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text(
                 text = "Choose offline model",
                 style = androidx.compose.ui.text.TextStyle(
-                    color = BitColors.TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = (-0.5).sp
@@ -447,7 +442,7 @@ private fun ModelPickerContent(
             Text(
                 text = ramGuidance,
                 style = androidx.compose.ui.text.TextStyle(
-                    color = BitColors.TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Normal,
                     lineHeight = 18.sp
@@ -466,8 +461,8 @@ private fun ModelPickerContent(
                 val isSelected = localSelectedOption == item.option
                 
                 val strokeWidth = if (isSelected) 1.5.dp else 1.dp
-                val strokeColor = if (isSelected) BitColors.TextPrimary else BitColors.Border
-                val cardBgColor = if (isSelected) BitColors.SurfaceAlt else BitColors.Surface
+                val strokeColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                val cardBgColor = if (isSelected) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surfaceContainer
 
                 val cardModifier = Modifier
                     .fillMaxWidth()
@@ -503,7 +498,7 @@ private fun ModelPickerContent(
                             Text(
                                 text = item.title,
                                 style = androidx.compose.ui.text.TextStyle(
-                                    color = BitColors.TextPrimary,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -511,13 +506,13 @@ private fun ModelPickerContent(
                             
                             Box(
                                 modifier = Modifier
-                                    .border(1.dp, BitColors.TextTertiary, RoundedCornerShape(100.dp))
+                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(100.dp))
                                     .padding(horizontal = 8.dp, vertical = 2.dp)
                             ) {
                                 Text(
                                     text = item.size,
                                     style = androidx.compose.ui.text.TextStyle(
-                                        color = BitColors.TextTertiary,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Medium
                                     )
@@ -529,12 +524,12 @@ private fun ModelPickerContent(
                                 Box(
                                     modifier = Modifier
                                         .background(
-                                            if (isRec) BitColors.SurfaceAlt else BitColors.Surface,
+                                            if (isRec) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
                                             RoundedCornerShape(100.dp)
                                         )
                                         .border(
                                             1.dp,
-                                            if (isRec) BitColors.TextPrimary else BitColors.Border,
+                                            if (isRec) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                                             RoundedCornerShape(100.dp)
                                         )
                                         .padding(horizontal = 8.dp, vertical = 2.dp)
@@ -542,7 +537,7 @@ private fun ModelPickerContent(
                                     Text(
                                         text = item.badge,
                                         style = androidx.compose.ui.text.TextStyle(
-                                            color = if (isRec) BitColors.TextPrimary else BitColors.TextSecondary,
+                                            color = if (isRec) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -556,7 +551,7 @@ private fun ModelPickerContent(
                         Text(
                             text = item.description,
                             style = androidx.compose.ui.text.TextStyle(
-                                color = BitColors.TextSecondary,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 13.sp,
                                 lineHeight = 18.sp
                             )
@@ -589,10 +584,10 @@ private fun ModelPickerContent(
                     .alpha(buttonAlpha),
                 shape = RoundedCornerShape(28.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = BitColors.Inverse,
-                    contentColor = BitColors.OnInverse,
-                    disabledContainerColor = BitColors.Inverse,
-                    disabledContentColor = BitColors.OnInverse
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                    disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f)
                 )
             ) {
                 Text(
@@ -665,12 +660,12 @@ private fun RemoteApiConfigContent(
                 onClick = onBack,
                 modifier = Modifier.align(Alignment.Start)
             ) {
-                Text("Back", color = BitColors.TextTertiary)
+                Text("Back", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text(
                 text = "Configure API Connection",
                 style = androidx.compose.ui.text.TextStyle(
-                    color = BitColors.TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = (-0.5).sp
@@ -679,7 +674,7 @@ private fun RemoteApiConfigContent(
             Text(
                 text = "Register details for your preferred API endpoints. Prefilled default params are set for convenience.",
                 style = androidx.compose.ui.text.TextStyle(
-                    color = BitColors.TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                     lineHeight = 18.sp
                 )
@@ -690,8 +685,8 @@ private fun RemoteApiConfigContent(
                     onClick = { expanded = true },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = BitColors.TextPrimary),
-                    border = BorderStroke(1.dp, BitColors.Border)
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -699,17 +694,17 @@ private fun RemoteApiConfigContent(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(selectedProvider, style = androidx.compose.ui.text.TextStyle(fontSize = 15.sp))
-                        Text("▼", fontSize = 11.sp, color = BitColors.TextSecondary)
+                        Text("▼", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 DropdownMenu(
                     expanded = expanded,
                     onDismissRequest = { expanded = false },
-                    modifier = Modifier.fillMaxWidth(0.9f).background(BitColors.Surface)
+                    modifier = Modifier.fillMaxWidth(0.9f).background(MaterialTheme.colorScheme.surfaceContainer)
                 ) {
                     providers.forEach { provider ->
                         DropdownMenuItem(
-                            text = { Text(provider, color = BitColors.TextPrimary) },
+                            text = { Text(provider, color = MaterialTheme.colorScheme.onSurface) },
                             onClick = {
                                 onProviderChange(provider)
                                 expanded = false
@@ -726,12 +721,12 @@ private fun RemoteApiConfigContent(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = BitColors.TextPrimary,
-                    unfocusedBorderColor = BitColors.Border,
-                    focusedLabelColor = BitColors.TextPrimary,
-                    unfocusedLabelColor = BitColors.TextSecondary,
-                    focusedTextColor = BitColors.TextPrimary,
-                    unfocusedTextColor = BitColors.TextPrimary
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                 )
             )
 
@@ -750,19 +745,19 @@ private fun RemoteApiConfigContent(
                 shape = RoundedCornerShape(14.dp),
                 enabled = !isFetchingModels && endpointUrl.isNotBlank() && apiKey.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = BitColors.SurfaceAlt,
-                    contentColor = BitColors.TextPrimary
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    contentColor = MaterialTheme.colorScheme.onSurface
                 )
             ) {
                 if (isFetchingModels) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = BitColors.TextPrimary)
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.primary)
                 } else {
                     Text("Fetch Available Models", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
 
             fetchError?.let { err ->
-                Text(err, color = Color.Red, style = androidx.compose.ui.text.TextStyle(fontSize = 12.sp))
+                Text(err, color = MaterialTheme.colorScheme.error, style = androidx.compose.ui.text.TextStyle(fontSize = 12.sp))
             }
 
             Box(modifier = Modifier.fillMaxWidth()) {
@@ -775,28 +770,28 @@ private fun RemoteApiConfigContent(
                     trailingIcon = {
                         if (availableModels.isNotEmpty()) {
                             IconButton(onClick = { modelDropdownExpanded = true }) {
-                                Text("▼", fontSize = 11.sp, color = BitColors.TextSecondary)
+                                Text("▼", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = BitColors.TextPrimary,
-                        unfocusedBorderColor = BitColors.Border,
-                        focusedLabelColor = BitColors.TextPrimary,
-                        unfocusedLabelColor = BitColors.TextSecondary,
-                        focusedTextColor = BitColors.TextPrimary,
-                        unfocusedTextColor = BitColors.TextPrimary
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                        focusedLabelColor = MaterialTheme.colorScheme.primary,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                     )
                 )
                 if (availableModels.isNotEmpty()) {
                     DropdownMenu(
                         expanded = modelDropdownExpanded,
                         onDismissRequest = { modelDropdownExpanded = false },
-                        modifier = Modifier.fillMaxWidth(0.9f).background(BitColors.Surface)
+                        modifier = Modifier.fillMaxWidth(0.9f).background(MaterialTheme.colorScheme.surfaceContainer)
                     ) {
                         availableModels.forEach { model ->
                             DropdownMenuItem(
-                                text = { Text(model, color = BitColors.TextPrimary) },
+                                text = { Text(model, color = MaterialTheme.colorScheme.onSurface) },
                                 onClick = {
                                     modelName = model
                                     modelDropdownExpanded = false
@@ -831,10 +826,10 @@ private fun RemoteApiConfigContent(
                 .alpha(buttonAlpha),
             shape = RoundedCornerShape(28.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = BitColors.Inverse,
-                contentColor = BitColors.OnInverse,
-                disabledContainerColor = BitColors.Inverse,
-                disabledContentColor = BitColors.OnInverse
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f)
             )
         ) {
             Text(
@@ -892,8 +887,8 @@ private fun DownloadProgressContent(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(BitColors.Surface, RoundedCornerShape(20.dp))
-                .border(1.dp, BitColors.Border, RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(20.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -901,7 +896,7 @@ private fun DownloadProgressContent(
             Text(
                 text = "Downloading Weights",
                 style = androidx.compose.ui.text.TextStyle(
-                    color = BitColors.TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -910,7 +905,7 @@ private fun DownloadProgressContent(
             Text(
                 text = "BIT runs entirely on-device. You can close or minimize the app; we will notify you when it is ready.",
                 style = androidx.compose.ui.text.TextStyle(
-                    color = BitColors.TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
                     textAlign = TextAlign.Center
@@ -932,20 +927,20 @@ private fun DownloadProgressContent(
                                 .weight(1f)
                                 .height(6.dp)
                                 .clip(RoundedCornerShape(3.dp))
-                                .background(BitColors.Border)
+                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         ) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxHeight()
                                     .fillMaxWidth(progress.coerceIn(0f, 1f))
-                                    .background(BitColors.TextPrimary)
+                                    .background(MaterialTheme.colorScheme.primary)
                             )
                         }
                         
                         Text(
                             text = "${(progress * 100).toInt()}%",
                             style = androidx.compose.ui.text.TextStyle(
-                                color = BitColors.TextPrimary,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -957,8 +952,8 @@ private fun DownloadProgressContent(
                             .fillMaxWidth()
                             .height(6.dp)
                             .clip(RoundedCornerShape(3.dp)),
-                        color = BitColors.TextPrimary,
-                        trackColor = BitColors.Border
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
                     )
                 }
 
@@ -970,7 +965,7 @@ private fun DownloadProgressContent(
                         Text(
                             text = it,
                             style = androidx.compose.ui.text.TextStyle(
-                                color = BitColors.TextTertiary,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                 fontSize = 12.sp
                             )
                         )
@@ -979,7 +974,7 @@ private fun DownloadProgressContent(
                         Text(
                             text = it,
                             style = androidx.compose.ui.text.TextStyle(
-                                color = BitColors.TextTertiary,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                 fontSize = 12.sp
                             )
                         )
@@ -996,7 +991,7 @@ private fun DownloadProgressContent(
                 Text(
                     text = "Cancel",
                     style = androidx.compose.ui.text.TextStyle(
-                        color = BitColors.TextTertiary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.SemiBold
                     )
                 )
@@ -1080,32 +1075,32 @@ private fun RestoreFromBackupSection(viewModel: SetupViewModel) {
                     LinearProgressIndicator(
                         progress = { progressVal },
                         modifier = Modifier.fillMaxWidth(),
-                        color = BitColors.TextPrimary,
-                        trackColor = BitColors.Border
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
                     )
                 } else {
                     LinearProgressIndicator(
                         modifier = Modifier.fillMaxWidth(),
-                        color = BitColors.TextPrimary,
-                        trackColor = BitColors.Border
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
                     )
                 }
                 Text(
                     text = "${stageVal}...",
-                    color = BitColors.TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp
                 )
             }
         } else {
             Text(
                 text = "Already have a backup?",
-                color = BitColors.TextTertiary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 fontSize = 13.sp
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Restore from backup file",
-                color = BitColors.TextPrimary,
+                color = MaterialTheme.colorScheme.primary,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
@@ -1120,12 +1115,12 @@ private fun RestoreFromBackupSection(viewModel: SetupViewModel) {
     if (showPasswordDialog && backupUri != null) {
         AlertDialog(
             onDismissRequest = { showPasswordDialog = false },
-            title = { Text("Restore Backup", color = BitColors.TextPrimary) },
+            title = { Text("Restore Backup", color = MaterialTheme.colorScheme.onSurface) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         "Please enter the password that was used to encrypt this backup.",
-                        color = BitColors.TextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 14.sp
                     )
                     PasswordTextField(
@@ -1143,15 +1138,15 @@ private fun RestoreFromBackupSection(viewModel: SetupViewModel) {
                         viewModel.restoreFromBackup(backupUri!!, password)
                     }
                 ) {
-                    Text("Restore", color = BitColors.TextPrimary, fontWeight = FontWeight.Bold)
+                    Text("Restore", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showPasswordDialog = false }) {
-                    Text("Cancel", color = BitColors.TextSecondary)
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
-            containerColor = BitColors.Surface,
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
             shape = RoundedCornerShape(20.dp)
         )
     }

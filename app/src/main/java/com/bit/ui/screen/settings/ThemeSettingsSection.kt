@@ -60,12 +60,12 @@ internal fun LazyListScope.themeSettingsSection(
             contract = ActivityResultContracts.GetContent()
         ) { uri: Uri? ->
             if (uri != null) {
-                val displayName = uri.lastPathSegment ?: "custom_font.ttf"
-                viewModel.importCustomFont(uri, displayName) { success ->
+                val resolvedName = com.bit.utils.FontFileManager(context).resolveDisplayName(uri)
+                viewModel.importCustomFont(uri, resolvedName) { success ->
                     if (success) {
                         Toast.makeText(context, "Font imported successfully", Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(context, "Failed to load font file", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Invalid or unsupported font file", Toast.LENGTH_SHORT).show()
                     }
                 }
             }

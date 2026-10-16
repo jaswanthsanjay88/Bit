@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -255,21 +256,45 @@ fun BodyContent(
     val haptics = com.bit.ui.theme.LocalBitHaptics.current
     val highlightedChipsByMsg = remember { mutableStateMapOf<String, Int?>() }
     var wasGenerating by remember { mutableStateOf(chatState.isGenerating) }
+    var userScrolledUp by remember { mutableStateOf(false) }
+
+    // Track user scroll gestures: if user manually scrolled up, pause auto-scrolling
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) {
+            if (listState.canScrollForward) {
+                userScrolledUp = true
+            }
+        } else {
+            // Once user scrolls all the way back down to the bottom, re-enable auto-scroll
+            if (!listState.canScrollForward) {
+                userScrolledUp = false
+            }
+        }
+    }
 
     LaunchedEffect(chatState.isGenerating) {
+        if (chatState.isGenerating) {
+            // Re-anchor if user was already at bottom when generation starts
+            if (!listState.canScrollForward) {
+                userScrolledUp = false
+            }
+        }
         if (wasGenerating && !chatState.isGenerating) {
             haptics.generationEnd()
-            val itemCount = listState.layoutInfo.totalItemsCount
-            if (itemCount > 0) {
-                try {
-                    listState.animateScrollToItem(itemCount - 1)
-                } catch (_: Exception) {}
+            if (!userScrolledUp) {
+                val itemCount = listState.layoutInfo.totalItemsCount
+                if (itemCount > 0) {
+                    try {
+                        listState.animateScrollToItem(itemCount - 1)
+                    } catch (_: Exception) {}
+                }
             }
         }
         wasGenerating = chatState.isGenerating
     }
 
     LaunchedEffect(messages.size) {
+        userScrolledUp = false
         val itemCount = listState.layoutInfo.totalItemsCount
         if (itemCount > 0) {
             try {
@@ -290,14 +315,18 @@ fun BodyContent(
         }
     }
 
-    // Stable, non-shaking scroll tracking during active text generation
+    // Non-intrusive scroll tracking during active text generation:
+    // Only follows if the user has NOT scrolled up and is actively anchored at bottom
     LaunchedEffect(streaming.assistantMessage.length) {
         if (chatState.isGenerating && streaming.assistantMessage.isNotEmpty()) {
+            if (userScrolledUp || listState.isScrollInProgress || listState.canScrollForward) {
+                return@LaunchedEffect
+            }
             val layoutInfo = listState.layoutInfo
             val totalItems = layoutInfo.totalItemsCount
             if (totalItems > 0) {
                 val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-                if (lastVisibleIndex >= totalItems - 3) {
+                if (lastVisibleIndex >= totalItems - 1) {
                     try {
                         listState.scrollToItem(totalItems - 1)
                     } catch (_: Exception) {}
@@ -732,6 +761,7 @@ fun BodyContent(
 
         // Progressive bottom blur scrim when there are more messages down below
         val canScrollDown by remember { derivedStateOf { listState.canScrollForward } }
+        val coroutineScope = rememberCoroutineScope()
         AnimatedVisibility(
             visible = canScrollDown,
             enter = fadeIn(tween(200)),
@@ -742,6 +772,43 @@ fun BodyContent(
                 height = 56.dp,
                 scrimColor = MaterialTheme.colorScheme.background
             )
+        }
+
+        // Floating jump-to-bottom button when scrolled up
+        AnimatedVisibility(
+            visible = canScrollDown,
+            enter = fadeIn(tween(150)) + scaleIn(tween(150), initialScale = 0.8f),
+            exit = fadeOut(tween(150)) + scaleOut(tween(150), targetScale = 0.8f),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = 20.dp)
+        ) {
+            Surface(
+                onClick = {
+                    haptics.selection()
+                    userScrolledUp = false
+                    coroutineScope.launch {
+                        val count = listState.layoutInfo.totalItemsCount
+                        if (count > 0) {
+                            listState.animateScrollToItem(count - 1)
+                        }
+                    }
+                },
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                shadowElevation = 4.dp,
+                modifier = Modifier.size(38.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = TnIcons.ChevronDown,
+                        contentDescription = "Scroll to bottom",
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
         }
 
         // Modal Bottom Sheet for model selection details
