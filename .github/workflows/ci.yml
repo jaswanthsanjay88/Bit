@@ -5,10 +5,32 @@ on:
     branches:
       - master
       - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
+      - 'LICENSE'
+      - 'fdroid/**'
+      - 'site/**'
+      - 'site-react/**'
+      - 'web-ui/**'
+      - '.gitignore'
   pull_request:
     branches:
       - master
       - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
+      - 'LICENSE'
+      - 'fdroid/**'
+      - 'site/**'
+      - 'site-react/**'
+      - 'web-ui/**'
+      - '.gitignore'
   workflow_dispatch:
 
 concurrency:
