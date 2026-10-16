@@ -155,9 +155,10 @@ fun ModelStoreScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Material 3 SecondaryTabRow
-            SecondaryTabRow(
+            // Material 3 SecondaryScrollableTabRow
+            androidx.compose.material3.SecondaryScrollableTabRow(
                 selectedTabIndex = selectedTab.ordinal,
+                edgePadding = 12.dp,
                 containerColor = MaterialTheme.colorScheme.background,
                 contentColor = MaterialTheme.colorScheme.primary
             ) {
@@ -167,7 +168,14 @@ fun ModelStoreScreen(
                         haptics.selection()
                         viewModel.selectTab(StoreTab.MODELS)
                     },
-                    text = { Text("Store", fontWeight = if (selectedTab == StoreTab.MODELS) FontWeight.Bold else FontWeight.Normal) }
+                    text = {
+                        Text(
+                            text = "Store",
+                            fontWeight = if (selectedTab == StoreTab.MODELS) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 )
                 Tab(
                     selected = selectedTab == StoreTab.INSTALLED,
@@ -175,7 +183,14 @@ fun ModelStoreScreen(
                         haptics.selection()
                         viewModel.selectTab(StoreTab.INSTALLED)
                     },
-                    text = { Text("Installed", fontWeight = if (selectedTab == StoreTab.INSTALLED) FontWeight.Bold else FontWeight.Normal) }
+                    text = {
+                        Text(
+                            text = "Installed",
+                            fontWeight = if (selectedTab == StoreTab.INSTALLED) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 )
                 Tab(
                     selected = selectedTab == StoreTab.PROVIDERS,
@@ -183,7 +198,14 @@ fun ModelStoreScreen(
                         haptics.selection()
                         viewModel.selectTab(StoreTab.PROVIDERS)
                     },
-                    text = { Text("Providers", fontWeight = if (selectedTab == StoreTab.PROVIDERS) FontWeight.Bold else FontWeight.Normal) }
+                    text = {
+                        Text(
+                            text = "Providers",
+                            fontWeight = if (selectedTab == StoreTab.PROVIDERS) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 )
                 Tab(
                     selected = selectedTab == StoreTab.ADVANCED,
@@ -191,7 +213,14 @@ fun ModelStoreScreen(
                         haptics.selection()
                         viewModel.selectTab(StoreTab.ADVANCED)
                     },
-                    text = { Text("Advanced", fontWeight = if (selectedTab == StoreTab.ADVANCED) FontWeight.Bold else FontWeight.Normal) }
+                    text = {
+                        Text(
+                            text = "Advanced",
+                            fontWeight = if (selectedTab == StoreTab.ADVANCED) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 )
             }
 

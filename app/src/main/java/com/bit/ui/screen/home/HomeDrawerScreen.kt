@@ -96,6 +96,10 @@ fun HomeDrawerScreen(
     val chatState by chatViewModel.chatUiState.collectAsStateWithLifecycle()
     val haptics = com.bit.ui.theme.LocalBitHaptics.current
 
+    LaunchedEffect(Unit) {
+        viewModel.loadChats()
+    }
+
     LaunchedEffect(isChatRefreshed) {
         if (isChatRefreshed) {
             viewModel.loadChats()
@@ -300,7 +304,7 @@ fun HomeDrawerScreen(
                             onChatClick = onChatSelected,
                             onDeleteChat = { chatId ->
                                 viewModel.deleteChat(chatId)
-                                if (chatId == chatState.currentChatId) {
+                                if (chatId == chatState.currentChatId || chatState.currentChatId == null) {
                                     chatViewModel.startNewConversation()
                                 }
                             },

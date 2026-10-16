@@ -72,8 +72,8 @@ data class ThinkingUi(
 
     val summaryLabel: String
         get() {
-            if (interrupted) return "Stopped"
             if (failureMessage != null) return "Couldn't finish"
+            if (interrupted) return "Stopped"
             if (hasWebSearch) {
                 val end = timerEndMs ?: System.currentTimeMillis()
                 val sec = ((end - startedAtMs).coerceAtLeast(0L) / 1000L).coerceAtLeast(1L)

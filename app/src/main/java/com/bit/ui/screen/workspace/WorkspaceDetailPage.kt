@@ -446,28 +446,48 @@ fun WorkspaceDetailPage(
             onDismissRequest = { showCustomUrlDialog = false },
             title = { Text("Install Custom Rootfs") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         text = "Enter direct HTTP/HTTPS link to a .tar.xz or .tar.gz rootfs archive.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    OutlinedTextField(
-                        value = customUrl,
-                        onValueChange = { customUrl = it },
-                        label = { Text("Rootfs URL") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                    )
-                    OutlinedTextField(
-                        value = customSha,
-                        onValueChange = { customSha = it },
-                        label = { Text("Expected SHA-256 (Optional)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Custom Rootfs URL",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                        OutlinedTextField(
+                            value = customUrl,
+                            onValueChange = { customUrl = it },
+                            placeholder = { Text("https://example.com/rootfs.tar.xz") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Expected SHA-256 (Optional)",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                        OutlinedTextField(
+                            value = customSha,
+                            onValueChange = { customSha = it },
+                            placeholder = { Text("64-character hex hash") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -641,6 +661,9 @@ private fun EnvironmentTabContent(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
@@ -657,17 +680,23 @@ private fun EnvironmentTabContent(
                                     .clip(RoundedCornerShape(10.dp)),
                                 tint = Color.Unspecified
                             )
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = installedDistro.prettyName,
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    softWrap = false
                                 )
                                 Text(
                                     text = "${installedDistro.arch} • PRoot Container",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -692,7 +721,9 @@ private fun EnvironmentTabContent(
                                     text = "ACTIVE",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -777,29 +808,55 @@ private fun EnvironmentTabContent(
 
                     Spacer(Modifier.height(8.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Surface(
+                        onClick = {
+                            bitHaptics.selection()
+                            showDistroSwitcher = !showDistroSwitcher
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        TextButton(
-                            onClick = {
-                                bitHaptics.selection()
-                                showDistroSwitcher = !showDistroSwitcher
-                            }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Icon(
-                                if (showDistroSwitcher) TnIcons.ChevronUp else TnIcons.ChevronDown,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
+                            Text(
+                                text = if (showDistroSwitcher) "Hide OS Catalog" else "Reinstall / Switch Distribution",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                softWrap = false
                             )
-                            Spacer(Modifier.width(4.dp))
-                            Text(if (showDistroSwitcher) "Hide OS Catalog" else "Reinstall / Switch Distribution")
+                            Icon(
+                                imageVector = if (showDistroSwitcher) TnIcons.ChevronUp else TnIcons.ChevronDown,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
+                    }
 
-                        TextButton(onClick = onCustomUrl) {
-                            Text("Custom Rootfs URL", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                    Spacer(Modifier.height(4.dp))
+
+                    TextButton(
+                        onClick = onCustomUrl,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(TnIcons.Link, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "Custom Rootfs URL (.tar.xz / .tar.gz)",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 }
             }

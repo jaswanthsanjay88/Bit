@@ -84,6 +84,7 @@ fun WorkspaceProcessesSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
+                    modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -102,22 +103,30 @@ fun WorkspaceProcessesSheet(
                         }
                     }
 
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Terminal & Processes",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = "${workspace.name} • PRoot Container",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.wrapContentWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     if (workspaceProcesses.any { it.status != WorkspaceProcessStatus.RUNNING }) {
                         IconButton(
                             onClick = {
@@ -148,11 +157,17 @@ fun WorkspaceProcessesSheet(
                             onOpenTerminal(newHolder?.processId)
                         },
                         shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.wrapContentWidth(),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("New Terminal", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            text = "New Terminal",
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 }
             }

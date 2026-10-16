@@ -15,6 +15,8 @@ import com.bit.repo.RepositoryValidator
 import com.bit.repo.ValidationResult
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.scrollable
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -440,24 +442,28 @@ internal fun ExplorerResultRow(
                                 }
 
                                 Row(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = Standards.SpacingXs),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = Standards.SpacingXs),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(
-                                        modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(end = 8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
                                         Text(
                                             text = fileName,
                                             style = MaterialTheme.typography.bodySmall,
                                             fontWeight = FontWeight.Medium,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            color = MaterialTheme.colorScheme.onSurface
                                         )
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(Standards.SpacingXs),
-                                            verticalAlignment = Alignment.CenterVertically
+                                        @OptIn(ExperimentalLayoutApi::class)
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
                                             if (quantLabel != null) {
                                                 Surface(
@@ -468,24 +474,50 @@ internal fun ExplorerResultRow(
                                                         text = quantLabel,
                                                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                                         color = MaterialTheme.colorScheme.primary,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                        softWrap = false,
+                                                        maxLines = 1
                                                     )
                                                 }
                                             }
-                                            CaptionText(
-                                                text = if (sizeGB >= 1f) String.format("%.2f GB", sizeGB) else String.format("%.0f MB", sizeMB)
-                                            )
-                                            CaptionText(text = "•")
-                                            CaptionText(
-                                                text = String.format("~%.1f GB RAM needed", sizeGB * 1.25f)
-                                            )
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f)
+                                            ) {
+                                                Text(
+                                                    text = if (sizeGB >= 1f) String.format("%.2f GB", sizeGB) else String.format("%.0f MB", sizeMB),
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    softWrap = false,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f)
+                                            ) {
+                                                Text(
+                                                    text = String.format("~%.1f GB RAM", sizeGB * 1.25f),
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    softWrap = false,
+                                                    maxLines = 1
+                                                )
+                                            }
                                         }
                                     }
-                                    ActionButton(
-                                        onClickListener = { onDownloadFile(file) },
-                                        icon = TnIcons.Download,
-                                        contentDescription = "Download $fileName"
-                                    )
+                                    Box(
+                                        modifier = Modifier.size(44.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        ActionButton(
+                                            onClickListener = { onDownloadFile(file) },
+                                            icon = TnIcons.Download,
+                                            contentDescription = "Download $fileName"
+                                        )
+                                    }
                                 }
                             }
                         }

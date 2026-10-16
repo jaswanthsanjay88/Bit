@@ -28,6 +28,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -73,6 +74,8 @@ fun SkillsScreen(
     var selectedSkillForEdit by remember { mutableStateOf<Skill?>(null) }
     var showCreateSheet by remember { mutableStateOf(false) }
     var showImportUrlDialog by remember { mutableStateOf(false) }
+    var isReorderMode by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilterIndex by remember { mutableIntStateOf(0) } // 0: All, 1: Active, 2: Built-in, 3: Custom
 
@@ -200,332 +203,350 @@ fun SkillsScreen(
         )
     }
 
-    LazyColumn(
-        state = lazyListState,
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .background(MaterialTheme.colorScheme.background)
     ) {
-        // ── 1. HEADER / TOOLBAR CARD (MATCHES MCP & SETTINGS SCREEN) ──
-        item(key = "header_toolbar") {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(Standards.RadiusLg),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                )
-            ) {
+        LazyColumn(
+            state = lazyListState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 88.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // ── 1. HEADER / TOOLBAR (PLAIN TOP BAR WITH SUBTITLE & ACTIONS) ──
+            item(key = "header_toolbar") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(14.dp),
+                        .padding(horizontal = 4.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Agent Skills",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${skills.count { it.enabled }} of ${skills.size} active",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
+                        IconButton(
+                            onClick = {
+                                bitHaptics.selection()
+                                isReorderMode = !isReorderMode
+                            }
                         ) {
                             Icon(
-                                imageVector = Icons.Rounded.AutoAwesome,
-                                contentDescription = "Skills",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(22.dp)
+                                imageVector = if (isReorderMode) Icons.Rounded.Check else Icons.Rounded.SwapVert,
+                                contentDescription = if (isReorderMode) "Done reordering" else "Reorder skills",
+                                tint = if (isReorderMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
+
+                        Box {
+                            IconButton(
+                                onClick = {
+                                    bitHaptics.pop()
+                                    showMoreMenu = true
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.MoreVert,
+                                    contentDescription = "More options",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showMoreMenu,
+                                onDismissRequest = { showMoreMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Import from file") },
+                                    leadingIcon = { Icon(Icons.Rounded.FileUpload, null) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        bitHaptics.pop()
+                                        importLauncher.launch(arrayOf("*/*", "text/markdown", "application/json"))
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Import from URL") },
+                                    leadingIcon = { Icon(Icons.Rounded.CloudDownload, null) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        bitHaptics.pop()
+                                        showImportUrlDialog = true
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── 2. SEARCH BAR & FILTER CHIPS ──
+            item(key = "search_and_filters") {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // Search bar
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                shape = RoundedCornerShape(24.dp)
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                                shape = RoundedCornerShape(24.dp)
+                            )
+                            .padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = TnIcons.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                color = MaterialTheme.colorScheme.onSurface
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            modifier = Modifier.weight(1f),
+                            decorationBox = { innerTextField ->
+                                Box(contentAlignment = Alignment.CenterStart) {
+                                    if (searchQuery.isEmpty()) {
+                                        Text(
+                                            text = "Search skills or /commands...",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            }
+                        )
+
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = { searchQuery = "" },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = TnIcons.X,
+                                    contentDescription = "Clear",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Filter Chips (Scrollable LazyRow with counts)
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(filters.size) { index ->
+                            val filter = filters[index]
+                            val count = when (index) {
+                                1 -> localOrder.count { it.enabled }
+                                2 -> localOrder.count { it.isBuiltIn }
+                                3 -> localOrder.count { !it.isBuiltIn }
+                                else -> localOrder.size
+                            }
+                            val isSelected = selectedFilterIndex == index
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    bitHaptics.selection()
+                                    selectedFilterIndex = index
+                                },
+                                label = {
+                                    Text(
+                                        "$filter $count",
+                                        softWrap = false,
+                                        maxLines = 1,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                                    )
+                                },
+                                shape = RoundedCornerShape(Standards.RadiusMd),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    enabled = true,
+                                    selected = isSelected,
+                                    borderColor = if (isSelected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ── 3. SKILL CARDS ──
+            if (filteredSkills.isEmpty()) {
+                item(key = "empty_state") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 40.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = TnIcons.Sparkles,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.outlineVariant,
+                                modifier = Modifier.size(48.dp)
+                            )
                             Text(
-                                text = "Agent Skills",
+                                text = if (searchQuery.isNotEmpty()) "No matching skills" else "No skills configured",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "${skills.count { it.enabled }} active • ${skills.size} total",
+                                text = if (searchQuery.isNotEmpty()) "Try a different search term" else "Tap 'New skill' to create an agent skill",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                        }
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        IconButton(
-                            onClick = {
-                                bitHaptics.pop()
-                                importLauncher.launch(arrayOf("*/*", "text/markdown", "application/json"))
-                            }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.FileUpload,
-                                contentDescription = "Import file",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        IconButton(
-                            onClick = {
-                                bitHaptics.pop()
-                                showImportUrlDialog = true
-                            }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.CloudDownload,
-                                contentDescription = "Import URL",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        FilledTonalButton(
-                            onClick = {
-                                bitHaptics.pop()
-                                showCreateSheet = true
-                            },
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                            shape = RoundedCornerShape(Standards.RadiusMd),
-                            modifier = Modifier.height(36.dp)
-                        ) {
-                            Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("New", style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
-                }
-            }
-        }
-
-        // ── 2. SEARCH BAR & FILTER CHIPS ──
-        item(key = "search_and_filters") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Search bar matching SettingsScreen
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            shape = RoundedCornerShape(24.dp)
-                        )
-                        .border(
-                            width = 1.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                            shape = RoundedCornerShape(24.dp)
-                        )
-                        .padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = TnIcons.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    BasicTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(
-                            color = MaterialTheme.colorScheme.onSurface
-                        ),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        modifier = Modifier.weight(1f),
-                        decorationBox = { innerTextField ->
-                            Box(contentAlignment = Alignment.CenterStart) {
-                                if (searchQuery.isEmpty()) {
-                                    Text(
-                                        text = "Search skills or /commands...",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                    )
+                            if (searchQuery.isNotEmpty()) {
+                                TextButton(onClick = { searchQuery = "" }) {
+                                    Text("Clear Search")
                                 }
-                                innerTextField()
-                            }
-                        }
-                    )
-
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(
-                            onClick = { searchQuery = "" },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = TnIcons.X,
-                                contentDescription = "Clear",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
-
-                // Filter Chips
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    filters.forEachIndexed { index, filter ->
-                        val isSelected = selectedFilterIndex == index
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = {
-                                bitHaptics.selection()
-                                selectedFilterIndex = index
-                            },
-                            label = {
-                                Text(
-                                    filter,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-                                )
-                            },
-                            shape = RoundedCornerShape(Standards.RadiusMd),
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = isSelected,
-                                borderColor = if (isSelected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                            )
-                        )
-                    }
-                }
-            }
-        }
-
-        // ── 3. SKILL CARDS ──
-        if (filteredSkills.isEmpty()) {
-            item(key = "empty_state") {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 40.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(
-                            imageVector = TnIcons.Sparkles,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.outlineVariant,
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Text(
-                            text = if (searchQuery.isNotEmpty()) "No matching skills" else "No skills configured",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = if (searchQuery.isNotEmpty()) "Try a different search term" else "Tap '+ New' to create an agent skill",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (searchQuery.isNotEmpty()) {
-                            TextButton(onClick = { searchQuery = "" }) {
-                                Text("Clear Search")
                             }
                         }
                     }
                 }
-            }
-        } else {
-            items(
-                items = filteredSkills,
-                key = { it.id }
-            ) { skill ->
-                ReorderableItem(reorderableState, key = skill.id) { isDragging ->
-                    val slug = skillManager.getSkillSlug(skill)
+            } else {
+                items(
+                    items = filteredSkills,
+                    key = { it.id }
+                ) { skill ->
+                    ReorderableItem(reorderableState, key = skill.id) { isDragging ->
+                        val slug = skillManager.getSkillSlug(skill)
 
-                    if (!skill.isBuiltIn) {
-                        PhysicsSwipeToDelete(
-                            onDelete = {
-                                bitHaptics.thud()
-                                skillManager.removeSkill(skill.id)
-                                Toast.makeText(context, "Deleted \"${skill.name}\"", Toast.LENGTH_SHORT).show()
-                            }
-                        ) { shape ->
-                            SkillCard(
-                                skill = skill,
-                                slug = slug,
-                                isDragging = isDragging,
-                                shape = shape,
-                                dragHandle = {
-                                    IconButton(
-                                        onClick = {},
-                                        modifier = Modifier.draggableHandle()
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.DragHandle,
-                                            contentDescription = "Reorder",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                            modifier = Modifier.size(20.dp)
-                                        )
+                        Box(modifier = Modifier.animateItem()) {
+                            if (!skill.isBuiltIn) {
+                                PhysicsSwipeToDelete(
+                                    onDelete = {
+                                        bitHaptics.thud()
+                                        skillManager.removeSkill(skill.id)
+                                        Toast.makeText(context, "Deleted \"${skill.name}\"", Toast.LENGTH_SHORT).show()
                                     }
-                                },
-                                onToggle = { enabled ->
-                                    skillManager.toggleSkill(skill.id, enabled)
-                                },
-                                onClick = {
-                                    bitHaptics.pop()
-                                    selectedSkillForDetail = skill
-                                }
-                            )
-                        }
-                    } else {
-                        SkillCard(
-                            skill = skill,
-                            slug = slug,
-                            isDragging = isDragging,
-                            dragHandle = {
-                                IconButton(
-                                    onClick = {},
-                                    modifier = Modifier.draggableHandle()
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.DragHandle,
-                                        contentDescription = "Reorder",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                        modifier = Modifier.size(20.dp)
+                                ) { shape ->
+                                    SkillCard(
+                                        skill = skill,
+                                        slug = slug,
+                                        isDragging = isDragging,
+                                        isReorderMode = isReorderMode,
+                                        shape = shape,
+                                        dragHandle = {
+                                            IconButton(
+                                                onClick = {},
+                                                modifier = Modifier.draggableHandle()
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.DragHandle,
+                                                    contentDescription = "Reorder",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                    modifier = Modifier.size(22.dp)
+                                                )
+                                            }
+                                        },
+                                        onToggle = { enabled ->
+                                            skillManager.toggleSkill(skill.id, enabled)
+                                        },
+                                        onClick = {
+                                            bitHaptics.pop()
+                                            selectedSkillForDetail = skill
+                                        }
                                     )
                                 }
-                            },
-                            onToggle = { enabled ->
-                                skillManager.toggleSkill(skill.id, enabled)
-                            },
-                            onClick = {
-                                bitHaptics.pop()
-                                selectedSkillForDetail = skill
+                            } else {
+                                SkillCard(
+                                    skill = skill,
+                                    slug = slug,
+                                    isDragging = isDragging,
+                                    isReorderMode = isReorderMode,
+                                    dragHandle = {
+                                        IconButton(
+                                            onClick = {},
+                                            modifier = Modifier.draggableHandle()
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.DragHandle,
+                                                contentDescription = "Reorder",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                    },
+                                    onToggle = { enabled ->
+                                        skillManager.toggleSkill(skill.id, enabled)
+                                    },
+                                    onClick = {
+                                        bitHaptics.pop()
+                                        selectedSkillForDetail = skill
+                                    }
+                                )
                             }
-                        )
+                        }
                     }
                 }
             }
+
+            item(key = "bottom_spacer") {
+                Spacer(modifier = Modifier.height(24.dp))
+            }
         }
 
-        item(key = "bottom_spacer") {
-            Spacer(modifier = Modifier.height(24.dp))
-        }
+        ExtendedFloatingActionButton(
+            onClick = {
+                bitHaptics.pop()
+                showCreateSheet = true
+            },
+            icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+            text = { Text("New skill") },
+            shape = RoundedCornerShape(16.dp),
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+        )
     }
 
     // Detail Sheet
@@ -600,135 +621,78 @@ fun SkillsScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// MINIMAL MATERIAL 3 SKILL CARD
+// MATERIAL 3 SKILL CARD & CHIPS
 // ─────────────────────────────────────────────────────────────
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SkillCard(
     skill: Skill,
     slug: String,
     isDragging: Boolean = false,
-    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(Standards.RadiusMd),
+    isReorderMode: Boolean = false,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(20.dp),
     dragHandle: @Composable () -> Unit = {},
     onToggle: (Boolean) -> Unit,
     onClick: () -> Unit
 ) {
     val bitHaptics = LocalBitHaptics.current
+    val tint = getSkillCategoryTint(skill)
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
+    Surface(
         shape = shape,
-        colors = CardDefaults.cardColors(
-            containerColor = if (skill.enabled) MaterialTheme.colorScheme.surfaceContainer
-            else MaterialTheme.colorScheme.surfaceContainerLow
-        ),
-        border = BorderStroke(
-            1.dp,
-            if (skill.enabled) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-        )
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (skill.enabled) 1f else 0.6f)
+            .clickable(onClick = onClick)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 10.dp),
+            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Drag handle
-            dragHandle()
+            if (isReorderMode) {
+                dragHandle()
+            }
 
-            // Icon container
             Box(
                 modifier = Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(Standards.RadiusSm))
-                    .background(
-                        if (skill.enabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
-                        else MaterialTheme.colorScheme.surfaceVariant
-                    ),
+                    .size(44.dp)
+                    .background(tint.container, RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = getSkillIcon(skill.icon),
                     contentDescription = null,
-                    tint = if (skill.enabled) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp)
+                    tint = tint.onContainer,
+                    modifier = Modifier.size(22.dp)
                 )
             }
 
-            // Text Info — Clickable region for details
             Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable(onClick = onClick)
-                    .padding(vertical = 2.dp)
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                Text(
+                    text = skill.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = skill.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-
-                    // Command Slug Badge (e.g. /web-search)
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-                    ) {
-                        Text(
-                            text = "/$slug",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                        )
-                    }
-
-                    if (skill.isBuiltIn) {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
-                        ) {
-                            Text(
-                                text = "BUILT-IN",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                            )
-                        }
-                    }
-
-                    if (skill.isExecutable) {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f)
-                        ) {
-                            Text(
-                                text = if (skill.requiresWorkspace) "PROOT" else "EXEC",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                            )
-                        }
-                    }
+                    SkillChip("/$slug", mono = true)
+                    if (skill.isBuiltIn) SkillChip("Built-in")
+                    if (skill.requiresWorkspace) SkillChip("Root", error = true)
+                    else if (skill.isExecutable) SkillChip("Exec")
                 }
 
                 if (skill.description.isNotBlank()) {
-                    Spacer(Modifier.height(3.dp))
                     Text(
                         text = skill.description,
                         style = MaterialTheme.typography.bodySmall,
@@ -739,21 +703,74 @@ fun SkillCard(
                 }
             }
 
-            // Material 3 Switch
             Switch(
                 checked = skill.enabled,
                 onCheckedChange = {
                     bitHaptics.selection()
                     onToggle(it)
-                },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = MaterialTheme.colorScheme.primary,
-                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
-                    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
-                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest
-                )
+                }
             )
         }
+    }
+}
+
+@Composable
+fun SkillChip(text: String, mono: Boolean = false, error: Boolean = false) {
+    val bg = if (error) MaterialTheme.colorScheme.errorContainer
+             else MaterialTheme.colorScheme.surfaceContainerHighest
+    val fg = if (error) MaterialTheme.colorScheme.onErrorContainer
+             else MaterialTheme.colorScheme.onSurfaceVariant
+    Text(
+        text = text,
+        color = fg,
+        softWrap = false,
+        maxLines = 1,
+        style = MaterialTheme.typography.labelSmall.copy(
+            fontFamily = if (mono) FontFamily.Monospace else null
+        ),
+        modifier = Modifier
+            .background(bg, RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+    )
+}
+
+data class SkillTint(val container: Color, val onContainer: Color)
+
+@Composable
+fun getSkillCategoryTint(skill: Skill): SkillTint {
+    val category = when {
+        skill.requiresWorkspace || skill.icon?.lowercase() == "terminal" -> "terminal"
+        skill.icon?.lowercase() in listOf("storage", "files") -> "storage"
+        skill.icon?.lowercase() in listOf("code", "dev") -> "code"
+        skill.icon?.lowercase() in listOf("psychology", "memory", "vault") -> "memory"
+        skill.icon?.lowercase() in listOf("search", "web") -> "search"
+        else -> "planning"
+    }
+    return when (category) {
+        "terminal" -> SkillTint(
+            container = MaterialTheme.colorScheme.tertiaryContainer,
+            onContainer = MaterialTheme.colorScheme.onTertiaryContainer
+        )
+        "storage" -> SkillTint(
+            container = MaterialTheme.colorScheme.secondaryContainer,
+            onContainer = MaterialTheme.colorScheme.onSecondaryContainer
+        )
+        "code" -> SkillTint(
+            container = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
+            onContainer = MaterialTheme.colorScheme.onPrimaryContainer
+        )
+        "memory" -> SkillTint(
+            container = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f),
+            onContainer = MaterialTheme.colorScheme.onSecondaryContainer
+        )
+        "search" -> SkillTint(
+            container = MaterialTheme.colorScheme.primaryContainer,
+            onContainer = MaterialTheme.colorScheme.onPrimaryContainer
+        )
+        else -> SkillTint(
+            container = MaterialTheme.colorScheme.surfaceContainerHighest,
+            onContainer = MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 

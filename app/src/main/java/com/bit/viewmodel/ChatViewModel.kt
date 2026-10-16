@@ -1025,7 +1025,13 @@ class ChatViewModel @Inject constructor(
         }
 
         _currentChatId.value = null
+        _allMessages.clear()
+        _selectedBranches.clear()
         _messages.clear()
+        visibleEpoch.value++
+        viewModelScope.launch {
+            appSettings.saveLastChatId(null)
+        }
         _streamingUserMessage.value = null
         _streamingAssistantMessage.value = ""
         _streamingImage.value = null
@@ -1298,7 +1304,7 @@ class ChatViewModel @Inject constructor(
                 val isNewChat = isNewConversation
                 val activeProviderType = ActiveModelSession.currentModelType.value
                 val hasTools = PluginManager.hasEnabledTools()
-                        && (PluginManager.isToolCallingModelLoaded.value || activeProviderType == ProviderType.API)
+                        && (isAgentMode.value || PluginManager.isToolCallingModelLoaded.value || activeProviderType == ProviderType.API)
                 LlmModelWorker.setThinkingEnabledGguf(_thinkingModeEnabled.value)
 
                 // ── TTFT optimization: fire API connection pre-warm immediately ──
@@ -1455,7 +1461,29 @@ class ChatViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Error in sendChat", e)
-                reportError(e.message)
+                val errMsg = e.message ?: "An unexpected error occurred during generation."
+                reportError(errMsg)
+                val now = System.currentTimeMillis()
+                emitStepEvent(com.bit.agent.harness.event.StepEvent.Failed(now, errMsg))
+                val targetChatId = _currentChatId.value
+                val pendingUserMsg = currentUserMessage
+                if (targetChatId != null) {
+                    if (!userMessageAdded.get() && pendingUserMsg != null) {
+                        addMessageToState(pendingUserMsg)
+                        userMessageAdded.set(true)
+                    }
+                    val currentStepsUi = _thinkingUi.value?.takeIf { it.steps.isNotEmpty() }
+                    val failAssistantMsg = Messages(
+                        msgId = turnId,
+                        role = Role.Assistant,
+                        parentId = pendingUserMsg?.msgId,
+                        content = MessageContent(contentType = ContentType.Text, content = "Generation failed: $errMsg"),
+                        modelId = currentModelId,
+                        executionSteps = currentStepsUi
+                    )
+                    addMessageToState(failAssistantMsg)
+                    chatManager.addMessage(targetChatId, failAssistantMsg)
+                }
             } finally {
                 if (generationJob == job) {
                     resetStreamingState()
@@ -2101,13 +2129,13 @@ class ChatViewModel @Inject constructor(
             expanded = false
         )
 
-        val isTooTinyForTools = if (activeProviderType == ProviderType.API) {
+        val isTooTinyForTools = if (activeProviderType == ProviderType.API || isAgentMode.value) {
             false
         } else {
             ActiveModelSession.isSubBillion.value
         }
         val hasTools = PluginManager.hasEnabledTools()
-                && (PluginManager.isToolCallingModelLoaded.value || activeProviderType == ProviderType.API)
+                && (isAgentMode.value || PluginManager.isToolCallingModelLoaded.value || activeProviderType == ProviderType.API)
                 && !isTooTinyForTools
 
         val steps = mutableListOf<ToolChainStepData>()
@@ -2865,25 +2893,32 @@ class ChatViewModel @Inject constructor(
                 )
             }
 
-            if (cleanResponse.isNotBlank()) {
-                val currentStepsUi = _thinkingUi.value?.takeIf { it.steps.isNotEmpty() }
-                val assistantMessage = Messages(
-                    msgId = turnId,
-                    role = Role.Assistant,
-                    parentId = currentUserMessage?.msgId,
-                    content = MessageContent(contentType = ContentType.Text, content = cleanResponse),
-                    modelId = currentModelId,
-                    decodingMetrics = currentMetrics,
-                    ragResults = ragResultItems,
-                    researchTrace = captureActiveResearchTrace(),
-                    executionSteps = currentStepsUi
-                )
-                addMessageToState(assistantMessage)
-                chatManager.addMessage(chatId, assistantMessage)
-                handlePostTurnMemoryExtraction(prompt, chatId)
-                if (isNewChat) {
-                    generateChatTitleAsync(chatId, prompt, cleanResponse)
+            val effectiveResponse = if (cleanResponse.isNotBlank()) {
+                cleanResponse
+            } else {
+                finalResponse.trim().ifBlank {
+                    if (isAgentMode.value) "I am unable to answer or perform that action with the current model."
+                    else "The model did not generate an answer. Please try rephrasing your prompt."
                 }
+            }
+
+            val currentStepsUi = _thinkingUi.value?.takeIf { it.steps.isNotEmpty() }
+            val assistantMessage = Messages(
+                msgId = turnId,
+                role = Role.Assistant,
+                parentId = currentUserMessage?.msgId,
+                content = MessageContent(contentType = ContentType.Text, content = effectiveResponse),
+                modelId = currentModelId,
+                decodingMetrics = currentMetrics,
+                ragResults = ragResultItems,
+                researchTrace = captureActiveResearchTrace(),
+                executionSteps = currentStepsUi
+            )
+            addMessageToState(assistantMessage)
+            chatManager.addMessage(chatId, assistantMessage)
+            handlePostTurnMemoryExtraction(prompt, chatId)
+            if (isNewChat) {
+                generateChatTitleAsync(chatId, prompt, effectiveResponse)
             }
             AppStateManager.setGenerationComplete()
             AppStateManager.chatRefreshed()
