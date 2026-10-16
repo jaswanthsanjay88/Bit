@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth bg-white text-[#171717]">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy — BIT Sovereign On-Device AI</title>
+  <meta name="description" content="Privacy Policy for BIT Sovereign On-Device AI Assistant for Android. 100% offline, zero telemetry, private on-device intelligence." />
+  <link rel="icon" type="image/svg+xml" href="/img/ic_logo.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background-color: #ffffff;
+      color: #3f3f46;
+      line-height: 1.75;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    a { color: #0a0a0a; text-decoration: underline; text-underline-offset: 3px; transition: color 0.15s ease; }
+    a:hover { color: #52525b; }
+
+    /* Navigation */
+    header {
+      position: sticky;
+      top: 0;
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid #f4f4f5;
+      z-index: 50;
+    }
+    .nav-container {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: #0a0a0a;
+    }
+    .brand-logo {
+      width: 22px;
+      height: 22px;
+      color: #0a0a0a;
+      flex-shrink: 0;
+    }
+    .brand-title {
+      font-weight: 600;
+      font-size: 15px;
+      letter-spacing: -0.015em;
+      color: #0a0a0a;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+    .nav-link {
+      font-size: 13.5px;
+      font-weight: 500;
+      color: #71717a;
+      text-decoration: none;
+      transition: color 0.15s ease;
+    }
+    .nav-link:hover {
+      color: #0a0a0a;
+    }
+    .nav-link.active {
+      color: #0a0a0a;
+      font-weight: 600;
+    }
+
+    /* Document Prose Layout */
+    .doc-container {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 64px 24px 100px;
+    }
+    .doc-eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #71717a;
+      margin-bottom: 14px;
+      display: block;
+    }
+    .doc-title {
+      font-size: clamp(2.4rem, 5vw, 3.2rem);
+      font-weight: 700;
+      letter-spacing: -0.035em;
+      line-height: 1.1;
+      color: #0a0a0a;
+      margin-bottom: 16px;
+    }
+    .doc-meta {
+      font-size: 14px;
+      color: #71717a;
+      margin-bottom: 40px;
+    }
+    .doc-divider {
+      height: 1px;
+      background: #e4e4e7;
+      border: none;
+      margin-bottom: 48px;
+    }
+
+    /* Legal Typography */
+    .doc-section {
+      margin-bottom: 48px;
+    }
+    .doc-section h2 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: #0a0a0a;
+      margin-bottom: 16px;
+      padding-top: 8px;
+    }
+    .doc-section p {
+      font-size: 15.5px;
+      color: #3f3f46;
+      line-height: 1.8;
+      margin-bottom: 16px;
+    }
+    .doc-section p:last-child {
+      margin-bottom: 0;
+    }
+    .doc-section ul {
+      margin: 16px 0 20px 20px;
+      list-style-type: disc;
+    }
+    .doc-section li {
+      font-size: 15px;
+      color: #3f3f46;
+      line-height: 1.75;
+      margin-bottom: 10px;
+      padding-left: 4px;
+    }
+    .doc-section li strong {
+      color: #0a0a0a;
+    }
+    .callout-rule {
+      border-left: 2px solid #0a0a0a;
+      padding-left: 18px;
+      margin: 22px 0;
+      font-size: 15px;
+      color: #18181b;
+      line-height: 1.75;
+    }
+    .callout-rule strong {
+      color: #0a0a0a;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid #e4e4e7;
+      background: #fafafa;
+      padding: 40px 0;
+      font-size: 13.5px;
+      color: #71717a;
+    }
+    .footer-container {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .footer-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #71717a;
+    }
+    .footer-logo-box {
+      width: 20px;
+      height: 20px;
+      background: #0a0a0a;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .footer-logo {
+      width: 12px;
+      height: 12px;
+      color: #ffffff;
+    }
+    .footer-links {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+    }
+    .footer-links a {
+      color: #71717a;
+      text-decoration: none;
+    }
+    .footer-links a:hover {
+      color: #0a0a0a;
+    }
+
+    @media (max-width: 640px) {
+      .footer-container {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .footer-links {
+        flex-wrap: wrap;
+        gap: 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Header with official BIT Logo -->
+  <header>
+    <div class="nav-container">
+      <a href="/" class="brand" aria-label="BIT Homepage">
+        <svg class="brand-logo" viewBox="0 0 280 280" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+          <rect x="0" y="0" width="77" height="280" rx="4" />
+          <rect x="127" y="0" width="153" height="128" rx="4" />
+          <rect x="127" y="152" width="153" height="128" rx="4" />
+        </svg>
+        <span class="brand-title">BIT</span>
+      </a>
+      <nav class="nav-links">
+        <a href="/" class="nav-link">&larr; Back to App</a>
+        <a href="/privacy.html" class="nav-link active">Privacy</a>
+        <a href="/terms.html" class="nav-link">Terms</a>
+        <a href="https://github.com/jaswanthsanjay88/Bit" target="_blank" rel="noreferrer" class="nav-link">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Legal Document Prose Content (Clean Document Layout, No Cards/Blocks) -->
+  <main class="doc-container">
+    <span class="doc-eyebrow">Legal Document &bull; Privacy Architecture</span>
+    <h1 class="doc-title">Privacy Policy</h1>
+    <p class="doc-meta">Last updated: October 16, 2026 &bull; Effective for BIT Android Application (v2.1.9+)</p>
+    <hr class="doc-divider" />
+
+    <section class="doc-section">
+      <h2>1. Core Privacy Commitment: 0 Bytes Leave Your Device</h2>
+      <p>
+        BIT is engineered from the ground up as a sovereign, offline-first personal AI assistant for Android. We believe that your thoughts, documents, audio recordings, and agent execution plans belong exclusively to you.
+      </p>
+      <div class="callout-rule">
+        <strong>The Sovereign Rule:</strong> BIT operates zero telemetry servers, zero analytics relays, zero crash reporting listeners, and zero remote tracking databases. We have no infrastructure to record who you are, what you generate, or how often you use the app.
+      </div>
+    </section>
+
+    <section class="doc-section">
+      <h2>2. On-Device AI Processing</h2>
+      <p>
+        When you run BIT in local inference mode, all computations are executed entirely on your Android hardware silicon (CPU, GPU via Vulkan/OpenCL, and NPU):
+      </p>
+      <ul>
+        <li><strong>Language Models (GGUF):</strong> Model weights run natively through compiled C++ llama.cpp kernels. Prompts, context trees, and reasoning traces remain strictly inside local RAM.</li>
+        <li><strong>Speech & Voice (STT & TTS):</strong> Speech recognition (Whisper via sherpa-onnx) and voice synthesis (Piper neural engine) operate 100% offline. Microphone audio is never transmitted across a network.</li>
+        <li><strong>Document Retrieval (RAG & Memory Vault):</strong> Embeddings are generated locally using quantized BGE models. Semantic search vectors and full text are stored in a local, encrypted SQLite database.</li>
+        <li><strong>Vision Processing:</strong> Visual question answering and image inspection run on-device through multimodal projector tensors without cloud relays.</li>
+      </ul>
+    </section>
+
+    <section class="doc-section">
+      <h2>3. Hardware-Backed Encryption (Memory Vault)</h2>
+      <p>
+        All persistent state—including chat transcripts, long-term memory facts, and ingested document vectors—is secured using our Memory Vault system:
+      </p>
+      <ul>
+        <li><strong>Hardware-Backed Keys:</strong> Storage encryption uses AES-256-GCM. Cryptographic keys are generated inside the Android KeyStore System (Hardware TEE / StrongBox Keymaster), guaranteeing that keys cannot be extracted even from rooted devices.</li>
+        <li><strong>User-Controlled Data:</strong> You have absolute authority to delete specific conversation threads, wipe vector collections, purge indexed documents, or export an encrypted backup archive directly from the app settings.</li>
+      </ul>
+    </section>
+
+    <section class="doc-section">
+      <h2>4. Optional Cloud API Providers (BYOK)</h2>
+      <p>
+        BIT optionally allows you to connect external OpenAI-compatible or Anthropic API endpoints for larger cloud models. If and only if you choose to use this feature:
+      </p>
+      <ul>
+        <li><strong>Bring Your Own Key (BYOK):</strong> BIT never provides cloud API keys or routes requests through any developer intermediary. You provide your own API credentials.</li>
+        <li><strong>Direct Point-to-Point TLS:</strong> Network calls are transmitted directly between your phone and your chosen provider's official endpoint over encrypted HTTPS.</li>
+        <li><strong>Encrypted Key Storage:</strong> Your API keys are encrypted locally using the Android KeyStore and are never transmitted anywhere except the intended provider.</li>
+        <li><strong>Third-Party Policies:</strong> The privacy practices and data retention policies of your selected API provider govern all requests sent to that external service.</li>
+      </ul>
+    </section>
+
+    <section class="doc-section">
+      <h2>5. Network Connections & Permissions</h2>
+      <p>
+        BIT requests Android network permissions solely for transparent, user-initiated features:
+      </p>
+      <ul>
+        <li><strong>Model Sideloading:</strong> Downloading verified quantized model weights and voice assets directly from Hugging Face or user-specified URLs over HTTPS.</li>
+        <li><strong>Web Search Plugin (Agent Mode):</strong> When explicitly enabled for a query, web search terms are sent directly to DuckDuckGo to retrieve real-time facts. This can be toggled off at any time.</li>
+        <li><strong>Developer Linux Workspaces (PRoot):</strong> When initializing a Linux container, root filesystem archives (Ubuntu, Alpine) are pulled directly from official distribution mirrors with SHA-256 integrity verification.</li>
+        <li><strong>Version Check:</strong> Periodic update checks query the public GitHub Releases API. No device identifiers or user telemetry are sent.</li>
+      </ul>
+    </section>
+
+    <section class="doc-section">
+      <h2>6. Device Permissions</h2>
+      <p>
+        Every requested Android permission is mapped strictly to a local capability:
+      </p>
+      <ul>
+        <li><strong>Microphone (RECORD_AUDIO):</strong> Used exclusively to stream real-time acoustic frames into the on-device Whisper model during Live Voice mode. Audio is discarded immediately after inference.</li>
+        <li><strong>Storage (Storage Access Framework):</strong> Used solely to import GGUF model files, index PDF/text documents into the RAG vault, or save exported backups upon your explicit selection.</li>
+        <li><strong>Foreground Service:</strong> Used to maintain continuous execution for long background model downloads or extended agent reasoning without being killed by the Android OS.</li>
+      </ul>
+    </section>
+
+    <section class="doc-section">
+      <h2>7. Children's Privacy</h2>
+      <p>
+        BIT does not collect, store, or transmit personal information from anyone, including children under the age of 13.
+      </p>
+    </section>
+
+    <section class="doc-section">
+      <h2>8. Open Source Verification & Contact</h2>
+      <p>
+        BIT is free, open-source software licensed under the Apache License 2.0. The complete source code is publicly accessible on GitHub, allowing security researchers and users to independently audit and verify our zero-telemetry architecture.
+      </p>
+      <p>
+        If you have questions, feedback, or security inquiries regarding this Privacy Policy:
+      </p>
+      <ul>
+        <li><strong>GitHub Repository:</strong> <a href="https://github.com/jaswanthsanjay88/Bit" target="_blank" rel="noreferrer">github.com/jaswanthsanjay88/Bit</a></li>
+        <li><strong>Discord Community:</strong> <a href="https://discord.gg/v75PxaJDy" target="_blank" rel="noreferrer">discord.gg/v75PxaJDy</a></li>
+        <li><strong>Email:</strong> <a href="mailto:jaswanthsanjay88@gmail.com">jaswanthsanjay88@gmail.com</a></li>
+      </ul>
+    </section>
+  </main>
+
+  <!-- Footer with official BIT Logo -->
+  <footer>
+    <div class="footer-container">
+      <div class="footer-brand">
+        <div class="footer-logo-box">
+          <svg class="footer-logo" viewBox="0 0 280 280" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <rect x="0" y="0" width="77" height="280" rx="4" />
+            <rect x="127" y="0" width="153" height="128" rx="4" />
+            <rect x="127" y="152" width="153" height="128" rx="4" />
+          </svg>
+        </div>
+        <span style="font-weight: 600; color: #0a0a0a;">BIT</span>
+        <span>&mdash;</span>
+        <span>Sovereign On-Device AI</span>
+      </div>
+      <div class="footer-links">
+        <a href="/">Home</a>
+        <a href="/privacy.html" style="color: #0a0a0a; font-weight: 500;">Privacy Policy</a>
+        <a href="/terms.html">Terms & Conditions</a>
+        <a href="https://github.com/jaswanthsanjay88/Bit" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://discord.gg/v75PxaJDy" target="_blank" rel="noreferrer">Discord</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

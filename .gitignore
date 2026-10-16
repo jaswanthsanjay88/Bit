@@ -91,7 +91,7 @@ qualcomm*.jpg
 node_modules/
 **/node_modules/
 /web-ui/
-screen_*.png
+/screen_*.png
 
 # Evaluation transcripts
 evals/baseline/

@@ -8,10 +8,11 @@ export const Footer: React.FC = () => {
   const [hoveredLink, setHoveredLink] = useState<string | null>(null);
 
   const links = [
-    { label: 'GitHub', href: 'https://github.com/jaswanthsanjay88/Bit_Android' },
-    { label: 'Docs', href: 'https://github.com/jaswanthsanjay88/Bit_Android/blob/main/README.md' },
-    { label: 'Privacy', href: 'https://github.com/jaswanthsanjay88/Bit_Android/blob/main/docs/SECURITY.md' },
-    { label: 'License', href: 'https://github.com/jaswanthsanjay88/Bit_Android/blob/main/LICENSE' },
+    { label: 'GitHub', href: 'https://github.com/jaswanthsanjay88/Bit' },
+    { label: 'Discord', href: 'https://discord.gg/v75PxaJDy' },
+    { label: 'Privacy Policy', href: '/privacy.html' },
+    { label: 'Terms', href: '/terms.html' },
+    { label: 'License', href: 'https://github.com/jaswanthsanjay88/Bit/blob/master/LICENSE' },
   ];
 
   return (
@@ -34,8 +35,8 @@ export const Footer: React.FC = () => {
             <a
               key={link.label}
               href={link.href}
-              target="_blank"
-              rel="noreferrer"
+              target={link.href.startsWith('http') ? '_blank' : undefined}
+              rel={link.href.startsWith('http') ? 'noreferrer' : undefined}
               onMouseEnter={() => setHoveredLink(link.label)}
               onMouseLeave={() => setHoveredLink(null)}
               className="relative text-[#6b6b6b] hover:text-[#0a0a0a] transition-colors duration-150 py-1 focus-ring rounded"

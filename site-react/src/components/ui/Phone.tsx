@@ -53,7 +53,7 @@ export const Phone: React.FC<PhoneProps> = ({
               loading={priority ? 'eager' : 'lazy'}
             />
           ) : (
-            children
+            <div className="absolute inset-0 w-full h-full">{children}</div>
           )}
         </div>
       </div>

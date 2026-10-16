@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth bg-white text-[#171717]">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Terms & Conditions — BIT Sovereign On-Device AI</title>
+  <meta name="description" content="Terms and Conditions for BIT Sovereign On-Device AI Assistant for Android." />
+  <link rel="icon" type="image/svg+xml" href="/img/ic_logo.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background-color: #ffffff;
+      color: #3f3f46;
+      line-height: 1.75;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    a { color: #0a0a0a; text-decoration: underline; text-underline-offset: 3px; transition: color 0.15s ease; }
+    a:hover { color: #52525b; }
+
+    /* Navigation */
+    header {
+      position: sticky;
+      top: 0;
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid #f4f4f5;
+      z-index: 50;
+    }
+    .nav-container {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: #0a0a0a;
+    }
+    .brand-logo {
+      width: 22px;
+      height: 22px;
+      color: #0a0a0a;
+      flex-shrink: 0;
+    }
+    .brand-title {
+      font-weight: 600;
+      font-size: 15px;
+      letter-spacing: -0.015em;
+      color: #0a0a0a;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+    .nav-link {
+      font-size: 13.5px;
+      font-weight: 500;
+      color: #71717a;
+      text-decoration: none;
+      transition: color 0.15s ease;
+    }
+    .nav-link:hover {
+      color: #0a0a0a;
+    }
+    .nav-link.active {
+      color: #0a0a0a;
+      font-weight: 600;
+    }
+
+    /* Document Prose Layout */
+    .doc-container {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 64px 24px 100px;
+    }
+    .doc-eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #71717a;
+      margin-bottom: 14px;
+      display: block;
+    }
+    .doc-title {
+      font-size: clamp(2.4rem, 5vw, 3.2rem);
+      font-weight: 700;
+      letter-spacing: -0.035em;
+      line-height: 1.1;
+      color: #0a0a0a;
+      margin-bottom: 16px;
+    }
+    .doc-meta {
+      font-size: 14px;
+      color: #71717a;
+      margin-bottom: 40px;
+    }
+    .doc-divider {
+      height: 1px;
+      background: #e4e4e7;
+      border: none;
+      margin-bottom: 48px;
+    }
+
+    /* Legal Typography */
+    .doc-section {
+      margin-bottom: 48px;
+    }
+    .doc-section h2 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: #0a0a0a;
+      margin-bottom: 16px;
+      padding-top: 8px;
+    }
+    .doc-section p {
+      font-size: 15.5px;
+      color: #3f3f46;
+      line-height: 1.8;
+      margin-bottom: 16px;
+    }
+    .doc-section p:last-child {
+      margin-bottom: 0;
+    }
+    .doc-section ul {
+      margin: 16px 0 20px 20px;
+      list-style-type: disc;
+    }
+    .doc-section li {
+      font-size: 15px;
+      color: #3f3f46;
+      line-height: 1.75;
+      margin-bottom: 10px;
+      padding-left: 4px;
+    }
+    .doc-section li strong {
+      color: #0a0a0a;
+    }
+    .callout-rule {
+      border-left: 2px solid #0a0a0a;
+      padding-left: 18px;
+      margin: 22px 0;
+      font-size: 15px;
+      color: #18181b;
+      line-height: 1.75;
+    }
+    .callout-rule strong {
+      color: #0a0a0a;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid #e4e4e7;
+      background: #fafafa;
+      padding: 40px 0;
+      font-size: 13.5px;
+      color: #71717a;
+    }
+    .footer-container {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .footer-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #71717a;
+    }
+    .footer-logo-box {
+      width: 20px;
+      height: 20px;
+      background: #0a0a0a;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .footer-logo {
+      width: 12px;
+      height: 12px;
+      color: #ffffff;
+    }
+    .footer-links {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+    }
+    .footer-links a {
+      color: #71717a;
+      text-decoration: none;
+    }
+    .footer-links a:hover {
+      color: #0a0a0a;
+    }
+
+    @media (max-width: 640px) {
+      .footer-container {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .footer-links {
+        flex-wrap: wrap;
+        gap: 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Header with official BIT Logo -->
+  <header>
+    <div class="nav-container">
+      <a href="/" class="brand" aria-label="BIT Homepage">
+        <svg class="brand-logo" viewBox="0 0 280 280" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+          <rect x="0" y="0" width="77" height="280" rx="4" />
+          <rect x="127" y="0" width="153" height="128" rx="4" />
+          <rect x="127" y="152" width="153" height="128" rx="4" />
+        </svg>
+        <span class="brand-title">BIT</span>
+      </a>
+      <nav class="nav-links">
+        <a href="/" class="nav-link">&larr; Back to App</a>
+        <a href="/privacy.html" class="nav-link">Privacy</a>
+        <a href="/terms.html" class="nav-link active">Terms</a>
+        <a href="https://github.com/jaswanthsanjay88/Bit" target="_blank" rel="noreferrer" class="nav-link">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Legal Document Prose Content (Clean Document Layout, No Cards/Blocks) -->
+  <main class="doc-container">
+    <span class="doc-eyebrow">Legal Document &bull; Terms of Service</span>
+    <h1 class="doc-title">Terms & Conditions</h1>
+    <p class="doc-meta">Last updated: October 16, 2026 &bull; Effective for BIT Android Application (v2.1.9+)</p>
+    <hr class="doc-divider" />
+
+    <section class="doc-section">
+      <h2>1. Acceptance of Terms</h2>
+      <p>
+        By downloading, installing, compiling, or using BIT ("the Application"), you agree to be bound by these Terms and Conditions. If you do not agree with any part of these terms, you must discontinue using and uninstall the application immediately.
+      </p>
+    </section>
+
+    <section class="doc-section">
+      <h2>2. Sovereign Architecture & User Responsibility</h2>
+      <p>
+        BIT functions as a locally hosted runtime environment and sovereign inference harness. Because the application operates entirely on your physical hardware without remote moderation:
+      </p>
+      <div class="callout-rule">
+        <strong>Sole Responsibility:</strong> You retain complete ownership of and bear sole responsibility for all prompts, instructions, scripts, code executions, and media outputs generated through or processed by the application.
+      </div>
+      <p>
+        The developer and open-source contributors of BIT bear no liability for any content generated, transmitted, or compiled by end-users.
+      </p>
+    </section>
+
+    <section class="doc-section">
+      <h2>3. Third-Party AI Models & Weights</h2>
+      <p>
+        BIT enables you to download and execute public neural network weights (such as GGUF models from Hugging Face) or load weights from your local filesystem:
+      </p>
+      <ul>
+        <li><strong>No Authorship of Third-Party Weights:</strong> The developers of BIT did not author, train, fine-tune, or moderate third-party weights. BIT is an execution engine, not a content provider.</li>
+        <li><strong>Model Hallucinations & Non-Determinism:</strong> Neural models may output inaccurate, biased, or non-deterministic statements. You should never rely on model outputs for professional legal, financial, or medical guidance without independent human verification.</li>
+        <li><strong>License Compliance:</strong> You agree to abide by the respective licensing terms of any model you download or run (including Meta Llama 3 Community License, Google Gemma Terms of Use, Apache 2.0, or Mistral AI licenses).</li>
+      </ul>
+    </section>
+
+    <section class="doc-section">
+      <h2>4. Prohibited Uses</h2>
+      <p>
+        You agree that you will not use BIT to:
+      </p>
+      <ul>
+        <li>Generate, facilitate, or distribute child sexual exploitation or abuse material (CSAM) under any circumstances.</li>
+        <li>Develop malware, cyberattack tooling, ransomware, or unauthorized surveillance software intended to compromise systems you do not own.</li>
+        <li>Engage in illegal activities or generate defamatory or fraudulent materials under applicable local or international laws.</li>
+      </ul>
+    </section>
+
+    <section class="doc-section">
+      <h2>5. Linux Workspaces & Tool Execution (PRoot Sandbox)</h2>
+      <p>
+        BIT includes embedded terminal and container tooling (PRoot Linux environments, GBNF agent execution):
+      </p>
+      <ul>
+        <li><strong>User-Space Execution:</strong> Containers execute in unprivileged user space within the app's internal sandbox and do not have Android root access.</li>
+        <li><strong>Script Execution:</strong> You are solely responsible for all commands, shell scripts, package installations (via apt/apk), and build processes executed inside the container environment.</li>
+      </ul>
+    </section>
+
+    <section class="doc-section">
+      <h2>6. Disclaimer of Warranties & Limitation of Liability</h2>
+      <p>
+        BIT IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+      </p>
+      <p>
+        TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL THE AUTHORS, COPYRIGHT HOLDERS, OR CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES, LOSS OF DATA, DEVICE DAMAGE, OR OTHER LIABILITY ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+      </p>
+    </section>
+
+    <section class="doc-section">
+      <h2>7. Open Source License</h2>
+      <p>
+        The core BIT application is released as free and open-source software under the <strong>Apache License, Version 2.0</strong>. You are permitted to inspect, modify, and distribute the source code subject to the conditions of the Apache 2.0 license.
+      </p>
+    </section>
+
+    <section class="doc-section">
+      <h2>8. Contact & Community</h2>
+      <p>
+        For inquiries regarding these Terms and Conditions:
+      </p>
+      <ul>
+        <li><strong>GitHub Repository:</strong> <a href="https://github.com/jaswanthsanjay88/Bit" target="_blank" rel="noreferrer">github.com/jaswanthsanjay88/Bit</a></li>
+        <li><strong>Discord Community:</strong> <a href="https://discord.gg/v75PxaJDy" target="_blank" rel="noreferrer">discord.gg/v75PxaJDy</a></li>
+        <li><strong>Email:</strong> <a href="mailto:jaswanthsanjay88@gmail.com">jaswanthsanjay88@gmail.com</a></li>
+      </ul>
+    </section>
+  </main>
+
+  <!-- Footer with official BIT Logo -->
+  <footer>
+    <div class="footer-container">
+      <div class="footer-brand">
+        <div class="footer-logo-box">
+          <svg class="footer-logo" viewBox="0 0 280 280" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <rect x="0" y="0" width="77" height="280" rx="4" />
+            <rect x="127" y="0" width="153" height="128" rx="4" />
+            <rect x="127" y="152" width="153" height="128" rx="4" />
+          </svg>
+        </div>
+        <span style="font-weight: 600; color: #0a0a0a;">BIT</span>
+        <span>&mdash;</span>
+        <span>Sovereign On-Device AI</span>
+      </div>
+      <div class="footer-links">
+        <a href="/">Home</a>
+        <a href="/privacy.html">Privacy Policy</a>
+        <a href="/terms.html" style="color: #0a0a0a; font-weight: 500;">Terms & Conditions</a>
+        <a href="https://github.com/jaswanthsanjay88/Bit" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://discord.gg/v75PxaJDy" target="_blank" rel="noreferrer">Discord</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
