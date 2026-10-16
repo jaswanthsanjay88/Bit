@@ -14,10 +14,7 @@ import java.io.File
 // minikin shaping bug on some devices where narrow glyphs (i, x, y, |, –) render with
 // zero advance and visually disappear inside code blocks.
 val ManropeFontFamily = FontFamily(
-    Font(resId = R.font.manrope, weight = FontWeight.Normal),
-    Font(resId = R.font.manrope, weight = FontWeight.Medium),
-    Font(resId = R.font.manrope, weight = FontWeight.SemiBold),
-    Font(resId = R.font.manrope, weight = FontWeight.Bold),
+    Font(resId = R.font.manrope)
 )
 
 // Use FontFamily.Monospace for code and terminal blocks to eliminate Minikin variable-font
@@ -45,14 +42,14 @@ fun resolveFontFamily(builtinFont: BuiltinFont, customFontPath: String?): FontFa
         BuiltinFont.CUSTOM -> {
             if (!customFontPath.isNullOrBlank()) {
                 val file = File(customFontPath)
-                if (file.exists()) {
+                if (file.exists() && file.length() > 0) {
                     try {
                         val typeface = Typeface.createFromFile(file)
                         if (typeface != null) {
                             return FontFamily(typeface)
                         }
-                    } catch (e: Exception) {
-                        // fallback
+                    } catch (e: Throwable) {
+                        android.util.Log.e("Typography", "Failed to resolve custom font at $customFontPath", e)
                     }
                 }
             }

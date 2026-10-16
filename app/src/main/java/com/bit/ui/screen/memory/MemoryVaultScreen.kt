@@ -176,7 +176,10 @@ fun MemoryVaultScreen(
                         text = "Memory vault",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                 },
                 navigationIcon = {
@@ -188,42 +191,25 @@ fun MemoryVaultScreen(
                     }
                 },
                 actions = {
-                    // Backup Pill Button
-                    OutlinedButton(
+                    // Backup Icon Button
+                    IconButton(
                         onClick = {
                             haptics.pop()
                             onBackupSettingsClick()
-                        },
-                        shape = RoundedCornerShape(20.dp),
-                        modifier = Modifier.height(36.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                        }
                     ) {
-                        Icon(TnIcons.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Backup", style = MaterialTheme.typography.labelMedium)
+                        Icon(TnIcons.Download, contentDescription = "Backup", tint = MaterialTheme.colorScheme.onSurface)
                     }
-
-                    Spacer(Modifier.width(8.dp))
 
                     // Global Memory Toggle Switch
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.padding(end = 4.dp)
-                    ) {
-                        Text(
-                            text = "Memory",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Switch(
-                            checked = isGlobalMemoryEnabled,
-                            onCheckedChange = {
-                                haptics.selection()
-                                isGlobalMemoryEnabled = it
-                            }
-                        )
-                    }
+                    Switch(
+                        checked = isGlobalMemoryEnabled,
+                        onCheckedChange = {
+                            haptics.selection()
+                            isGlobalMemoryEnabled = it
+                        },
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
 
                     var showMenu by remember { mutableStateOf(false) }
                     Box {
@@ -238,6 +224,14 @@ fun MemoryVaultScreen(
                             onDismissRequest = { showMenu = false },
                             modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainer)
                         ) {
+                            DropdownMenuItem(
+                                text = { Text("Backup & Sync Settings", color = MaterialTheme.colorScheme.onSurface) },
+                                onClick = {
+                                    haptics.pop()
+                                    showMenu = false
+                                    onBackupSettingsClick()
+                                }
+                            )
                             DropdownMenuItem(
                                 text = { Text("Import from another AI", color = MaterialTheme.colorScheme.onSurface) },
                                 onClick = {
@@ -463,7 +457,7 @@ fun MemoryVaultScreen(
                         ) {
                             Icon(TnIcons.Plus, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("+ New note", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                            Text("New note", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

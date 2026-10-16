@@ -3105,6 +3105,77 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Enforces context window budget on the assembled message list before feeding to llama.cpp.
+     * Prevents fatal 'Prompt exceeds context window' errors by dynamically pruning older
+     * conversation turns and truncating oversized tool outputs while preserving:
+     * 1. The system prompt (index 0)
+     * 2. The active turn's user prompt and current execution steps
+     */
+    private suspend fun enforceMessageContextBudget(
+        messages: List<JSONObject>,
+        maxTokens: Int = 512
+    ): List<JSONObject> {
+        if (messages.size <= 1) return messages
+
+        val modelId = ActiveModelSession.currentModelId.value
+        val modelType = ActiveModelSession.currentModelType.value
+        val resolvedModelName = runCatching {
+            AppContainer.getModelRepository().getModelById(modelId)?.modelName
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: modelId
+
+        val modelContextBudget = if (modelType == ProviderType.API) {
+            getRemoteInferenceConfig()?.contextSize ?: com.bit.models.ModelContextDefaults.resolve(resolvedModelName, ProviderType.API)
+        } else {
+            LlmModelWorker.lastLoadedGgufConfig?.let { cfg ->
+                runCatching {
+                    GgufEngineSchema.fromJson(cfg.modelLoadingParams, cfg.modelInferenceParams).loadingParams.ctxSize
+                }.getOrNull()?.takeIf { it > 0 }
+            } ?: com.bit.models.ModelContextDefaults.resolve(resolvedModelName, ProviderType.GGUF)
+        }
+
+        // Budget available for the entire prompt = total context - max generation tokens - safety margin
+        val maxPromptBudget = (modelContextBudget - maxTokens.coerceAtLeast(256) - 64).coerceAtLeast(256)
+
+        fun estimateTokens(obj: JSONObject): Int {
+            val content = obj.optString("content", "")
+            return HeuristicTextTokenCounter.count(content).toInt() + 10
+        }
+
+        val totalTokens = messages.sumOf { estimateTokens(it) }
+        if (totalTokens <= maxPromptBudget) {
+            return messages
+        }
+
+        val hasSystem = messages.first().optString("role") == "system"
+        val systemMsg = if (hasSystem) messages.first() else null
+        val rest = if (hasSystem) messages.subList(1, messages.size) else messages
+
+        val lastUserIdx = rest.indexOfLast { it.optString("role") == "user" }
+        if (lastUserIdx <= 0) {
+            // No historical messages to prune between system and current user turn
+            return messages
+        }
+
+        val historyMessages = rest.subList(0, lastUserIdx).toMutableList()
+        val activeTurnMessages = rest.subList(lastUserIdx, rest.size)
+
+        var currentTotal = (systemMsg?.let { estimateTokens(it) } ?: 0) +
+                activeTurnMessages.sumOf { estimateTokens(it) } +
+                historyMessages.sumOf { estimateTokens(it) }
+
+        while (historyMessages.isNotEmpty() && currentTotal > maxPromptBudget) {
+            val removed = historyMessages.removeAt(0)
+            currentTotal -= estimateTokens(removed)
+        }
+
+        val result = mutableListOf<JSONObject>()
+        if (systemMsg != null) result.add(systemMsg)
+        result.addAll(historyMessages)
+        result.addAll(activeTurnMessages)
+        return result
+    }
+
     private suspend fun generateGgufUnified(
         messages: List<JSONObject>,
         hasTools: Boolean,
@@ -3118,7 +3189,8 @@ class ChatViewModel @Inject constructor(
             PluginManager.clearGrammar()
         }
 
-        val jsonArray = JSONArray(messages)
+        val budgetedMessages = enforceMessageContextBudget(messages, maxTokens)
+        val jsonArray = JSONArray(budgetedMessages)
         val textBuilder = java.lang.StringBuilder()
         val thinkBuilder = java.lang.StringBuilder()
         val toolCalls = mutableListOf<Pair<String, String>>()
@@ -4127,9 +4199,9 @@ class ChatViewModel @Inject constructor(
             } ?: com.bit.models.ModelContextDefaults.resolve(resolvedModelName, ProviderType.GGUF)
         }
 
-        val skillBudget = (modelContextBudget * 0.08).toInt().coerceIn(200, 1500)
+        val skillBudget = if (modelContextBudget <= 4096) 150 else (modelContextBudget * 0.08).toInt().coerceIn(200, 1500)
 
-        val skillsPrompt = if (hasTools && PluginManager.hasEnabledTools()) {
+        val skillsPrompt = if (hasTools && PluginManager.hasEnabledTools() && modelContextBudget > 2048) {
             skillManager.getSkillCatalogPrompt(
                 isWorkspaceAvailable = isWsAvailable,
                 maxBudgetTokens = skillBudget,
@@ -4145,7 +4217,7 @@ class ChatViewModel @Inject constructor(
             }
         }
 
-        val liveMcpPrompt = mcpManager.getLiveMcpCapabilityPrompt()
+        val liveMcpPrompt = if (modelContextBudget > 2048) mcpManager.getLiveMcpCapabilityPrompt() else ""
         if (liveMcpPrompt.isNotBlank()) {
             compiledPrompt = if (compiledPrompt.isNotBlank()) {
                 "$compiledPrompt\n\n$liveMcpPrompt"
@@ -4154,7 +4226,7 @@ class ChatViewModel @Inject constructor(
             }
         }
 
-        val mcpPrompt = if (hasTools && PluginManager.hasEnabledTools()) {
+        val mcpPrompt = if (hasTools && PluginManager.hasEnabledTools() && modelContextBudget > 2048) {
             mcpManager.getMcpCatalogPrompt()
         } else ""
 
@@ -4180,14 +4252,21 @@ class ChatViewModel @Inject constructor(
             val isLocalGguf = ActiveModelSession.currentModelType.value == ProviderType.GGUF
             // Only inject tool text schemas into prompt for local GGUF models (API models pass them natively via ProviderConfig.tools)
             if (isLocalGguf && hasTools && PluginManager.hasEnabledTools()) {
-                val toolsJsonArray = org.json.JSONArray()
-                PluginManager.getEnabledToolDefinitions().forEach { toolDef ->
-                    toolsJsonArray.put(toolDef.build().toOpenAIFormat())
-                }
+                val isCompact = modelContextBudget <= 4096
                 val isQwen3 = modelId.contains("qwen3", ignoreCase = true)
+                val toolsContent = if (isCompact) {
+                    PluginManager.getToolSignaturesText()
+                } else {
+                    val toolsJsonArray = org.json.JSONArray()
+                    PluginManager.getEnabledToolDefinitions().forEach { toolDef ->
+                        toolsJsonArray.put(toolDef.build().toOpenAIFormat())
+                    }
+                    toolsJsonArray.toString()
+                }
+
                 if (isQwen3) {
                     append("<tools>\n")
-                    append(toolsJsonArray.toString())
+                    append(toolsContent)
                     append("\n</tools>\n\n")
                     append("TOOL DISPATCH & RESPONSE RULES:\n")
                     append("1. If user requests MCP or asks about repositories/git/branches/commits, prioritize MCP tools (e.g. GitHub/Git tools) before searching the web.\n")
@@ -4195,9 +4274,9 @@ class ChatViewModel @Inject constructor(
                     append("3. ALWAYS synthesize and output a complete natural-language answer to the user summarizing all gathered tool data.\n\n")
                 } else {
                     append("Tool Schema Injection:\n")
-                    append("You have access to a UNION of the following tools. You MUST use them if they are relevant to the user's request. To call a tool, wrap a JSON object in <tool_call> tags like this: <tool_call>{\"name\": \"tool_name\", \"arguments\": {\"arg1\": \"value1\"}}</tool_call>\n")
+                    append("You have access to the following tools. Wrap tool calls in <tool_call>{\"name\": \"tool_name\", \"arguments\": {\"arg\": \"val\"}}</tool_call>\n")
                     append("Available tools:\n")
-                    append(toolsJsonArray.toString())
+                    append(toolsContent)
                     append("\n\n")
                 }
             }
