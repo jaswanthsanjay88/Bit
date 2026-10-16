@@ -7,6 +7,7 @@
 <p align="center">
   <a href="https://github.com/jaswanthsanjay88/Bit_Android/releases/latest"><img src="https://img.shields.io/github/v/release/jaswanthsanjay88/Bit_Android?style=flat-square&label=release" alt="Latest Release"></a>
   <a href="fdroid/com.bit.yml"><img src="https://img.shields.io/badge/F--Droid-Ready-blue?style=flat-square&logo=f-droid&logoColor=white" alt="F-Droid Ready"></a>
+  <a href="https://discord.gg/v75PxaJDy"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/platform-Android-brightgreen?style=flat-square&logo=android&logoColor=white" alt="Platform">
   <img src="https://img.shields.io/badge/API-29%2B-brightgreen?style=flat-square" alt="API Level">
@@ -17,7 +18,11 @@ BIT is a privacy-first AI assistant that runs large language models, vision mode
 
 The application is built on top of the [llama.kt SDK](#the-llamakt-sdk), a modular Kotlin wrapper around native C++ inference backends, and targets Android 10 (API 29) and above.
 ---
-<a href="https://www.buymeacoffee.com/jaswanthsanjay" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+<p align="center">
+  <a href="https://discord.gg/v75PxaJDy" target="_blank"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join Discord" height="42"/></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://www.buymeacoffee.com/jaswanthsanjay" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 42px !important;width: 152px !important;" ></a>
+</p>
 ---
 
 ## Table of Contents
@@ -257,6 +262,8 @@ Release APKs are written to `app/build/outputs/apk/release/`. The build produces
 ## Contributing
 
 Contributions are welcome. Please read the [Contributing Guide](CONTRIBUTING.md) before submitting a pull request.
+
+Join our [Discord Community](https://discord.gg/v75PxaJDy) to chat with contributors, discuss feature ideas, test new models, and get quick support.
 
 If you encounter a bug or have a feature request, open an issue on the [issue tracker](https://github.com/jaswanthsanjay88/Bit_Android/issues). When reporting bugs, include the device model, Android version, and steps to reproduce the issue.
 
