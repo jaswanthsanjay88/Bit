@@ -17,13 +17,13 @@
 BIT is a privacy-first AI assistant that runs large language models, vision models, image generation, document retrieval, and speech synthesis entirely on-device. No data leaves the phone. No cloud dependency. No subscription.
 
 The application is built on top of the [llama.kt SDK](#the-llamakt-sdk), a modular Kotlin wrapper around native C++ inference backends, and targets Android 10 (API 29) and above.
----
+
 <p align="center">
   <a href="https://discord.gg/v75PxaJDy" target="_blank"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join Discord" height="42"/></a>
   &nbsp;&nbsp;&nbsp;&nbsp;
   <a href="https://www.buymeacoffee.com/jaswanthsanjay" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 42px !important;width: 152px !important;" ></a>
 </p>
----
+
 
 ## Table of Contents
 
