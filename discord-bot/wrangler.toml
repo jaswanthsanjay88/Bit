@@ -1,0 +1,8 @@
+name = "bit-discord-bot"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+APPLICATION_ID = "1560841802590724136"
+PUBLIC_KEY = "66b7be9069cc37f539f4d25595db94362cdc800d072bd2d678520d0fafcb0190"
