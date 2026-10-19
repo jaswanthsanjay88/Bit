@@ -410,6 +410,15 @@ class LLMService : Service() {
         ) {
             scope.launch(Dispatchers.IO) {
                 try {
+                    if (!sdBridge.isModelLoaded) {
+                        Log.e(TAG, "Diffusion model is not loaded in sdBridge")
+                        try {
+                            callback.onError("Diffusion model is not loaded. Please select and load a diffusion model first.")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to invoke onError", e)
+                        }
+                        return@launch
+                    }
                     sdBridge.resetGenerationState()
                     val progressJob = scope.launch {
                         sdBridge.generationState.collect { state ->

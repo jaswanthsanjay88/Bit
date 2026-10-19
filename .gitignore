@@ -96,3 +96,14 @@ node_modules/
 # Evaluation transcripts
 evals/baseline/
 /evals/baseline/
+
+# Disassembly dumps and local binaries
+*.so
+*.jar
+*.dump.txt
+*.asm.txt
+screen.png
+get_step.cjs
+.wrangler/
+**/.wrangler/
+

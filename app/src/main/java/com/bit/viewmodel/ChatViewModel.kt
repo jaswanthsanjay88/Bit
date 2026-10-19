@@ -1330,7 +1330,7 @@ class ChatViewModel @Inject constructor(
                 val maxTokensDeferred = async(Dispatchers.IO) { getCurrentModelMaxTokens() }
                 val hasAttachedDoc = _attachedFileName.value != null
                 val isRagEligible = shouldQueryRag(prompt) || hasAttachedDoc || _currentRagContext.value != null
-                val willHaveSteps = _thinkingModeEnabled.value || hasTools || isRagEligible
+                val willHaveSteps = _thinkingModeEnabled.value
                 if (willHaveSteps) {
                     _thinkingUi.value = ThinkingUi(turnId = turnId, startedAtMs = System.currentTimeMillis())
                 } else {
@@ -1933,7 +1933,7 @@ class ChatViewModel @Inject constructor(
                 LlmModelWorker.setThinkingEnabledGguf(_thinkingModeEnabled.value)
                 val ragContext = _currentRagContext.value
 
-                val willHaveSteps = _thinkingModeEnabled.value || hasTools || (ragContext != null)
+                val willHaveSteps = _thinkingModeEnabled.value
                 if (willHaveSteps) {
                     _thinkingUi.value = ThinkingUi(turnId = turnId, startedAtMs = System.currentTimeMillis())
                 } else {
@@ -4208,12 +4208,32 @@ class ChatViewModel @Inject constructor(
             compiledPrompt = compiledPrompt.replace(key, value)
         }
 
+        val isSubBillion = ActiveModelSession.isSubBillion.value
         val isSmall = ActiveModelSession.isSmallModel.value
 
-        if (isSmall && !hasTools) {
-            compiledPrompt = compiledPrompt
-                .replace(Regex("(?s)<storage_and_tools_distinction>.*?</storage_and_tools_distinction>"), "")
-                .trim()
+        if (isSubBillion && modelSpecificPrompt == null) {
+            // Sub-1B models (e.g. LFM2 350M, Qwen2.5 0.5B, SmolLM) cannot handle long system prompts or XML tags.
+            // Provide a direct, tier-optimized prompt and gate memory context strictly.
+            val memorySnippet = if (activeMemoryText.isNotBlank()) "\n\nRelevant user facts:\n$activeMemoryText" else ""
+            compiledPrompt = """
+                You are Bit, a helpful, private assistant running locally on the user's phone.
+                Reply briefly, naturally, and directly.
+                If the user greets you, greet them warmly in one sentence.
+            """.trimIndent() + memorySnippet
+        } else {
+            // Strip empty memory XML context and empty memory instructions if there are no notes
+            if (activeMemoryText.isBlank()) {
+                compiledPrompt = compiledPrompt
+                    .replace(Regex("(?s)<active_memory_context>.*?</active_memory_context>"), "")
+                    .replace(Regex("(?s)Use the active memory context as relevant background.*?(?=<memory_vault_rules>|<storage_and_tools_distinction>|$)"), "")
+                    .trim()
+            }
+            if (isSmall && !hasTools) {
+                compiledPrompt = compiledPrompt
+                    .replace(Regex("(?s)<storage_and_tools_distinction>.*?</storage_and_tools_distinction>"), "")
+                    .replace(Regex("(?s)<memory_vault_rules>.*?</memory_vault_rules>"), "")
+                    .trim()
+            }
         }
 
         val isWsAvailable = skillManager.isWorkspaceAvailable()

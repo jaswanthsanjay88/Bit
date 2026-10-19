@@ -118,9 +118,13 @@ class ModelLoadingActivity : ComponentActivity() {
         val pickerUri = intent.getStringExtra(ModelPickerActivity.EXTRA_RESULT_URI)
             ?.let { Uri.parse(it) }
         val pickerFilePath = intent.getStringExtra(ModelPickerActivity.EXTRA_RESULT_FILE_PATH)
+            ?: intent.getStringExtra("model_path")
+            ?: intent.getStringExtra("model_file_path")
         val pickerMode = intent.getStringExtra(ModelPickerActivity.EXTRA_PICKER_MODE)
         val pickerProjectorUri = intent.getStringExtra(ModelPickerActivity.EXTRA_PROJECTOR_URI)
             ?.let { Uri.parse(it) }
+        val autoInstall = intent.getBooleanExtra("auto_install", false)
+        val openChat = intent.getBooleanExtra("open_chat", false)
 
         setContent {
             NeuroVerseTheme {
@@ -134,6 +138,8 @@ class ModelLoadingActivity : ComponentActivity() {
                         ProviderType.VLM.name -> ProviderType.VLM
                         else -> if (pickerProjectorUri != null) ProviderType.VLM else null
                     },
+                    initialAutoInstall = autoInstall,
+                    initialOpenChat = openChat,
                     onEngineLoaded = { loadedEngine = it },
                     onClose = { finish() }
                 )
@@ -160,6 +166,8 @@ fun ModelLoadingScreen(
     initialFilePath: String? = null,
     initialProjectorUri: Uri? = null,
     initialProviderType: ProviderType? = null,
+    initialAutoInstall: Boolean = false,
+    initialOpenChat: Boolean = false,
     onEngineLoaded: (Any) -> Unit,
     onClose: () -> Unit
 ) {
@@ -174,6 +182,19 @@ fun ModelLoadingScreen(
     val scope = rememberCoroutineScope()
     val repository = AppContainer.getModelRepository()
     var isProcessing by remember { mutableStateOf(false) }
+
+    fun openChatWithModel(model: Model) {
+        scope.launch {
+            val appSettings = AppSettingsDataStore(context)
+            appSettings.saveLastModelId(model.id)
+            context.startActivity(
+                Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                }
+            )
+            onClose()
+        }
+    }
 
     // SAF file picker launcher
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -350,7 +371,12 @@ fun ModelLoadingScreen(
                     }
 
                     repository.insertConfig(config)
+                    val appSettings = AppSettingsDataStore(context)
+                    appSettings.saveLastModelId(model.id)
                     installState = InstallState.Installed
+                    if (initialOpenChat) {
+                        openChatWithModel(model)
+                    }
                 } catch (e: Exception) {
                     installState = InstallState.Error(e.message ?: "Installation failed")
                 }
@@ -374,15 +400,29 @@ fun ModelLoadingScreen(
         }
     }
 
+    // Auto-install trigger
+    LaunchedEffect(loadingState) {
+        if (loadingState is LoadingState.Loaded && initialAutoInstall && installState == InstallState.NotInstalled) {
+            installModel()
+        }
+    }
+
     // Process file path from ModelPickerActivity (direct file system path)
     LaunchedEffect(selectedFilePath) {
-        val path = selectedFilePath ?: return@LaunchedEffect
+        val rawPath = selectedFilePath ?: return@LaunchedEffect
 
         loadingState = LoadingState.Loading
         scope.launch(Dispatchers.IO) {
             isProcessing = true
             try {
-                val file = File(path)
+                var file = File(rawPath)
+                if (!file.canRead()) {
+                    val privateModelFile = File(context.getExternalFilesDir("models"), file.name)
+                    if (privateModelFile.exists() && privateModelFile.canRead()) {
+                        file = privateModelFile
+                    }
+                }
+                val path = file.absolutePath
                 val providerType = selectedProviderType ?: ProviderType.GGUF
                 val modelHash = modelParser.checksumSHA256(path)
 
@@ -470,7 +510,9 @@ fun ModelLoadingScreen(
                         installState = installState,
                         onChangeModel = { openFilePicker() },
                         onInstall = { installModel() },
-                        onUninstall = { uninstallModel() })
+                        onUninstall = { uninstallModel() },
+                        onOpenChat = { currentModel?.let { openChatWithModel(it) } }
+                    )
 
                     is LoadingState.Error -> ErrorStateView(state.message) { openFilePicker() }
                 }
@@ -651,7 +693,8 @@ private fun ModelInfoView(
     installState: InstallState,
     onChangeModel: () -> Unit,
     onInstall: () -> Unit,
-    onUninstall: () -> Unit
+    onUninstall: () -> Unit,
+    onOpenChat: () -> Unit
 ) {
     var showDiffusionSettings by remember { mutableStateOf(false) }
     var diffusionConfig by remember {
@@ -844,6 +887,16 @@ private fun ModelInfoView(
                                     onClickListener = { showDiffusionSettings = true },
                                     icon = TnIcons.Settings,
                                     contentDescription = "Configure",
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                            }
+
+                            // Chat button when installed
+                            if (state == InstallState.Installed) {
+                                ActionButton(
+                                    onClickListener = onOpenChat,
+                                    icon = TnIcons.Sparkles,
+                                    contentDescription = "Chat",
                                     shape = RoundedCornerShape(12.dp)
                                 )
                             }

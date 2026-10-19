@@ -149,6 +149,7 @@ internal fun TopBar(
                     rawModelName = rawModelName,
                     activeDownload = activeDownload,
                     contextUsageState = contextUsageState,
+                    isLoading = appState is AppState.LoadingModel,
                     onClick = {
                         haptics.pop()
                         showDynamicWindow()
@@ -268,6 +269,7 @@ private fun GoogleStyleModelSelector(
     rawModelName: String?,
     activeDownload: ModelDownloadService.DownloadState?,
     contextUsageState: ContextUsageState,
+    isLoading: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -321,10 +323,19 @@ private fun GoogleStyleModelSelector(
             Spacer(modifier = Modifier.width(6.dp))
 
             if (activeDownload == null) {
-                TopContextIndicator(
-                    contextUsageState = contextUsageState
-                )
-                Spacer(modifier = Modifier.width(4.dp))
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                } else {
+                    TopContextIndicator(
+                        contextUsageState = contextUsageState
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
             }
 
             Icon(

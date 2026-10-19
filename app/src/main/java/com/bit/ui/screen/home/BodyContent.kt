@@ -636,7 +636,9 @@ fun BodyContent(
                         // Live Thinking / Steps Block (Claude-style ThinkingBlock)
                         val liveThinking = liveThinkingUi
                         val showThinkingBlock = !isImageGen && liveThinking != null && (
-                            liveThinking.steps.isNotEmpty() || liveThinking.writing || chatState.thinkingEnabled || agent.phase != AgentPhase.Idle
+                            (chatState.thinkingEnabled && liveThinking.showsAsRunning) ||
+                            liveThinking.steps.isNotEmpty() ||
+                            liveThinking.failureMessage != null
                         )
                         val hasLiveActivity = !isImageGen && showThinkingBlock
 

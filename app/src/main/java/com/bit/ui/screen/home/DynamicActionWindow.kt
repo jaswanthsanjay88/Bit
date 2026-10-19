@@ -35,6 +35,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import com.bit.state.AppStateManager
+import com.bit.models.state.AppState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
@@ -76,6 +81,8 @@ fun DynamicActionWindow(
     val installedModels by modelViewModel.installedModels.collectAsStateWithLifecycle(initialValue = emptyList())
     val currentModelID by modelViewModel.currentModelID.collectAsStateWithLifecycle()
     val downloadStates by com.bit.service.ModelDownloadService.downloadStates.collectAsStateWithLifecycle()
+    val appState by AppStateManager.appState.collectAsStateWithLifecycle()
+    val loadingModelName = (appState as? AppState.LoadingModel)?.modelName
 
     Column(
         modifier = Modifier
@@ -226,7 +233,8 @@ fun DynamicActionWindow(
                                         .fillMaxWidth()
                                         .height(4.dp)
                                         .clip(RoundedCornerShape(2.dp)),
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = MaterialTheme.colorScheme.primary,
+                                    gapSize = 0.dp
                                 )
                             } else {
                                 LinearProgressIndicator(
@@ -236,7 +244,9 @@ fun DynamicActionWindow(
                                         .height(4.dp)
                                         .clip(RoundedCornerShape(2.dp)),
                                     color = MaterialTheme.colorScheme.primary,
-                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    gapSize = 0.dp,
+                                    drawStopIndicator = {}
                                 )
                             }
 
@@ -275,13 +285,33 @@ fun DynamicActionWindow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    text = if (activeModel != null) "Ready for inference" else "Select a model below to load",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                if (loadingModelName != null) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(12.dp),
+                            strokeWidth = 1.8.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Loading model into memory…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                } else {
+                    Text(
+                        text = if (activeModel != null) "Ready for inference" else "Select a model below to load",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
 
             if (activeModel != null) {
@@ -337,6 +367,11 @@ fun DynamicActionWindow(
                 ) {
                     installedModels.forEach { model ->
                         val isSelected = model.id == currentModelID
+                        val isThisModelLoading = loadingModelName != null && (
+                            loadingModelName.contains(model.modelName, ignoreCase = true) ||
+                            loadingModelName.contains(model.id, ignoreCase = true) ||
+                            model.modelName.contains(loadingModelName, ignoreCase = true)
+                        )
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -365,8 +400,19 @@ fun DynamicActionWindow(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Choice indicator checkmark circle
-                            if (isSelected) {
+                            // Choice indicator checkmark circle or loading spinner
+                            if (isThisModelLoading) {
+                                Box(
+                                    modifier = Modifier.size(20.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            } else if (isSelected) {
                                 Box(
                                     modifier = Modifier
                                         .size(20.dp)
@@ -473,6 +519,7 @@ fun DynamicActionWindow(
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
+                Spacer(modifier = Modifier.height(6.dp))
                 LinearProgressIndicator(
                     progress = { memoryStats.fraction },
                     modifier = Modifier
@@ -480,7 +527,9 @@ fun DynamicActionWindow(
                         .height(6.dp)
                         .clip(RoundedCornerShape(3.dp)),
                     color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    gapSize = 0.dp,
+                    drawStopIndicator = {}
                 )
             }
 

@@ -302,36 +302,38 @@ fun TopContextIndicator(
         Surface(
             onClick = { expanded = !expanded },
             interactionSource = interactionSource,
-            shape = RoundedCornerShape(10.dp),
+            shape = RoundedCornerShape(11.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-            modifier = Modifier.height(20.dp)
+            modifier = Modifier.height(22.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.padding(horizontal = 6.dp)
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
             ) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.size(11.dp)) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.size(13.dp)) {
                     // Background track ring
                     CircularProgressIndicator(
                         progress = { 1f },
-                        modifier = Modifier.size(11.dp),
-                        strokeWidth = 1.5.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                        modifier = Modifier.size(13.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                        gapSize = 0.dp
                     )
                     // Active context usage ring
                     CircularProgressIndicator(
                         progress = { animatedProgress },
-                        modifier = Modifier.size(11.dp),
-                        strokeWidth = 1.5.dp,
-                        color = progressColor
+                        modifier = Modifier.size(13.dp),
+                        strokeWidth = 2.dp,
+                        color = progressColor,
+                        gapSize = 0.dp
                     )
                 }
                 Text(
                     text = "${usagePercent}%",
                     style = MaterialTheme.typography.labelSmall,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }

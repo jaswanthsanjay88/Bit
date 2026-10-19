@@ -67,7 +67,7 @@
 
         <activity
             android:name=".activity.ModelLoadingActivity"
-            android:exported="false"
+            android:exported="true"
             android:launchMode="singleTask"
             android:theme="@style/Theme.NeuroVerse"
             android:windowSoftInputMode="adjustResize"
@@ -78,7 +78,7 @@
 
         <activity
             android:name=".activity.ModelPickerActivity"
-            android:exported="false"
+            android:exported="true"
             android:launchMode="singleTask"
             android:theme="@style/Theme.NeuroVerse"
             android:windowSoftInputMode="adjustResize"

@@ -19,7 +19,8 @@ import android.util.Log
 object StableDiffusionBridge {
     private const val TAG = "StableDiffusionBridge"
     
-    private var isModelLoaded = false
+    var isModelLoaded: Boolean = false
+        private set
     private var isManagerInitialized = false
     private var currentModelDir: String? = null
     private var manager: StableDiffusionManager? = null
@@ -48,7 +49,9 @@ object StableDiffusionBridge {
                      File(mDir, "text_encoder/clip.mnn").exists()
         val isCpuByName = modelDir.contains("CPU", ignoreCase = true)
         val effectiveRunOnCpu = runOnCpu || hasMnn || isCpuByName
-        val effectiveUseCpuClip = useCpuClip || effectiveRunOnCpu
+        // In native libai_sd.so, useCpuClip flag triggers the hybrid NPU CLIP path if true.
+        // Pure CPU execution requires useCpuClip = false so MNN::Interpreter::createFromFile is invoked.
+        val effectiveUseCpuClip = if (effectiveRunOnCpu) false else useCpuClip
 
         if (isModelLoaded && currentModelDir == modelDir) {
             return true
@@ -76,14 +79,18 @@ object StableDiffusionBridge {
             }
             
             // Bypass NPU initialization failure so CPU / MNN fallback works seamlessly
+            // Only set field 'o' (isRuntimePrepared) rather than setting all boolean flags
             try {
                 val dm = com.dark.ai_sd.DiffusionManager.getInstance(context)
-                for (prop in dm.javaClass.declaredFields) {
-                    if (prop.type == Boolean::class.javaPrimitiveType && !java.lang.reflect.Modifier.isFinal(prop.modifiers)) {
-                        prop.isAccessible = true
-                        prop.setBoolean(dm, true)
-                        Log.i(TAG, "Enabled runtime readiness flag on field: ${prop.name}")
-                    }
+                val fieldO = try {
+                    dm.javaClass.getDeclaredField("o")
+                } catch (_: NoSuchFieldException) {
+                    dm.javaClass.declaredFields.firstOrNull { it.type == Boolean::class.javaPrimitiveType && !java.lang.reflect.Modifier.isFinal(it.modifiers) }
+                }
+                fieldO?.let {
+                    it.isAccessible = true
+                    it.setBoolean(dm, true)
+                    Log.i(TAG, "Enabled runtime readiness flag on field: ${it.name}")
                 }
             } catch (ex: Exception) {
                 Log.w(TAG, "Runtime flag reflection notice", ex)
@@ -138,7 +145,10 @@ object StableDiffusionBridge {
         showDiffusionProcess: Boolean = true,
         showDiffusionStride: Int = 1
     ) {
-        if (!isModelLoaded) return
+        if (!isModelLoaded) {
+            Log.e(TAG, "Cannot generate image: Stable Diffusion model is not loaded")
+            throw IllegalStateException("Stable Diffusion model is not loaded. Please select and load a diffusion model first.")
+        }
 
         val params = DiffusionGenerationParams(
             prompt = prompt,
