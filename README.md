@@ -5,6 +5,7 @@
 </p>
 
 <p align="center">
+  <a href="https://play.google.com/store/apps/details?id=com.bit.agent"><img src="https://img.shields.io/badge/Google_Play-com.bit.agent-4285F4?style=flat-square&logo=google-play&logoColor=white" alt="Google Play"></a>
   <a href="https://github.com/jaswanthsanjay88/Bit_Android/releases/latest"><img src="https://img.shields.io/github/v/release/jaswanthsanjay88/Bit_Android?style=flat-square&label=release" alt="Latest Release"></a>
   <a href="fdroid/com.bit.yml"><img src="https://img.shields.io/badge/F--Droid-Ready-blue?style=flat-square&logo=f-droid&logoColor=white" alt="F-Droid Ready"></a>
   <a href="https://discord.gg/v75PxaJDy"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord"></a>
@@ -17,6 +18,12 @@
 BIT is a privacy-first AI assistant that runs large language models, vision models, image generation, document retrieval, and speech synthesis entirely on-device. No data leaves the phone. No cloud dependency. No subscription.
 
 The application is built on top of the [llama.kt SDK](#the-llamakt-sdk), a modular Kotlin wrapper around native C++ inference backends, and targets Android 10 (API 29) and above.
+
+<p align="center">
+  <a href="https://play.google.com/store/apps/details?id=com.bit.agent" target="_blank">
+    <img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" height="60"/>
+  </a>
+</p>
 
 <p align="center">
   <a href="https://discord.gg/v75PxaJDy" target="_blank"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join Discord" height="42"/></a>
@@ -183,7 +190,19 @@ The llama.kt module is a self-contained Kotlin SDK that bridges Android applicat
 
 ## Downloads
 
-Pre-built APK binaries are available from the [Releases](https://github.com/jaswanthsanjay88/Bit_Android/releases/latest) page and F-Droid recipe metadata:
+### Google Play Store (Recommended)
+
+Get the official, verified release with automatic updates directly from Google Play:
+
+<p align="left">
+  <a href="https://play.google.com/store/apps/details?id=com.bit.agent" target="_blank">
+    <img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" height="60"/>
+  </a>
+</p>
+
+### Standalone APK Releases
+
+Pre-built APK binaries are also available from the [Releases](https://github.com/jaswanthsanjay88/Bit_Android/releases/latest) page and F-Droid recipe metadata:
 
 | Variant | Description | Recommended |
 |---|---|---|
@@ -203,6 +222,10 @@ See [FDROID_SUBMISSION.md](FDROID_SUBMISSION.md) for full F-Droid repository bui
 
 ### Installation
 
+**Option 1: Google Play (Recommended)**
+Install directly from the [Google Play Store](https://play.google.com/store/apps/details?id=com.bit.agent) for verified installation and automatic background updates.
+
+**Option 2: Standalone APK**
 1. Download the appropriate APK from the [Releases](https://github.com/jaswanthsanjay88/Bit_Android/releases/latest) page.
 2. Enable installation from unknown sources when prompted by the system.
 3. Install and launch the application.

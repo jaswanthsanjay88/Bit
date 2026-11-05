@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { motion, useScroll, useTransform, useReducedMotion } from 'motion/react';
 import { Download } from 'lucide-react';
+import { PlayStoreIcon } from './PlayStoreIcon';
 import { GithubIcon } from './GithubIcon';
 import { Button } from './ui/Button';
 import { Phone } from './ui/Phone';
@@ -92,8 +93,22 @@ export const Hero: React.FC = () => {
             <Button
               variant="primary"
               size="md"
+              href="https://play.google.com/store/apps/details?id=com.bit.agent"
+              target="_blank"
+              rel="noreferrer"
+              icon={<PlayStoreIcon className="w-4 h-4" />}
+              className="w-full sm:w-auto shadow-sm"
+            >
+              Get it on Google Play
+            </Button>
+          </Magnetic>
+
+          <Magnetic maxDistance={6} radius={70}>
+            <Button
+              variant="ghost"
+              size="md"
               href="#download"
-              icon={<Download className="w-4 h-4" />}
+              icon={<Download className="w-4 h-4 text-[#6b6b6b]" />}
               className="w-full sm:w-auto"
             >
               Download APK

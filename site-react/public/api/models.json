@@ -324,6 +324,21 @@
       "tags": ["Embedding", "RAG", "Tested"],
       "isZip": false,
       "runOnCpu": true
+    },
+    {
+      "id": "minicpm5-1b-q4km",
+      "name": "MiniCPM 5 1B",
+      "description": "OpenBMB's edge-optimized MiniCPM 5 1B model with 128k context, tool calling, and high efficiency on mobile.",
+      "type": "GGUF",
+      "url": "https://huggingface.co/openbmb/MiniCPM5-1B-GGUF/resolve/main/MiniCPM5-1B-Q4_K_M.gguf",
+      "size": "688 MB",
+      "sizeBytes": 688065920,
+      "minRamGb": 4,
+      "icon": "openbmb",
+      "iconUrl": "https://github.com/OpenBMB.png",
+      "tags": ["Chat", "Tool Calling", "Edge AI", "Tested"],
+      "isZip": false,
+      "runOnCpu": false
     }
   ]
 }

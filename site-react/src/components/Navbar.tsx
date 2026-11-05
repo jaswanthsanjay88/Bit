@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useScroll, useReducedMotion } from 'motion/react';
-import { Menu, X, Plane } from 'lucide-react';
+import { Menu, X, Plane, Download } from 'lucide-react';
 import { BitLogo } from './BitLogo';
 import { GithubIcon } from './GithubIcon';
+import { PlayStoreIcon } from './PlayStoreIcon';
 import { Button } from './ui/Button';
 import { Magnetic } from './motion/Magnetic';
 import { spring, ease } from '../lib/motion';
@@ -173,10 +174,13 @@ export const Navbar: React.FC = () => {
               <Button
                 variant="primary"
                 size="sm"
-                href="#download"
+                href="https://play.google.com/store/apps/details?id=com.bit.agent"
+                target="_blank"
+                rel="noreferrer"
+                icon={<PlayStoreIcon className="w-3.5 h-3.5" />}
                 className="text-xs px-3.5 py-1.5 h-8 font-medium"
               >
-                Download
+                Google Play
               </Button>
             </Magnetic>
 
@@ -224,11 +228,24 @@ export const Navbar: React.FC = () => {
                 <span>GitHub</span>
               </div>
             </a>
-            <div className="pt-2 border-t border-[var(--line)]">
+            <div className="pt-2 border-t border-[var(--line)] flex flex-col gap-2">
               <Button
                 variant="primary"
                 size="md"
+                href="https://play.google.com/store/apps/details?id=com.bit.agent"
+                target="_blank"
+                rel="noreferrer"
+                icon={<PlayStoreIcon className="w-4 h-4" />}
+                className="w-full justify-center text-sm"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Get it on Google Play
+              </Button>
+              <Button
+                variant="ghost"
+                size="md"
                 href="#download"
+                icon={<Download className="w-4 h-4 text-[#6b6b6b]" />}
                 className="w-full justify-center text-sm"
                 onClick={() => setMobileMenuOpen(false)}
               >

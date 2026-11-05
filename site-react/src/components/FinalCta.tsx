@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { Download, Cpu } from 'lucide-react';
+import { PlayStoreIcon } from './PlayStoreIcon';
 import { GithubIcon } from './GithubIcon';
 import { RevealText } from './motion/RevealText';
 import { Reveal } from './motion/Reveal';
@@ -53,7 +54,7 @@ export const FinalCta: React.FC = () => {
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-10">
           <Magnetic maxDistance={6} radius={80}>
             <motion.a
-              href="https://github.com/jaswanthsanjay88/Bit_Android/releases/latest"
+              href="https://play.google.com/store/apps/details?id=com.bit.agent"
               target="_blank"
               rel="noreferrer"
               whileHover={{ y: -1 }}
@@ -64,8 +65,22 @@ export const FinalCta: React.FC = () => {
               {!shouldReduceMotion && (
                 <span className="absolute inset-0 animate-sheen pointer-events-none" />
               )}
-              <Download className="w-4 h-4 text-[#0a0a0a] shrink-0" />
-              <span>Download APK (v2.1.1)</span>
+              <PlayStoreIcon className="w-4 h-4 shrink-0" />
+              <span>Get it on Google Play</span>
+            </motion.a>
+          </Magnetic>
+
+          <Magnetic maxDistance={6} radius={80}>
+            <motion.a
+              href="https://github.com/jaswanthsanjay88/Bit_Android/releases/latest"
+              target="_blank"
+              rel="noreferrer"
+              whileHover={{ y: -1 }}
+              whileTap={{ scale: 0.97 }}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-7 py-3.5 h-12 rounded-full bg-[#18181b] border border-white/15 text-white font-medium text-[15px] hover:bg-[#27272a] transition-colors focus-ring"
+            >
+              <Download className="w-4 h-4 text-white shrink-0" />
+              <span>Download APK</span>
             </motion.a>
           </Magnetic>
 

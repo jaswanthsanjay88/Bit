@@ -8,11 +8,12 @@ export const Footer: React.FC = () => {
   const [hoveredLink, setHoveredLink] = useState<string | null>(null);
 
   const links = [
-    { label: 'GitHub', href: 'https://github.com/jaswanthsanjay88/Bit' },
+    { label: 'Google Play', href: 'https://play.google.com/store/apps/details?id=com.bit.agent' },
+    { label: 'GitHub', href: 'https://github.com/jaswanthsanjay88/Bit_Android' },
     { label: 'Discord', href: 'https://discord.gg/v75PxaJDy' },
     { label: 'Privacy Policy', href: '/privacy.html' },
     { label: 'Terms', href: '/terms.html' },
-    { label: 'License', href: 'https://github.com/jaswanthsanjay88/Bit/blob/master/LICENSE' },
+    { label: 'License', href: 'https://github.com/jaswanthsanjay88/Bit_Android/blob/master/LICENSE' },
   ];
 
   return (
