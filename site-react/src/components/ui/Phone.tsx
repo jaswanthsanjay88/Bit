@@ -29,10 +29,10 @@ export const Phone: React.FC<PhoneProps> = ({
   }[variant];
 
   const sizeClasses = {
-    sm: 'w-[180px] sm:w-[230px] md:w-[260px]',
-    md: 'w-[240px] sm:w-[290px] md:w-[320px]',
-    lg: 'w-[280px] sm:w-[340px] md:w-[380px]',
-    hero: 'w-[260px] sm:w-[310px] md:w-[330px]', // around 640px height with 9/19.5 aspect ratio
+    sm: 'w-[160px] sm:w-[185px] md:w-[205px]',
+    md: 'w-[190px] sm:w-[220px] md:w-[240px]',
+    lg: 'w-[220px] sm:w-[250px] md:w-[265px]',
+    hero: 'w-[230px] sm:w-[260px] md:w-[280px]',
   }[size];
 
   return (

@@ -189,15 +189,9 @@ export const PinnedFeatureScroll: React.FC = () => {
             {/* Right Column: Single Pinned Device with Morphed Screens */}
             <div className="flex justify-center items-center">
               <Tilt maxTilt={4} className="relative">
-                {/* Tilted Screen Name Sticker */}
-                <div className="absolute top-1 right-2 sm:right-3 z-40 bg-[#0a0a0a] text-white text-[11px] font-mono px-3 py-1 rounded-full border border-white/20 shadow-lg select-none">
-                  {current.screenName}
-                </div>
-
                 <Phone
                   variant="static"
                   size="lg"
-                  className="w-[280px] sm:w-[320px] md:w-[340px]"
                 >
                   <AnimatePresence mode="wait">
                     {activeStep === 0 && (

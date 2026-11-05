@@ -136,22 +136,13 @@ export const Hero: React.FC = () => {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.9, delay: 0.55, ease }}
           style={shouldReduceMotion ? {} : { y: phoneY, scale: phoneScale }}
-          className="relative flex justify-center items-center -mb-28 sm:-mb-36 md:-mb-44 z-20"
+          className="relative flex justify-center items-center -mb-24 sm:-mb-28 md:-mb-32 z-20"
         >
           <Tilt maxTilt={4} className="relative">
-            {/* Tilted Sticker that wobbles on hover - clear of text */}
-            <div
-              className="absolute -top-3 right-2 sm:-right-6 z-40 bg-[#0a0a0a] text-white text-[11px] sm:text-xs font-mono font-medium px-3 py-1.5 rounded-full border border-white/20 shadow-xl sticker-wobble -rotate-6 select-none cursor-pointer"
-              title="100% Offline"
-            >
-              0 bytes leave your phone
-            </div>
-
             <Phone
               variant="static"
               size="hero"
               priority={true}
-              className="w-[280px] sm:w-[320px] md:w-[340px]"
             >
               <video
                 src="/videos/hero_chat.mp4"
